@@ -1,0 +1,77 @@
+namespace ring0::syntax;
+
+// Einheitlicher AST-Knoten. Die Knotenarten und ihre Kinder sind in AST.md dokumentiert.
+public class Node {
+    private String kindValue;
+    private String textValue;
+    private Int lineValue;
+    private Int columnValue;
+    private List<Node> childList;
+
+    public Node(String kind, String text, Int line, Int column) {
+        this.kindValue = kind;
+        this.textValue = text;
+        this.lineValue = line;
+        this.columnValue = column;
+        this.childList = List();
+    }
+
+    public String kind() {
+        return this.kindValue + "";
+    }
+
+    public String text() {
+        return this.textValue + "";
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    public Node add(Node child) {
+        this.childList.add(child);
+        return this;
+    }
+
+    public Int count() {
+        return this.childList.length();
+    }
+
+    public Node child(Int index) {
+        return this.childList.get(index);
+    }
+
+    public Bool kindIs(String kind) {
+        return this.kindValue == kind;
+    }
+
+    public String dump(Int depth) {
+        String pad = "";
+        Int index = 0;
+
+        while (index < depth) {
+            pad = pad + "  ";
+            index = index + 1;
+        }
+
+        String line = pad + this.kindValue;
+
+        if (!this.textValue.isEmpty()) {
+            line = line + " " + this.textValue;
+        }
+
+        line = line + "\n";
+        index = 0;
+
+        while (index < this.childList.length()) {
+            line = line + this.childList.get(index).dump(depth + 1);
+            index = index + 1;
+        }
+
+        return line;
+    }
+}

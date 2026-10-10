@@ -1,0 +1,83 @@
+namespace ring0::syntax;
+
+// Knoten:
+//   type        text=Basisname (qualifiziert mit '.'), Kinder = Typargumente
+//   tuple-type  Kinder = Elementtypen  ([A, B])
+public class TypeParser {
+    private ParserState state;
+
+    public TypeParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parse() {
+        if (this.state.checkSymbol("[")) {
+            return this.parseTuple();
+        }
+
+        Token first = this.state.peek();
+
+        if (!this.isWord(first)) {
+            this.state.errorHere("Expected type");
+            return this.state.nodeAt(first, "type", "");
+        }
+
+        this.state.advance();
+        String name = first.text();
+
+        while (this.state.checkSymbol(".") && this.isWord(this.state.peekAt(1))) {
+            this.state.advance();
+            Token segment = this.state.advance();
+            name = name + "." + segment.text();
+        }
+
+        Node typeNode = this.state.nodeAt(first, "type", name);
+
+        if (this.state.checkSymbol("<")) {
+            this.parseArguments(typeNode);
+        }
+
+        return typeNode;
+    }
+
+    private Node parseTuple() {
+        Node tuple = this.state.node("tuple-type", "");
+        this.state.advance();
+
+        if (!this.state.checkSymbol("]")) {
+            Bool more = true;
+
+            while (more) {
+                tuple.add(this.parse());
+                more = this.state.matchSymbol(",");
+            }
+        }
+
+        this.state.consumeSymbol("]", "Expected ']' after tuple type");
+        return tuple;
+    }
+
+    private Void parseArguments(Node typeNode) {
+        this.state.advance();
+        Bool more = true;
+
+        while (more) {
+            Int before = this.state.position();
+            typeNode.add(this.parse());
+
+            if (this.state.position() == before) {
+                more = false;
+            }
+
+            if (more) {
+                more = this.state.matchSymbol(",");
+            }
+        }
+
+        this.state.consumeSymbol(">", "Expected '>' after type arguments");
+    }
+
+    private Bool isWord(Token token) {
+        return token.kindIs("identifier") || token.kindIs("keyword");
+    }
+}

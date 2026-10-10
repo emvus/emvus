@@ -1,0 +1,249 @@
+namespace ring0::syntax;
+
+public class LexerRules {
+    private List<String> keywordList;
+
+    public LexerRules() {
+        this.keywordList = List();
+        this.addKeywords();
+    }
+
+    private Void addKeywords() {
+        this.keywordList.add("package");
+        this.keywordList.add("use");
+        this.keywordList.add("final");
+        this.keywordList.add("var");
+        this.keywordList.add("dynamic");
+        this.keywordList.add("enum");
+        this.keywordList.add("record");
+        this.keywordList.add("class");
+        this.keywordList.add("interface");
+        this.keywordList.add("exception");
+        this.keywordList.add("method");
+        this.keywordList.add("macro");
+        this.keywordList.add("static");
+        this.keywordList.add("abstract");
+        this.keywordList.add("override");
+        this.keywordList.add("private");
+        this.keywordList.add("protected");
+        this.keywordList.add("public");
+        this.keywordList.add("if");
+        this.keywordList.add("while");
+        this.keywordList.add("for");
+        this.keywordList.add("in");
+        this.keywordList.add("switch");
+        this.keywordList.add("return");
+        this.keywordList.add("fail");
+        this.keywordList.add("break");
+        this.keywordList.add("continue");
+        this.keywordList.add("true");
+        this.keywordList.add("false");
+        this.keywordList.add("null");
+        this.keywordList.add("this");
+        this.keywordList.add("super");
+        this.keywordList.add("is");
+        this.keywordList.add("as");
+        this.keywordList.add("scoped");
+        this.keywordList.add("fiber");
+        this.keywordList.add("virtual");
+        this.keywordList.add("thread");
+    }
+
+    public Bool isKeyword(String text) {
+        Int index = 0;
+
+        while (index < this.keywordList.length()) {
+            if (this.keywordList.get(index) == text) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public Bool isWhitespace(String value) {
+        if (value == " ") {
+            return true;
+        }
+
+        if (value == "\t") {
+            return true;
+        }
+
+        if (value == "\r") {
+            return true;
+        }
+
+        return value == "\n";
+    }
+
+    public Bool isDigit(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        return value.charAt(0).isDigit();
+    }
+
+    public Bool isIdentifierStart(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        if (value == "_") {
+            return true;
+        }
+
+        return value.charAt(0).isLetter();
+    }
+
+    public Bool isIdentifierPart(String value) {
+        if (this.isIdentifierStart(value)) {
+            return true;
+        }
+
+        return this.isDigit(value);
+    }
+
+    public Bool isThreeCharacterSymbol(String first, String second, String third) {
+        return first == "." && second == "." && third == ".";
+    }
+
+    public Bool isTwoCharacterSymbol(String first, String second) {
+        if (first == "-" && second == ">") {
+            return true;
+        }
+
+        if (first == "=" && second == "=") {
+            return true;
+        }
+
+        if (first == "!" && second == "=") {
+            return true;
+        }
+
+        if (first == "<" && second == "=") {
+            return true;
+        }
+
+        if (first == ">" && second == "=") {
+            return true;
+        }
+
+        if (first == "&" && second == "&") {
+            return true;
+        }
+
+        if (first == "|" && second == "|") {
+            return true;
+        }
+
+        if (first == "+" && second == "+") {
+            return true;
+        }
+
+        if (first == "-" && second == "-") {
+            return true;
+        }
+
+        return first == "." && second == ".";
+    }
+
+    public Bool isSymbol(String value) {
+        if (value == "(") {
+            return true;
+        }
+
+        if (value == ")") {
+            return true;
+        }
+
+        if (value == "{") {
+            return true;
+        }
+
+        if (value == "}") {
+            return true;
+        }
+
+        if (value == "[") {
+            return true;
+        }
+
+        if (value == "]") {
+            return true;
+        }
+
+        if (value == ";") {
+            return true;
+        }
+
+        if (value == ",") {
+            return true;
+        }
+
+        if (value == ".") {
+            return true;
+        }
+
+        if (value == "=") {
+            return true;
+        }
+
+        if (value == "+") {
+            return true;
+        }
+
+        if (value == "-") {
+            return true;
+        }
+
+        if (value == "*") {
+            return true;
+        }
+
+        if (value == "/") {
+            return true;
+        }
+
+        if (value == "%") {
+            return true;
+        }
+
+        if (value == "!") {
+            return true;
+        }
+
+        if (value == "<") {
+            return true;
+        }
+
+        if (value == ">") {
+            return true;
+        }
+
+        if (value == "@") {
+            return true;
+        }
+
+        if (value == "$") {
+            return true;
+        }
+
+        if (value == ":") {
+            return true;
+        }
+
+        if (value == "?") {
+            return true;
+        }
+
+        if (value == "&") {
+            return true;
+        }
+
+        return value == "|";
+    }
+}

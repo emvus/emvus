@@ -1,0 +1,211 @@
+namespace ring0::syntax;
+
+use ring0::syntax::LexerCursor;
+use ring0::syntax::LexerRules;
+use ring0::syntax::Token;
+
+use ring0::diagnostic::DiagnosticBag;
+
+public class LexerTokenReader {
+    private LexerCursor cursor;
+    private LexerRules rules;
+    private DiagnosticBag diagnostics;
+
+    public LexerTokenReader(LexerCursor lexerCursor, LexerRules lexerRules, DiagnosticBag bag) {
+        this.cursor = lexerCursor;
+        this.rules = lexerRules;
+        this.diagnostics = bag;
+    }
+
+    public Token readIdentifier() {
+        Int start = this.cursor.index();
+        Int startLine = this.cursor.line();
+        Int startColumn = this.cursor.column();
+
+        while (!this.cursor.isAtEnd() && this.rules.isIdentifierPart(this.cursor.peekText())) {
+            this.cursor.advanceText();
+        }
+
+        String text = this.cursor.slice(start, this.cursor.index());
+
+        if (this.rules.isKeyword(text)) {
+            return Token("keyword", text, startLine, startColumn);
+        }
+
+        return Token("identifier", text, startLine, startColumn);
+    }
+
+    public Token readNumber() {
+        Int start = this.cursor.index();
+        Int startLine = this.cursor.line();
+        Int startColumn = this.cursor.column();
+
+        while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
+            this.cursor.advanceText();
+        }
+
+        Bool real = false;
+
+        if (this.cursor.peekText() == "." && this.rules.isDigit(this.cursor.peekNextText())) {
+            real = true;
+            this.cursor.advanceText();
+
+            while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
+                this.cursor.advanceText();
+            }
+        }
+
+        if (this.cursor.peekText() == "e" || this.cursor.peekText() == "E") {
+            String after = this.cursor.peekNextText();
+            Bool signed = after == "+" || after == "-";
+            Bool hasDigits = this.rules.isDigit(after) || (signed && this.rules.isDigit(this.cursor.peekAt(2)));
+
+            if (hasDigits) {
+                real = true;
+                this.cursor.advanceText();
+
+                if (signed) {
+                    this.cursor.advanceText();
+                }
+
+                while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
+                    this.cursor.advanceText();
+                }
+            }
+        }
+
+        String text = this.cursor.slice(start, this.cursor.index());
+
+        if (real) {
+            return Token("float", text, startLine, startColumn);
+        }
+
+        return Token("number", text, startLine, startColumn);
+    }
+
+    // Escapes werden aufgelöst, ${...} und $(...) bleiben roh im Text.
+    public Token readString() {
+        Int startLine = this.cursor.line();
+        Int startColumn = this.cursor.column();
+        String text = "";
+
+        this.cursor.advanceText();
+
+        while (!this.cursor.isAtEnd() && this.cursor.peekText() != "\"") {
+            String value = this.cursor.peekText();
+
+            if (value == "\\") {
+                this.cursor.advanceText();
+                text = text + this.readEscape();
+                continue;
+            }
+
+            if (value == "$" && (this.cursor.peekNextText() == "{" || this.cursor.peekNextText() == "(")) {
+                text = text + this.readInterpolation();
+                continue;
+            }
+
+            text = text + this.cursor.advanceText();
+        }
+
+        if (this.cursor.isAtEnd()) {
+            this.diagnostics.error("Unterminated string literal", startLine, startColumn);
+            return Token("string", text, startLine, startColumn);
+        }
+
+        this.cursor.advanceText();
+        return Token("string", text, startLine, startColumn);
+    }
+
+    private String readInterpolation() {
+        String result = this.cursor.advanceText();
+        String open = this.cursor.advanceText();
+        String close = "}";
+
+        if (open == "(") {
+            close = ")";
+        }
+
+        result = result + open;
+        Int depth = 1;
+
+        while (!this.cursor.isAtEnd() && depth > 0) {
+            String value = this.cursor.advanceText();
+            result = result + value;
+
+            if (value == open) {
+                depth = depth + 1;
+                continue;
+            }
+
+            if (value == close) {
+                depth = depth - 1;
+                continue;
+            }
+
+            if (value == "\"") {
+                while (!this.cursor.isAtEnd() && this.cursor.peekText() != "\"") {
+                    String inner = this.cursor.advanceText();
+                    result = result + inner;
+
+                    if (inner == "\\" && !this.cursor.isAtEnd()) {
+                        result = result + this.cursor.advanceText();
+                    }
+                }
+
+                if (!this.cursor.isAtEnd()) {
+                    result = result + this.cursor.advanceText();
+                }
+            }
+        }
+
+        return result;
+    }
+
+    public Void skipLineComment() {
+        while (!this.cursor.isAtEnd() && this.cursor.peekText() != "\n") {
+            this.cursor.advanceText();
+        }
+    }
+
+    public Void skipBlockComment() {
+        Int startLine = this.cursor.line();
+        Int startColumn = this.cursor.column();
+        this.cursor.advanceText();
+        this.cursor.advanceText();
+
+        while (!this.cursor.isAtEnd()) {
+            if (this.cursor.peekText() == "*" && this.cursor.peekNextText() == "/") {
+                this.cursor.advanceText();
+                this.cursor.advanceText();
+                return;
+            }
+
+            this.cursor.advanceText();
+        }
+
+        this.diagnostics.error("Unterminated block comment", startLine, startColumn);
+    }
+
+    private String readEscape() {
+        if (this.cursor.isAtEnd()) {
+            return "";
+        }
+
+        String value = this.cursor.advanceText();
+
+        if (value == "n") {
+            return "\n";
+        }
+
+        if (value == "r") {
+            return "\r";
+        }
+
+        if (value == "t") {
+            return "\t";
+        }
+
+        return value;
+    }
+}

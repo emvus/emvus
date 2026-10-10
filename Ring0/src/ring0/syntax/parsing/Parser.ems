@@ -1,0 +1,21 @@
+namespace ring0::syntax;
+
+use ring0::syntax::Node;
+use ring0::syntax::ParserState;
+use ring0::syntax::Token;
+use ring0::syntax::TopLevelParser;
+use ring0::diagnostic::DiagnosticBag;
+
+// Einstieg: Tokens -> Knoten "file" (siehe TopLevelParser).
+public class Parser {
+    private ParserState state;
+
+    public Parser(List<Token> tokens, DiagnosticBag bag) {
+        this.state = ParserState(tokens, bag);
+    }
+
+    public Node parse() {
+        TopLevelParser top = TopLevelParser(this.state);
+        return top.parseFile();
+    }
+}
