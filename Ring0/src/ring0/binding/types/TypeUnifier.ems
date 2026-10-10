@@ -1,0 +1,46 @@
+namespace ring0::binding;
+
+// Binds the type parameters of a generic call from the argument types.
+public class TypeUnifier {
+    public TypeUnifier() {
+    }
+
+    public Void unify(String parameter, String argument, List<String> names, List<String> bound) {
+        if (TypeText.isUnknown(argument) || argument == TypeNames.nullType()) {
+            return;
+        }
+
+        Int at = names.indexOf(parameter);
+
+        if (at >= 0) {
+            if (TypeText.isUnknown(bound.get(at)) && !TypeText.isUnknown(argument)) {
+                bound.set(at, argument + "");
+            }
+
+            return;
+        }
+
+        if (TypeText.isTuple(parameter) && TypeText.isTuple(argument)) {
+            this.unifyArgs(parameter, argument, names, bound);
+            return;
+        }
+
+        if (Names.same(TypeText.base(parameter), TypeText.base(argument))) {
+            this.unifyArgs(parameter, argument, names, bound);
+            return;
+        }
+
+        // A subtype argument (for example ArrayList<Int> for List<T>) is not mapped; only identical generic bases are unified.
+    }
+
+    public Void unifyArgs(String parameter, String argument, List<String> names, List<String> bound) {
+        List<String> a = TypeText.args(parameter);
+        List<String> b = TypeText.args(argument);
+        Int index = 0;
+
+        while (index < a.length() && index < b.length()) {
+            this.unify(a.get(index), b.get(index), names, bound);
+            index = index + 1;
+        }
+    }
+}

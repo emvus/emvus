@@ -1,0 +1,169 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Lambdas and fiber/virtual/thread blocks: returns are collected instead of being checked against the enclosing method.
+public class LambdaChecker {
+    private CheckContext context;
+
+    public LambdaChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String typeOfLambda(Node node, String expected) {
+        Node params = node.child(0);
+        Node body = node.child(1);
+        TypeRules rules = this.context.rules();
+        Bool known = rules.isFunctionType(expected);
+        Int arity = params.count();
+
+        if (known && rules.functionArity(expected) != arity) {
+            this.context.report(node, "Lambda has " + arity.toString() + " parameter(s) but '" + expected + "' expects " + rules.functionArity(expected).toString());
+        }
+
+        String wantedReturn = this.wantedReturn(expected, known);
+        this.context.scope().push();
+        List<String> paramTypes = this.declareParams(params, expected, known);
+        String bodyType = this.bodyType(body, wantedReturn);
+        this.context.scope().pop();
+        this.requireReturnCompatible(body, wantedReturn, bodyType);
+        paramTypes.add(bodyType + "");
+        return this.functionTypeOf(arity, expected, known, paramTypes);
+    }
+
+    public String typeOfTask(Node node) {
+        String result = TypeNames.voidType();
+
+        if (node.count() > 0) {
+            result = this.collectedOrVoid(node.child(0));
+        }
+
+        String name = TypeNames.threadType();
+
+        if (node.text() == "fiber") {
+            name = TypeNames.fiberType();
+        }
+
+        if (node.text() == "virtual") {
+            name = TypeNames.virtualThreadType();
+        }
+
+        return name + "<" + result + ">";
+    }
+
+    private String wantedReturn(String expected, Bool known) {
+        if (!known) {
+            return "";
+        }
+
+        String wanted = this.context.rules().functionReturn(expected);
+
+        if (TypeText.isUnknown(wanted)) {
+            return "";
+        }
+
+        return wanted;
+    }
+
+    // Declares the lambda parameters in the current scope and returns their types.
+    private List<String> declareParams(Node params, String expected, Bool known) {
+        List<String> expectedArgs = TypeText.args(expected);
+        List<String> paramTypes = List();
+        Int index = 0;
+
+        while (index < params.count()) {
+            Node param = params.child(index);
+            String type = TypeNames.unknownType();
+
+            if (known && index < expectedArgs.length() && index < this.context.rules().functionArity(expected)) {
+                type = expectedArgs.get(index) + "";
+            }
+
+            Node declared = AstQuery.typeChild(param);
+
+            if (!AstQuery.isNone(declared)) {
+                type = this.context.resolver().resolve(declared, this.context.typeParamNames());
+            }
+
+            paramTypes.add(type + "");
+            this.context.scope().declare(param.text(), type, false);
+            index = index + 1;
+        }
+
+        return paramTypes;
+    }
+
+    private String bodyType(Node body, String wantedReturn) {
+        if (body.kind() != NodeKinds.block()) {
+            return this.expressionChecker().typeOf(body, wantedReturn);
+        }
+
+        return this.collectedOrVoid(body);
+    }
+
+    private String collectedOrVoid(Node block) {
+        String collected = this.collectReturnType(block);
+
+        if (collected.isEmpty()) {
+            return TypeNames.voidType();
+        }
+
+        return collected;
+    }
+
+    private Void requireReturnCompatible(Node body, String wantedReturn, String bodyType) {
+        if (wantedReturn.isEmpty() || wantedReturn == TypeNames.voidType() || bodyType == TypeNames.voidType()) {
+            return;
+        }
+
+        if (this.context.rules().assignable(wantedReturn, bodyType)) {
+            return;
+        }
+
+        this.context.report(body, "Lambda returns '" + bodyType + "' but '" + wantedReturn + "' is expected");
+    }
+
+    private String functionTypeOf(Int arity, String expected, Bool known, List<String> paramTypes) {
+        String expectedBase = TypeText.base(expected);
+
+        if (arity == 0 && (!known || expectedBase == TypeNames.runnableType())) {
+            return TypeNames.runnableType();
+        }
+
+        if (known && expectedBase != TypeNames.runnableType()) {
+            return TypeText.make(expectedBase, paramTypes);
+        }
+
+        if (arity == 2) {
+            return TypeText.make(TypeNames.biFunctionType(), paramTypes);
+        }
+
+        return TypeText.make(TypeNames.functionType(), paramTypes);
+    }
+
+    // Checks the block while collecting returns; yields the first returned type ("" if none).
+    private String collectReturnType(Node block) {
+        String savedReturn = this.context.returnType();
+        Bool savedCollecting = this.context.collecting();
+        String savedCollected = this.context.collected();
+        Int savedLoop = this.context.loopDepth();
+        this.context.setCollecting(true);
+        this.context.setCollected("");
+        this.context.setLoopDepth(0);
+        this.statementChecker().checkBlock(block);
+        String result = this.context.collected() + "";
+        this.context.setReturnType(savedReturn);
+        this.context.setCollecting(savedCollecting);
+        this.context.setCollected(savedCollected);
+        this.context.setLoopDepth(savedLoop);
+        return result;
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private StatementChecker statementChecker() {
+        return StatementChecker(this.context);
+    }
+}

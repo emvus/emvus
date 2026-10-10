@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Baut src/Main.ems in der Sandbox (6 GB RAM, kein Swap, kein Netz) und führt es mit den Argumenten aus.
-# Usage: scripts/run-sandbox.sh <datei.ev> [weitere Args]   (Pfad relativ zu Ring0/ oder absolut unter Ring0/)
+# Builds src/Main.ems in the sandbox (6 GB RAM, no swap, no network) and runs it with the given arguments.
+# Usage: scripts/run-sandbox.sh <file.ev> [more args]   (path relative to Ring0/ or absolute under Ring0/)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EMERALD_ROOT="${RING0_EMERALD_ROOT:-/run/media/syntaxjason/0A625B37625B272B/Code Space/Emerald/Emerald LLVM}"

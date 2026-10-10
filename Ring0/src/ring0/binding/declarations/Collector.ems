@@ -1,0 +1,160 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+public class Collector {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public Collector(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void collect(Node file) {
+        this.declareUses(file);
+        this.declareMacros(file);
+        this.declareTypes(file);
+        this.fillDeclarations(file);
+        this.inheritanceValidator().validate(file);
+    }
+
+    private Void declareUses(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node child = file.child(index);
+
+            if (child.kind() == NodeKinds.useDeclaration()) {
+                this.declareUse(child);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void declareUse(Node useNode) {
+        Int index = 0;
+
+        while (index < useNode.count()) {
+            Node item = useNode.child(index);
+            String simple = Names.lastSegment(item.text());
+            Node alias = AstQuery.childOfKind(item, NodeKinds.alias());
+
+            if (!AstQuery.isNone(alias)) {
+                this.table.addType(TypeSymbol(alias.text(), SymbolKinds.opaque()));
+            }
+
+            if (AstQuery.isNone(alias) && !this.table.hasType(simple)) {
+                this.table.addType(TypeSymbol(simple, SymbolKinds.opaque()));
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void declareMacros(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node child = file.child(index);
+
+            if (child.kind() == NodeKinds.macroDeclaration()) {
+                this.topLevelCollector().declareMacro(child);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    public Bool isTypeDecl(String kind) {
+        return kind == NodeKinds.classDeclaration() || kind == NodeKinds.dataClass() || kind == NodeKinds.recordDeclaration() || kind == NodeKinds.interfaceDeclaration() || kind == NodeKinds.enumDeclaration() || kind == NodeKinds.exceptionDeclaration();
+    }
+
+    private Void declareTypes(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node decl = file.child(index);
+
+            if (this.isTypeDecl(decl.kind())) {
+                this.declareType(decl);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Bool hasMacroAnnotation(Node decl) {
+        Int index = 0;
+
+        while (index < decl.count()) {
+            Node child = decl.child(index);
+
+            if (child.kind() == NodeKinds.annotation() && !this.table.findTopLevel(child.text(), SymbolKinds.macro()).isMissing()) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private Void declareType(Node decl) {
+        TypeSymbol previous = this.table.findType(decl.text());
+
+        if (!previous.isMissing() && previous.isUserDeclared()) {
+            this.bag.error("Duplicate declaration of '" + decl.text() + "' (first declared at line " + previous.line().toString() + ")", decl.line(), decl.column());
+            return;
+        }
+
+        TypeSymbol symbol = TypeSymbol(decl.text(), decl.kind());
+        symbol.setPosition(decl.line(), decl.column());
+        symbol.setAbstract(AstQuery.isAbstract(decl) || decl.kind() == NodeKinds.interfaceDeclaration());
+        symbol.setMacro(this.hasMacroAnnotation(decl));
+        this.table.addType(symbol);
+    }
+
+    private Void fillDeclarations(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node decl = file.child(index);
+
+            if (this.isTypeDecl(decl.kind())) {
+                this.typeFiller().fillType(decl);
+            }
+
+            if (decl.kind() == NodeKinds.methodDeclaration()) {
+                List<String> none = List();
+                this.topLevelCollector().addTopLevelMethod(decl, none);
+            }
+
+            if (decl.kind() == NodeKinds.variableDeclaration()) {
+                this.topLevelCollector().addTopLevelVariable(decl);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private InheritanceValidator inheritanceValidator() {
+        return InheritanceValidator(this.table, this.bag);
+    }
+
+    public MemberCollector memberCollector() {
+        return MemberCollector(this.table, this.bag);
+    }
+
+    private TypeFiller typeFiller() {
+        return TypeFiller(this.table, this.bag);
+    }
+
+    private TopLevelCollector topLevelCollector() {
+        return TopLevelCollector(this.table, this.bag);
+    }
+}

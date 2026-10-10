@@ -1,0 +1,223 @@
+namespace ring0::binding;
+
+public class SymbolTable {
+    private List<TypeSymbol> typeList;
+    private List<MemberSymbol> topLevelList;
+
+    public SymbolTable() {
+        this.typeList = List();
+        this.topLevelList = List();
+    }
+
+    public Void addType(TypeSymbol type) {
+        this.typeList.add(type);
+    }
+
+    public Void addTopLevel(MemberSymbol member) {
+        this.topLevelList.add(member);
+    }
+
+    public List<TypeSymbol> types() {
+        return this.typeList;
+    }
+
+    public List<MemberSymbol> topLevel() {
+        return this.topLevelList;
+    }
+
+    // Later declarations (user code) shadow built-in types.
+    public TypeSymbol findType(String name) {
+        Int index = this.typeList.length() - 1;
+
+        while (index >= 0) {
+            TypeSymbol candidate = this.typeList.get(index);
+
+            if (Names.same(candidate.name(), name)) {
+                return candidate;
+            }
+
+            index = index - 1;
+        }
+
+        return TypeSymbol.missing();
+    }
+
+    public Bool hasType(String name) {
+        return !this.findType(name).isMissing();
+    }
+
+    public MemberSymbol findTopLevel(String name, String kind) {
+        Int index = 0;
+
+        while (index < this.topLevelList.length()) {
+            MemberSymbol candidate = this.topLevelList.get(index);
+
+            if (candidate.kind() == kind && Names.same(candidate.name(), name)) {
+                return candidate;
+            }
+
+            index = index + 1;
+        }
+
+        return MemberSymbol.missing();
+    }
+
+    public List<MemberSymbol> findTopLevelAll(String name, String kind) {
+        List<MemberSymbol> found = List();
+        Int index = 0;
+
+        while (index < this.topLevelList.length()) {
+            MemberSymbol candidate = this.topLevelList.get(index);
+
+            if (candidate.kind() == kind && Names.same(candidate.name(), name)) {
+                found.add(candidate);
+            }
+
+            index = index + 1;
+        }
+
+        return found;
+    }
+
+    // All members called `name` in the type and its ancestors, most derived first.
+    public List<MemberSymbol> findMembers(String typeName, String name) {
+        List<MemberSymbol> found = List();
+        List<String> visited = List();
+        this.collectMembers(typeName, name, found, visited, 0);
+        return found;
+    }
+
+    private Void collectMembers(String typeName, String name, List<MemberSymbol> found, List<String> visited, Int depth) {
+        if (depth > 24) {
+            return;
+        }
+
+        String key = Names.lower(TypeText.base(typeName));
+
+        if (visited.contains(key)) {
+            return;
+        }
+
+        visited.add(key + "");
+        TypeSymbol symbol = this.findType(TypeText.base(typeName));
+
+        if (symbol.isMissing()) {
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < symbol.members().length()) {
+            MemberSymbol member = symbol.members().get(index);
+
+            if (member.kind() != NodeKinds.constructorDeclaration() && Names.same(member.name(), name)) {
+                found.add(member);
+            }
+
+            index = index + 1;
+        }
+
+        Int baseIndex = 0;
+
+        while (baseIndex < symbol.bases().length()) {
+            this.collectMembers(symbol.bases().get(baseIndex), name, found, visited, depth + 1);
+            baseIndex = baseIndex + 1;
+        }
+
+        Int interfaceIndex = 0;
+
+        while (interfaceIndex < symbol.interfaces().length()) {
+            this.collectMembers(symbol.interfaces().get(interfaceIndex), name, found, visited, depth + 1);
+            interfaceIndex = interfaceIndex + 1;
+        }
+    }
+
+    public Bool isSubtype(String sub, String sup) {
+        List<String> visited = List();
+        return this.subtypeWalk(TypeText.base(sub), TypeText.base(sup), visited, 0);
+    }
+
+    private Bool subtypeWalk(String sub, String sup, List<String> visited, Int depth) {
+        if (Names.same(sub, sup)) {
+            return true;
+        }
+
+        if (depth > 24 || visited.contains(Names.lower(sub))) {
+            return false;
+        }
+
+        visited.add(Names.lower(sub));
+        TypeSymbol symbol = this.findType(sub);
+
+        if (symbol.isMissing()) {
+            return false;
+        }
+
+        Int index = 0;
+
+        while (index < symbol.bases().length()) {
+            if (this.subtypeWalk(TypeText.base(symbol.bases().get(index)), sup, visited, depth + 1)) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        Int interfaceIndex = 0;
+
+        while (interfaceIndex < symbol.interfaces().length()) {
+            if (this.subtypeWalk(TypeText.base(symbol.interfaces().get(interfaceIndex)), sup, visited, depth + 1)) {
+                return true;
+            }
+
+            interfaceIndex = interfaceIndex + 1;
+        }
+
+        return false;
+    }
+
+    // True if the type or an ancestor carries a macro or is imported: its members are then not fully known.
+    public Bool hasOpenMembers(String typeName) {
+        List<String> visited = List();
+        return this.openWalk(TypeText.base(typeName), visited, 0);
+    }
+
+    private Bool openWalk(String name, List<String> visited, Int depth) {
+        if (depth > 24 || visited.contains(Names.lower(name))) {
+            return false;
+        }
+
+        visited.add(Names.lower(name));
+        TypeSymbol symbol = this.findType(name);
+
+        if (symbol.isMissing()) {
+            return true;
+        }
+
+        if (symbol.hasMacro() || symbol.isOpaque()) {
+            return true;
+        }
+
+        Int index = 0;
+
+        while (index < symbol.bases().length()) {
+            if (this.openWalk(TypeText.base(symbol.bases().get(index)), visited, depth + 1)) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        Int interfaceIndex = 0;
+
+        while (interfaceIndex < symbol.interfaces().length()) {
+            if (this.openWalk(TypeText.base(symbol.interfaces().get(interfaceIndex)), visited, depth + 1)) {
+                return true;
+            }
+
+            interfaceIndex = interfaceIndex + 1;
+        }
+
+        return false;
+    }
+}

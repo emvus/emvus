@@ -1,0 +1,83 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Checks that every path of a statement leaves the method (return, fail, success or panic).
+public class ReturnAnalysis {
+    private CheckContext context;
+
+    public ReturnAnalysis(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Bool terminates(Node stmt) {
+        String kind = stmt.kind();
+
+        if (kind == NodeKinds.returnStatement() || kind == NodeKinds.failStatement() || kind == NodeKinds.successStatement()) {
+            return true;
+        }
+
+        if (kind == NodeKinds.block()) {
+            return this.blockTerminates(stmt);
+        }
+
+        if (kind == NodeKinds.expressionStatement()) {
+            return this.isPanicCall(stmt);
+        }
+
+        if (kind == NodeKinds.switchNode()) {
+            return this.allCasesTerminate(stmt);
+        }
+
+        return false;
+    }
+
+    private Bool blockTerminates(Node block) {
+        Int index = 0;
+
+        while (index < block.count()) {
+            if (this.terminates(block.child(index))) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private Bool isPanicCall(Node stmt) {
+        if (stmt.count() == 0) {
+            return false;
+        }
+
+        Node expression = stmt.child(0);
+
+        if (expression.kind() != NodeKinds.callExpression()) {
+            return false;
+        }
+
+        Node callee = expression.child(0);
+        return callee.kind() == NodeKinds.nameReference() && callee.text() == "panic";
+    }
+
+    // Exhaustiveness is SwitchChecker's job; only fall-through matters here.
+    private Bool allCasesTerminate(Node stmt) {
+        if (stmt.count() < 2) {
+            return false;
+        }
+
+        Int index = 1;
+
+        while (index < stmt.count()) {
+            Node caseNode = stmt.child(index);
+            index = index + 1;
+
+            if (caseNode.count() == 0 || !this.terminates(caseNode.child(caseNode.count() - 1))) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+}

@@ -1,0 +1,82 @@
+namespace ring0::binding;
+
+// Type lines:   [interface |exception |variadic |opaque ]Name[<T,U>][ : Base]
+public class BuiltinTypes {
+    public BuiltinTypes() {
+    }
+
+    private static Void append(List<String> target, List<String> source) {
+        Int index = 0;
+
+        while (index < source.length()) {
+            target.add(source.get(index) + "");
+            index = index + 1;
+        }
+    }
+
+    public static List<String> all() {
+        List<String> lines = List();
+        BuiltinTypes.append(lines, BuiltinTypes.primitiveTypes());
+        BuiltinTypes.append(lines, BuiltinTypes.collectionTypes());
+        BuiltinTypes.append(lines, BuiltinTypes.exceptionTypes());
+        BuiltinTypes.append(lines, BuiltinTypes.interfaceTypes());
+        return lines;
+    }
+
+    // Primitive types
+    public static List<String> primitiveTypes() {
+        List<String> lines = List();
+        lines.add("Any");
+        lines.add("Int");
+        lines.add("Float");
+        lines.add("String");
+        lines.add("Boolean");
+        lines.add("Char");
+        return lines;
+    }
+
+    // Collections, Result and tasks
+    public static List<String> collectionTypes() {
+        List<String> lines = List();
+        lines.add("List<T>");
+        lines.add("Dictionary<K,V>");
+        lines.add("Result<T,E>");
+        lines.add("Fiber<T>");
+        lines.add("VirtualThread<T>");
+        lines.add("Thread<T>");
+        lines.add("Files");
+        return lines;
+    }
+
+    // Built-in exceptions
+    public static List<String> exceptionTypes() {
+        List<String> lines = List();
+        lines.add("exception Exception");
+        lines.add("exception IOException : Exception");
+        lines.add("exception UnknownCaseException : Exception");
+        return lines;
+    }
+
+    // Interfaces, function types and opaque types
+    public static List<String> interfaceTypes() {
+        List<String> lines = List();
+        lines.add("interface Comparable<T>");
+        lines.add("interface Serializable");
+        lines.add("interface IPredicate<T>");
+        lines.add("interface IIterator<T>");
+        lines.add("interface IList<T>");
+        lines.add("interface ListIterator<T>");
+        lines.add("interface IIterable<T>");
+        lines.add("variadic Function<A,R>");
+        lines.add("variadic BiFunction<A,B,R>");
+        lines.add("variadic Runnable");
+        lines.add("variadic Tuple");
+        lines.add("opaque Macro");
+        lines.add("opaque Statement");
+        lines.add("opaque Expression");
+        lines.add("opaque Parameter");
+        lines.add("opaque Method");
+        lines.add("opaque Process");
+        return lines;
+    }
+}

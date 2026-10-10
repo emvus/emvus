@@ -1,0 +1,101 @@
+namespace ring0::binding;
+
+// Lexical scopes for local names.
+public class Scope {
+    private List<String> nameList;
+    private List<String> typeList;
+    private List<Bool> finalList;
+    private List<Int> markList;
+
+    public Scope() {
+        this.nameList = List();
+        this.typeList = List();
+        this.finalList = List();
+        this.markList = List();
+    }
+
+    public Void push() {
+        this.markList.add(this.nameList.length());
+    }
+
+    public Void pop() {
+        if (this.markList.length() == 0) {
+            return;
+        }
+
+        Int mark = this.markList.get(this.markList.length() - 1);
+        this.markList.removeAt(this.markList.length() - 1);
+
+        while (this.nameList.length() > mark) {
+            Int last = this.nameList.length() - 1;
+            this.nameList.removeAt(last);
+            this.typeList.removeAt(last);
+            this.finalList.removeAt(last);
+        }
+    }
+
+    public Void declare(String name, String type, Bool isFinal) {
+        this.nameList.add(name + "");
+        this.typeList.add(type + "");
+        this.finalList.add(isFinal);
+    }
+
+    private Int indexOf(String name) {
+        Int index = this.nameList.length() - 1;
+
+        while (index >= 0) {
+            if (Names.same(this.nameList.get(index), name)) {
+                return index;
+            }
+
+            index = index - 1;
+        }
+
+        return -1;
+    }
+
+    public Bool has(String name) {
+        return this.indexOf(name) >= 0;
+    }
+
+    public String typeOf(String name) {
+        Int index = this.indexOf(name);
+
+        if (index < 0) {
+            return "";
+        }
+
+        return this.typeList.get(index) + "";
+    }
+
+    public Bool isFinal(String name) {
+        Int index = this.indexOf(name);
+
+        if (index < 0) {
+            return false;
+        }
+
+        return this.finalList.get(index);
+    }
+
+    // Innermost scope only; used for redeclaration errors
+    public Bool hasInCurrent(String name) {
+        Int mark = 0;
+
+        if (this.markList.length() > 0) {
+            mark = this.markList.get(this.markList.length() - 1);
+        }
+
+        Int index = this.nameList.length() - 1;
+
+        while (index >= mark) {
+            if (Names.same(this.nameList.get(index), name)) {
+                return true;
+            }
+
+            index = index - 1;
+        }
+
+        return false;
+    }
+}

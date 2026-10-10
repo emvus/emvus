@@ -1,0 +1,132 @@
+namespace ring0::binding;
+
+// Member lines: [static ]Owner[<T>].name[<R>](P1,P2):Ret   |   Owner.name:Type   |   fn name(P):Ret
+public class BuiltinMembers {
+    public BuiltinMembers() {
+    }
+
+    private static Void append(List<String> target, List<String> source) {
+        Int index = 0;
+
+        while (index < source.length()) {
+            target.add(source.get(index) + "");
+            index = index + 1;
+        }
+    }
+
+    public static List<String> all() {
+        List<String> lines = List();
+        BuiltinMembers.append(lines, BuiltinMembers.textMembers());
+        BuiltinMembers.append(lines, BuiltinMembers.numberMembers());
+        BuiltinMembers.append(lines, BuiltinMembers.collectionMembers());
+        BuiltinMembers.append(lines, BuiltinMembers.resultMembers());
+        BuiltinMembers.append(lines, BuiltinMembers.systemMembers());
+        return lines;
+    }
+
+    // Text and base types
+    public static List<String> textMembers() {
+        List<String> lines = List();
+        lines.add("Any.equals(dynamic):Boolean");
+        lines.add("Any.hashCode():Int");
+        lines.add("Any.toString():String");
+        lines.add("Exception.message:String");
+        lines.add("String.length():Int");
+        lines.add("String.isEmpty():Boolean");
+        lines.add("String.isBlank():Boolean");
+        lines.add("String.toLowerCase():String");
+        lines.add("String.toUpperCase():String");
+        lines.add("String.trim():String");
+        lines.add("String.startsWith(String):Boolean");
+        lines.add("String.endsWith(String):Boolean");
+        lines.add("String.contains(String):Boolean");
+        lines.add("String.indexOf(String):Int");
+        lines.add("String.substring(Int,Int):String");
+        lines.add("String.charAt(Int):Char");
+        lines.add("String.replace(String,String):String");
+        lines.add("String.split(String):List<String>");
+        lines.add("String.repeat(Int):String");
+        lines.add("String.compareTo(String):Int");
+        lines.add("Char.isDigit():Boolean");
+        lines.add("Char.isLetter():Boolean");
+        return lines;
+    }
+
+    // Numbers
+    public static List<String> numberMembers() {
+        List<String> lines = List();
+        lines.add("Int.abs():Int");
+        lines.add("Int.compareTo(Int):Int");
+        lines.add("static Int.parse(String):Result<Int,?>");
+        lines.add("Float.abs():Float");
+        lines.add("Float.compareTo(Float):Int");
+        lines.add("static Float.parse(String):Result<Float,?>");
+        return lines;
+    }
+
+    // Collections
+    public static List<String> collectionMembers() {
+        List<String> lines = List();
+        lines.add("List<T>.add(T):Void");
+        lines.add("List<T>.get(Int):T");
+        lines.add("List<T>.set(Int,T):Void");
+        lines.add("List<T>.size():Int");
+        lines.add("List<T>.length():Int");
+        lines.add("List<T>.isEmpty():Boolean");
+        lines.add("List<T>.contains(T):Boolean");
+        lines.add("List<T>.remove(T):Boolean");
+        lines.add("List<T>.removeAt(Int):T");
+        lines.add("List<T>.first():T");
+        lines.add("List<T>.last():T");
+        lines.add("List<T>.clear():Void");
+        lines.add("List<T>.indexOf(T):Int");
+        lines.add("List<T>.map<R>(Function<T,R>):List<R>");
+        lines.add("List<T>.filter(Function<T,Boolean>):List<T>");
+        lines.add("List<T>.reduce<R>(R,BiFunction<R,T,R>):R");
+        lines.add("List<T>.forEach(Function<T,?>):Void");
+        lines.add("Dictionary<K,V>.put(K,V):Void");
+        lines.add("Dictionary<K,V>.get(K):V");
+        lines.add("Dictionary<K,V>.contains(K):Boolean");
+        lines.add("Dictionary<K,V>.containsKey(K):Boolean");
+        lines.add("Dictionary<K,V>.remove(K):V");
+        lines.add("Dictionary<K,V>.size():Int");
+        lines.add("Dictionary<K,V>.isEmpty():Boolean");
+        lines.add("Dictionary<K,V>.keys():List<K>");
+        lines.add("Dictionary<K,V>.values():List<V>");
+        lines.add("Dictionary<K,V>.toJson():String");
+        lines.add("Dictionary<K,V>.clear():Void");
+        return lines;
+    }
+
+    // Result, tasks and function interfaces
+    public static List<String> resultMembers() {
+        List<String> lines = List();
+        lines.add("Result<T,E>.orElse(T):T");
+        lines.add("Result<T,E>.map<R>(Function<T,R>):Result<R,E>");
+        lines.add("Result<T,E>.mapError<F>(Function<E,F>):Result<T,F>");
+        lines.add("Result<T,E>.isSuccess():Boolean");
+        lines.add("Result<T,E>.isError():Boolean");
+        lines.add("static Result.success<T>(T):Result<T,?>");
+        lines.add("static Result.error<E>(E):Result<?,E>");
+        lines.add("Fiber<T>.await():T");
+        lines.add("VirtualThread<T>.await():T");
+        lines.add("Thread<T>.await():T");
+        lines.add("Comparable<T>.compareTo(T):Int");
+        lines.add("IPredicate<T>.test(T):Boolean");
+        return lines;
+    }
+
+    // Files and global functions
+    public static List<String> systemMembers() {
+        List<String> lines = List();
+        lines.add("static Files.readText(String):Result<String,?>");
+        lines.add("static Files.open(String):?");
+        lines.add("static Files.exists(String):Boolean");
+        lines.add("static Files.writeText(String,String):Result<Void,?>");
+        lines.add("fn println(dynamic):Void");
+        lines.add("fn print(dynamic):Void");
+        lines.add("fn errprintln(dynamic):Void");
+        lines.add("fn panic(String):Void");
+        return lines;
+    }
+}

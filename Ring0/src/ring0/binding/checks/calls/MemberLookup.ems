@@ -1,0 +1,145 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class MemberLookup {
+    private CheckContext context;
+
+    public MemberLookup(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Bool accessAllowed(MemberSymbol member) {
+        if (member.access() == SymbolKinds.publicAccess()) {
+            return true;
+        }
+
+        if (member.access() == SymbolKinds.privateAccess()) {
+            return Names.same(member.owner(), this.context.currentType());
+        }
+
+        if (this.context.currentType().isEmpty()) {
+            return false;
+        }
+
+        return this.context.table().isSubtype(this.context.currentType(), member.owner());
+    }
+
+    // Members of `type`, including generated data-class functions, type-parameter bounds and Any.
+    public List<MemberSymbol> candidates(String type, String name) {
+        List<MemberSymbol> found = List();
+
+        if (this.context.typeParamNames().contains(type)) {
+            List<String> bounds = TypeText.splitTop(this.boundsOf(type));
+
+            Int index = 0;
+
+            while (index < bounds.length()) {
+                List<MemberSymbol> part = this.context.table().findMembers(TypeText.base(bounds.get(index)), name);
+                Int partIndex = 0;
+
+                while (partIndex < part.length()) {
+                    found.add(part.get(partIndex));
+                    partIndex = partIndex + 1;
+                }
+
+                index = index + 1;
+            }
+        }
+
+        if (!this.context.typeParamNames().contains(type)) {
+            List<MemberSymbol> own = this.context.table().findMembers(TypeText.base(type), name);
+            Int ownIndex = 0;
+
+            while (ownIndex < own.length()) {
+                found.add(own.get(ownIndex));
+                ownIndex = ownIndex + 1;
+            }
+        }
+
+        if (found.length() == 0) {
+            this.addGenerated(type, name, found);
+        }
+
+        if (found.length() == 0) {
+            List<MemberSymbol> any = this.context.table().findMembers(TypeNames.anyType(), name);
+            Int anyIndex = 0;
+
+            while (anyIndex < any.length()) {
+                found.add(any.get(anyIndex));
+                anyIndex = anyIndex + 1;
+            }
+        }
+
+        return found;
+    }
+
+    private String boundsOf(String typeParam) {
+        Int at = this.context.typeParamNames().indexOf(typeParam);
+
+        if (at < 0) {
+            return "";
+        }
+
+        return this.context.typeParamBounds().get(at).replace("&", ",") + "";
+    }
+
+    private Void addGenerated(String type, String name, List<MemberSymbol> found) {
+        TypeSymbol symbol = this.context.table().findType(TypeText.base(type));
+
+        if (symbol.isMissing() || (symbol.kind() != NodeKinds.dataClass() && symbol.kind() != NodeKinds.recordDeclaration())) {
+            return;
+        }
+
+        String self = TypeText.make(symbol.name(), symbol.typeParams());
+
+        if (symbol.kind() == NodeKinds.dataClass() && Names.same(name, "copy")) {
+            found.add(MemberSymbol("copy", SymbolKinds.method(), self, symbol.name()));
+            return;
+        }
+
+        if (symbol.kind() == NodeKinds.dataClass() && name.length() > 4 && Names.same(name.substring(0, 4), "with")) {
+            String field = name.substring(4, name.length());
+            List<MemberSymbol> props = this.context.table().findMembers(symbol.name(), field);
+
+            if (props.length() > 0 && props.get(0).kind() == NodeKinds.propertyDeclaration()) {
+                MemberSymbol generated = MemberSymbol(name, SymbolKinds.method(), self, symbol.name());
+                generated.addParam(field, props.get(0).type(), false);
+                found.add(generated);
+            }
+        }
+    }
+
+    // Maps the owner's type parameters to the arguments of the receiver type.
+    public Void ownerSubstitution(MemberSymbol member, String receiver, List<String> names, List<String> values) {
+        TypeSymbol owner = this.context.table().findType(member.owner());
+
+        if (owner.isMissing()) {
+            return;
+        }
+
+        String source = "";
+
+        if (Names.same(TypeText.base(receiver), member.owner())) {
+            source = receiver;
+        }
+
+        List<String> args = TypeText.args(source);
+
+        Int index = 0;
+
+        while (index < owner.typeParams().length()) {
+            names.add(owner.typeParams().get(index) + "");
+
+            if (index < args.length()) {
+                values.add(args.get(index) + "");
+            }
+
+            if (index >= args.length()) {
+                values.add(TypeNames.unknownType());
+            }
+
+            index = index + 1;
+        }
+    }
+}

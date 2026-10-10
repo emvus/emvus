@@ -1,0 +1,139 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// success and error patterns on Result subjects.
+public class ResultPatternChecker {
+    private CheckContext context;
+
+    public ResultPatternChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void applySuccess(Node pattern, String subject, SwitchInfo info) {
+        this.requireResultSubject(pattern, "success", subject);
+        info.markSuccess();
+        String valueType = TypeNames.unknownType();
+
+        if (TypeText.isResult(subject)) {
+            valueType = TypeText.resultValue(subject);
+        }
+
+        Int index = 0;
+
+        while (index < pattern.count()) {
+            this.declareBinding(pattern.child(index), valueType);
+            index = index + 1;
+        }
+    }
+
+    public Void applyError(Node pattern, String subject, SwitchInfo info) {
+        this.requireResultSubject(pattern, "error", subject);
+        String errorType = TypeNames.unknownType();
+
+        if (TypeText.isResult(subject)) {
+            errorType = TypeText.resultError(subject);
+        }
+
+        String explicit = this.explicitType(pattern);
+
+        if (explicit.isEmpty()) {
+            info.markError();
+        }
+
+        if (!explicit.isEmpty()) {
+            this.checkErrorType(pattern, explicit, errorType, info);
+        }
+
+        String bound = errorType;
+
+        if (!explicit.isEmpty()) {
+            bound = explicit;
+        }
+
+        this.declareErrorBindings(pattern, bound);
+    }
+
+    public Void requireResultSubject(Node pattern, String name, String subject) {
+        if (TypeText.isResult(subject) || this.context.isLoose(subject)) {
+            return;
+        }
+
+        this.context.report(pattern, "Pattern '" + name + "' requires a Result subject, found '" + subject + "'");
+    }
+
+    // `error(Type name)`: the pattern's type, "" for `error` and `error(name)`.
+    private String explicitType(Node pattern) {
+        Int index = 0;
+
+        while (index < pattern.count()) {
+            Node child = pattern.child(index);
+
+            if (child.kind() == NodeKinds.typeNode() || child.kind() == NodeKinds.tupleType()) {
+                return this.context.resolver().resolve(child, this.context.typeParamNames());
+            }
+
+            index = index + 1;
+        }
+
+        return "";
+    }
+
+    public Void checkErrorType(Node pattern, String explicit, String errorType, SwitchInfo info) {
+        SymbolTable table = this.context.table();
+
+        if (!TypeText.isUnknown(errorType) && !this.context.rules().assignable(errorType, explicit) && !table.isSubtype(errorType, explicit)) {
+            this.context.report(pattern, "Pattern type '" + explicit + "' is not compatible with error type '" + errorType + "'");
+        }
+
+        this.requireSpecificFirst(pattern, explicit, info);
+        info.errorTypes().add(explicit + "");
+
+        if (TypeText.isUnknown(errorType) || table.isSubtype(errorType, explicit)) {
+            info.markError();
+        }
+    }
+
+    // A more general error type before a more specific one makes the latter unreachable.
+    private Void requireSpecificFirst(Node pattern, String explicit, SwitchInfo info) {
+        Int earlier = 0;
+
+        while (earlier < info.errorTypes().length()) {
+            String previous = info.errorTypes().get(earlier) + "";
+            earlier = earlier + 1;
+
+            if (this.context.table().isSubtype(explicit, previous)) {
+                this.context.report(pattern, "Pattern 'error(" + explicit + ")' is unreachable: '" + previous + "' already covers it; list the more specific type first");
+            }
+        }
+    }
+
+    public Void declareErrorBindings(Node pattern, String bound) {
+        Int index = 0;
+
+        while (index < pattern.count()) {
+            Node child = pattern.child(index);
+            index = index + 1;
+
+            if (child.kind() == NodeKinds.binding()) {
+                this.context.scope().declare(child.text(), bound, false);
+            }
+        }
+    }
+
+    public Void declareBinding(Node binding, String type) {
+        if (binding.kind() != NodeKinds.binding()) {
+            return;
+        }
+
+        Node declared = AstQuery.typeChild(binding);
+        String bound = type;
+
+        if (!AstQuery.isNone(declared)) {
+            bound = this.context.resolver().resolve(declared, this.context.typeParamNames());
+            this.context.requireAssignable(bound, type, binding, "Pattern binding '" + binding.text() + "'");
+        }
+
+        this.context.declareLocal(binding.text(), bound, false, binding);
+    }
+}

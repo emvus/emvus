@@ -1,0 +1,141 @@
+namespace ring0::binding;
+
+// kind: class | data-class | record | enum | interface | exception | builtin | opaque | missing
+public class TypeSymbol {
+    private String nameValue;
+    private String kindValue;
+    private Bool abstractValue;
+    private Bool macroValue;
+    private Bool variadicValue;
+    private List<String> typeParamList;
+    private List<String> typeBoundList;
+    private List<String> baseList;
+    private List<String> interfaceList;
+    private List<MemberSymbol> memberList;
+    private List<String> entryList;
+    private Int lineValue;
+    private Int columnValue;
+
+    public TypeSymbol(String name, String kind) {
+        this.nameValue = name + "";
+        this.kindValue = kind + "";
+        this.abstractValue = false;
+        this.macroValue = false;
+        this.variadicValue = false;
+        this.typeParamList = List();
+        this.typeBoundList = List();
+        this.baseList = List();
+        this.interfaceList = List();
+        this.memberList = List();
+        this.entryList = List();
+        this.lineValue = 0;
+        this.columnValue = 0;
+    }
+
+    public static TypeSymbol missing() {
+        return TypeSymbol("", SymbolKinds.missing());
+    }
+
+    public Bool isMissing() {
+        return this.kindValue == SymbolKinds.missing();
+    }
+
+    public String name() {
+        return this.nameValue;
+    }
+
+    public String kind() {
+        return this.kindValue;
+    }
+
+    public Bool isAbstract() {
+        return this.abstractValue;
+    }
+
+    // A macro acts on the type, so members may appear at compile time.
+    public Bool hasMacro() {
+        return this.macroValue;
+    }
+
+    public Bool isVariadic() {
+        return this.variadicValue;
+    }
+
+    public Bool isOpaque() {
+        return this.kindValue == SymbolKinds.opaque();
+    }
+
+    public Bool isUserDeclared() {
+        return this.kindValue != SymbolKinds.builtin() && this.kindValue != SymbolKinds.opaque();
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    public Void setAbstract(Bool value) {
+        this.abstractValue = value;
+    }
+
+    public Void setMacro(Bool value) {
+        this.macroValue = value;
+    }
+
+    public Void setVariadic(Bool value) {
+        this.variadicValue = value;
+    }
+
+    public Void setPosition(Int line, Int column) {
+        this.lineValue = line;
+        this.columnValue = column;
+    }
+
+    public Void addTypeParam(String name, String bound) {
+        this.typeParamList.add(name + "");
+        this.typeBoundList.add(bound + "");
+    }
+
+    public Void addBase(String type) {
+        this.baseList.add(type + "");
+    }
+
+    public Void addInterface(String type) {
+        this.interfaceList.add(type + "");
+    }
+
+    public Void addMember(MemberSymbol member) {
+        this.memberList.add(member);
+    }
+
+    public Void addEntry(String name) {
+        this.entryList.add(name + "");
+    }
+
+    public List<String> typeParams() {
+        return this.typeParamList;
+    }
+
+    public List<String> typeBounds() {
+        return this.typeBoundList;
+    }
+
+    public List<String> bases() {
+        return this.baseList;
+    }
+
+    public List<String> interfaces() {
+        return this.interfaceList;
+    }
+
+    public List<MemberSymbol> members() {
+        return this.memberList;
+    }
+
+    public List<String> entries() {
+        return this.entryList;
+    }
+}

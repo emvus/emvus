@@ -1,0 +1,18 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Entry point of body type checking; the work lives in the specialised checkers.
+public class Checker {
+    private CheckContext context;
+
+    public Checker(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.context = CheckContext(symbols, diagnostics);
+    }
+
+    public Void check(Node file) {
+        ProgramChecker program = ProgramChecker(this.context);
+        program.check(file);
+    }
+}

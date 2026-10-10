@@ -1,0 +1,62 @@
+namespace ring0::binding;
+
+// Lists every class of the binder; the project loader resolves classes only through `use`.
+// Main imports only this file: `use ring0::binding::BindingPrelude;`.
+use ring0::binding::AbstractMemberValidator;
+use ring0::binding::AnnotationValidator;
+use ring0::binding::ArgumentChecker;
+use ring0::binding::AssignmentChecker;
+use ring0::binding::AstQuery;
+use ring0::binding::Binder;
+use ring0::binding::BuiltinMembers;
+use ring0::binding::BuiltinTypes;
+use ring0::binding::Builtins;
+use ring0::binding::CallChecker;
+use ring0::binding::CheckContext;
+use ring0::binding::Checker;
+use ring0::binding::Collector;
+use ring0::binding::ConstructorChecker;
+use ring0::binding::ExpressionChecker;
+use ring0::binding::IndexChecker;
+use ring0::binding::InheritanceValidator;
+use ring0::binding::InterpolationChecker;
+use ring0::binding::LambdaChecker;
+use ring0::binding::LiteralChecker;
+use ring0::binding::LocalChecker;
+use ring0::binding::LoopChecker;
+use ring0::binding::MemberCollector;
+use ring0::binding::MemberLookup;
+use ring0::binding::MemberSymbol;
+use ring0::binding::MethodChecker;
+use ring0::binding::NameChecker;
+use ring0::binding::Names;
+use ring0::binding::NodeKinds;
+use ring0::binding::OperatorChecker;
+use ring0::binding::PatternChecker;
+use ring0::binding::ProgramChecker;
+use ring0::binding::ResultBranchChecker;
+use ring0::binding::ResultPatternChecker;
+use ring0::binding::ReturnAnalysis;
+use ring0::binding::ReturnChecker;
+use ring0::binding::Scope;
+use ring0::binding::SignatureBuilder;
+use ring0::binding::StatementChecker;
+use ring0::binding::SupertypeFiller;
+use ring0::binding::SwitchChecker;
+use ring0::binding::SwitchInfo;
+use ring0::binding::SymbolKinds;
+use ring0::binding::SymbolTable;
+use ring0::binding::TopLevelCollector;
+use ring0::binding::TypeFiller;
+use ring0::binding::TypeNames;
+use ring0::binding::TypeResolver;
+use ring0::binding::TypeRules;
+use ring0::binding::TypeSubstitution;
+use ring0::binding::TypeSymbol;
+use ring0::binding::TypeText;
+use ring0::binding::TypeUnifier;
+
+public class BindingPrelude {
+    public BindingPrelude() {
+    }
+}

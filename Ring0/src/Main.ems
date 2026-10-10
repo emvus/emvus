@@ -1,3 +1,5 @@
+use ring0::binding::Binder;
+use ring0::binding::BindingPrelude;
 use ring0::diagnostic::DiagnosticBag;
 use ring0::syntax::Lexer;
 use ring0::syntax::Node;
@@ -6,8 +8,8 @@ use ring0::syntax::Token;
 use Std::Io::File;
 use Std::Process::Process;
 
-// Ring0 – Bootstrap-Compiler für Emvus (geschrieben in Emerald).
-// Usage: ring0 <datei.ev> [--tokens]
+// Ring0: bootstrap compiler for Emvus, written in Emerald.
+// Usage: ring0 <file.ev> [--tokens | --check]
 main() {
     List<String> args = Process.args();
 
@@ -53,6 +55,23 @@ main() {
 
     Parser parser = Parser(tokens, bag);
     Node tree = parser.parse();
+
+    if (args.length() > 1 && args.get(1) == "--check") {
+        if (!bag.hasErrors()) {
+            Binder binder = Binder(bag);
+            binder.bind(tree);
+        }
+
+        bag.printAll();
+
+        if (bag.hasErrors()) {
+            Process.exit(1);
+        }
+
+        println("check ok");
+        return;
+    }
+
     println(tree.dump(0));
     bag.printAll();
 

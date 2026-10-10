@@ -1,0 +1,76 @@
+namespace ring0::binding;
+
+// Symbol kinds, visibilities and macro targets; the symbol kinds match the
+// node kinds of the declarations.
+public class SymbolKinds {
+    public SymbolKinds() {
+    }
+
+    public static String anyTarget() {
+        return "Any";
+    }
+
+    public static String builtin() {
+        return "builtin";
+    }
+
+    public static String classTarget() {
+        return "Class";
+    }
+
+    public static String constructor() {
+        return "constructor";
+    }
+
+    public static String entry() {
+        return "entry";
+    }
+
+    public static String field() {
+        return "field";
+    }
+
+    public static String macro() {
+        return "macro";
+    }
+
+    public static String method() {
+        return "method";
+    }
+
+    public static String methodTarget() {
+        return "Method";
+    }
+
+    public static String missing() {
+        return "missing";
+    }
+
+    public static String opaque() {
+        return "opaque";
+    }
+
+    public static String parameterTarget() {
+        return "Parameter";
+    }
+
+    public static String privateAccess() {
+        return "private";
+    }
+
+    public static String property() {
+        return "property";
+    }
+
+    public static String protectedAccess() {
+        return "protected";
+    }
+
+    public static String publicAccess() {
+        return "public";
+    }
+
+    public static String variable() {
+        return "variable";
+    }
+}

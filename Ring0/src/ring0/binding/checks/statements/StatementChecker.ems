@@ -1,0 +1,178 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class StatementChecker {
+    private CheckContext context;
+
+    public StatementChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void checkBlock(Node block) {
+        this.context.scope().push();
+        Int index = 0;
+
+        while (index < block.count()) {
+            this.checkStatement(block.child(index));
+            index = index + 1;
+        }
+
+        this.context.scope().pop();
+    }
+
+    public Void checkBody(Node body) {
+        if (body.kind() == NodeKinds.block()) {
+            this.checkBlock(body);
+            return;
+        }
+
+        this.context.scope().push();
+        this.checkStatement(body);
+        this.context.scope().pop();
+    }
+
+    // Each group reports whether it handled the statement; the rest is an expression.
+    public Void checkStatement(Node stmt) {
+        String kind = stmt.kind();
+
+        if (kind == NodeKinds.block()) {
+            this.checkBlock(stmt);
+            return;
+        }
+
+        if (kind == NodeKinds.placeholder() || kind == NodeKinds.empty() || kind == NodeKinds.errorNode()) {
+            return;
+        }
+
+        if (this.checkDeclaration(stmt) || this.checkLoop(stmt) || this.checkResultFlow(stmt)) {
+            return;
+        }
+
+        if (kind == NodeKinds.ifStatement()) {
+            this.expressionChecker().requireBoolean(stmt.child(0), "Condition of 'if'");
+            this.checkBody(stmt.child(1));
+            return;
+        }
+
+        if (kind == NodeKinds.switchNode()) {
+            this.switchChecker().checkSwitch(stmt, "", false);
+            return;
+        }
+
+        if (kind == NodeKinds.expressionStatement()) {
+            this.checkExprStatement(stmt);
+            return;
+        }
+
+        this.expressionChecker().typeOf(stmt, "");
+    }
+
+    private Bool checkDeclaration(Node stmt) {
+        if (stmt.kind() == NodeKinds.local()) {
+            this.localChecker().checkLocal(stmt);
+            return true;
+        }
+
+        if (stmt.kind() == NodeKinds.destructure()) {
+            this.localChecker().checkDestructure(stmt);
+            return true;
+        }
+
+        return false;
+    }
+
+    private Bool checkLoop(Node stmt) {
+        String kind = stmt.kind();
+
+        if (kind == NodeKinds.whileStatement()) {
+            this.expressionChecker().requireBoolean(stmt.child(0), "Condition of 'while'");
+            this.context.setLoopDepth(this.context.loopDepth() + 1);
+            this.checkBody(stmt.child(1));
+            this.context.setLoopDepth(this.context.loopDepth() - 1);
+            return true;
+        }
+
+        if (kind == NodeKinds.forStatement()) {
+            this.loopChecker().checkFor(stmt);
+            return true;
+        }
+
+        if (kind == NodeKinds.foreachStatement()) {
+            this.loopChecker().checkForeach(stmt);
+            return true;
+        }
+
+        if (kind != NodeKinds.breakStatement() && kind != NodeKinds.continueStatement()) {
+            return false;
+        }
+
+        if (this.context.loopDepth() == 0) {
+            this.context.report(stmt, "'" + kind + "' outside of a loop");
+        }
+
+        return true;
+    }
+
+    private Bool checkResultFlow(Node stmt) {
+        String kind = stmt.kind();
+
+        if (kind == NodeKinds.returnStatement()) {
+            this.returnChecker().checkReturn(stmt);
+            return true;
+        }
+
+        if (kind == NodeKinds.failStatement()) {
+            this.returnChecker().checkFail(stmt);
+            return true;
+        }
+
+        if (kind == NodeKinds.successStatement()) {
+            this.returnChecker().checkSuccess(stmt);
+            return true;
+        }
+
+        return false;
+    }
+
+    private Void checkExprStatement(Node stmt) {
+        if (stmt.count() == 0) {
+            return;
+        }
+
+        Node expr = stmt.child(0);
+        String type = this.expressionChecker().typeOf(expr, "");
+
+        if (TypeText.isResult(type) && (expr.kind() == NodeKinds.callExpression() || expr.kind() == NodeKinds.cascade())) {
+            this.context.report(expr, "Result is ignored; handle it with switch, '?', '!' or orElse");
+        }
+    }
+
+    public Node firstChild(Node node) {
+        if (node.count() > 0) {
+            return node.child(0);
+        }
+
+        return AstQuery.none();
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private LocalChecker localChecker() {
+        return LocalChecker(this.context);
+    }
+
+    private LoopChecker loopChecker() {
+        return LoopChecker(this.context);
+    }
+
+    private ReturnChecker returnChecker() {
+        return ReturnChecker(this.context);
+    }
+
+    private SwitchChecker switchChecker() {
+        return SwitchChecker(this.context);
+    }
+}

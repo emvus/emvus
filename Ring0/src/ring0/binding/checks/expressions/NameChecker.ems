@@ -1,0 +1,211 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Names and member access.
+public class NameChecker {
+    private CheckContext context;
+
+    public NameChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String typeOfName(Node node) {
+        String name = node.text();
+
+        if (name == "this") {
+            return this.context.thisType();
+        }
+
+        if (name == "super") {
+            return this.superType();
+        }
+
+        if (this.context.scope().has(name)) {
+            return this.context.scope().typeOf(name);
+        }
+
+        String own = this.ownMemberType(name);
+
+        if (!own.isEmpty()) {
+            return own;
+        }
+
+        String global = this.globalType(name);
+
+        if (!global.isEmpty()) {
+            return global;
+        }
+
+        String cascaded = this.cascadeMemberType(name);
+
+        if (!cascaded.isEmpty()) {
+            return cascaded;
+        }
+
+        this.context.report(node, "Unknown name '" + name + "'");
+        return TypeNames.unknownType();
+    }
+
+    public String typeOfMember(Node node) {
+        String receiver = this.expressionChecker().typeOf(node.child(0), "");
+        return this.memberType(receiver, node.text(), node);
+    }
+
+    public String memberType(String receiver, String name, Node at) {
+        if (TypeText.isUnknown(receiver) || receiver == TypeNames.dynamicType()) {
+            return receiver;
+        }
+
+        if (receiver == TypeNames.nullType()) {
+            this.context.report(at, "Cannot access member '" + name + "' on null");
+            return TypeNames.unknownType();
+        }
+
+        Bool isStatic = TypeText.isTypeReference(receiver);
+        String lookup = receiver;
+
+        if (isStatic) {
+            lookup = TypeText.referencedType(receiver);
+        }
+
+        if (TypeText.isTuple(lookup)) {
+            this.context.report(at, "Tuples have no member '" + name + "'; use index access");
+            return TypeNames.unknownType();
+        }
+
+        List<MemberSymbol> found = this.memberLookup().candidates(lookup, name);
+
+        if (found.length() == 0) {
+            this.reportMissingMember(lookup, name, isStatic, at);
+            return TypeNames.unknownType();
+        }
+
+        return this.memberResultType(found.get(0), lookup, name, at);
+    }
+
+    private String superType() {
+        TypeSymbol current = this.context.table().findType(this.context.currentType());
+
+        if (current.isMissing() || current.bases().length() == 0) {
+            return TypeNames.unknownType();
+        }
+
+        return current.bases().get(0) + "";
+    }
+
+    // Fields and properties of the current class; "" means no match.
+    private String ownMemberType(String name) {
+        if (this.context.currentType().isEmpty()) {
+            return "";
+        }
+
+        List<MemberSymbol> members = this.memberLookup().candidates(this.context.thisType(), name);
+
+        if (members.length() == 0) {
+            return "";
+        }
+
+        MemberSymbol first = members.get(0);
+
+        if (first.kind() == SymbolKinds.method() && !Names.same(first.owner(), TypeNames.anyType())) {
+            return TypeNames.unknownType();
+        }
+
+        if (first.kind() == SymbolKinds.method() || first.kind() == SymbolKinds.constructor()) {
+            return "";
+        }
+
+        return first.type() + "";
+    }
+
+    // Top-level variables, type names (static access), functions and type parameters.
+    private String globalType(String name) {
+        MemberSymbol variable = this.context.table().findTopLevel(name, SymbolKinds.variable());
+
+        if (!variable.isMissing()) {
+            return this.variableType(variable);
+        }
+
+        TypeSymbol typeSymbol = this.context.table().findType(name);
+
+        if (!typeSymbol.isMissing()) {
+            return TypeText.typeReference(typeSymbol.name());
+        }
+
+        if (!this.context.table().findTopLevel(name, SymbolKinds.method()).isMissing()) {
+            return TypeNames.unknownType();
+        }
+
+        if (this.context.typeParamNames().contains(name)) {
+            return TypeNames.unknownType();
+        }
+
+        return "";
+    }
+
+    private String variableType(MemberSymbol variable) {
+        if (variable.type() == TypeNames.inferredType()) {
+            return TypeNames.unknownType();
+        }
+
+        return variable.type();
+    }
+
+    // Inside a cascade section the members of the cascade target apply.
+    private String cascadeMemberType(String name) {
+        if (this.context.cascadeReceiver().isEmpty()) {
+            return "";
+        }
+
+        List<MemberSymbol> viaReceiver = this.memberLookup().candidates(this.context.cascadeReceiver(), name);
+
+        if (viaReceiver.length() == 0) {
+            return "";
+        }
+
+        return viaReceiver.get(0).type() + "";
+    }
+
+    // Types with macros, imports or type parameters do not know all of their members.
+    private Void reportMissingMember(String lookup, String name, Bool isStatic, Node at) {
+        TypeSymbol symbol = this.context.table().findType(TypeText.base(lookup));
+        Bool tparam = this.context.typeParamNames().contains(lookup);
+        Bool closed = !tparam && !symbol.isMissing() && !this.context.table().hasOpenMembers(lookup);
+
+        if (isStatic) {
+            closed = !symbol.isMissing() && symbol.isUserDeclared() && !symbol.hasMacro();
+        }
+
+        if (closed) {
+            this.context.report(at, "Type '" + lookup + "' has no member '" + name + "'");
+        }
+    }
+
+    private String memberResultType(MemberSymbol member, String lookup, String name, Node at) {
+        if (!this.memberLookup().accessAllowed(member)) {
+            this.context.report(at, "Member '" + name + "' of '" + member.owner() + "' is " + member.access());
+        }
+
+        if (member.kind() == SymbolKinds.method()) {
+            return TypeNames.unknownType();
+        }
+
+        List<String> names = List();
+        List<String> values = List();
+        this.memberLookup().ownerSubstitution(member, lookup, names, values);
+        return TypeSubstitution.substitute(member.type(), names, values);
+    }
+
+    public ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private MemberLookup memberLookup() {
+        return MemberLookup(this.context);
+    }
+
+    private IndexChecker indexChecker() {
+        return IndexChecker(this.context);
+    }
+}
