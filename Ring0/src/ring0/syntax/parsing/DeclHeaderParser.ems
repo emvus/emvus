@@ -5,14 +5,14 @@ use ring0::syntax::Node;
 use ring0::syntax::ParserState;
 use ring0::syntax::Token;
 use ring0::syntax::TypeParser;
-// Hilfsparser für Deklarationen: Wörter, Annotationen, Modifier, Parameter, where, Typlisten.
+// Helper parser for declarations: words, annotations, modifiers, parameters, where, type lists.
 //
 // Knotenarten:
-//   annotation    text=Name, Kinder: Argumentausdrücke
-//   modifiers     text="" ; Kinder: modifier (text=public|private|protected|static|abstract|override|final)
-//   params        Kinder: param (text=Name; Kinder: annotation*, modifiers, Typ-Knoten, [Default-Ausdruck])
-//   where         Kinder: typeparam (text=Name; Kinder: Typ-Knoten als Bounds)
-//   types         Kinder: Typ-Knoten (für based/implements)
+//   annotation    text=name, children: argument expressions
+//   modifiers     text="" ; children: modifier (text=public|private|protected|static|abstract|override|final)
+//   params        children: param (text=name; children: annotation*, modifiers, type node, [default expression])
+//   where         children: typeparam (text=name; children: type nodes as bounds)
+//   types         children: type nodes (for based/implements)
 public class DeclHeaderParser {
     private ParserState state;
 
@@ -20,7 +20,7 @@ public class DeclHeaderParser {
         this.state = parserState;
     }
 
-    // Schlüsselwort oder Identifier mit diesem Text (unabhängig von der Token-Art)
+    // Keyword or identifier with this text (regardless of token kind)
     public Bool isWord(Int offset, String text) {
         Token token = this.state.peekAt(offset);
 
@@ -66,7 +66,7 @@ public class DeclHeaderParser {
         return value;
     }
 
-    // Anzahl Tokens, aus denen "..." ab offset besteht (0 = kein Platzhalter)
+    // Number of tokens that make up "..." at offset (0 = no placeholder)
     public Int placeholderLength(Int offset) {
         if (this.state.peekAt(offset).isSymbol("...")) {
             return 1;
@@ -83,7 +83,7 @@ public class DeclHeaderParser {
         return 0;
     }
 
-    // @Name oder @Name(args) – fügt annotation-Knoten an owner an
+    // @Name or @Name(args): attaches an annotation node to owner
     public Void parseAnnotations(Node owner) {
         while (this.state.checkSymbol("@")) {
             Token at = this.state.advance();
@@ -148,7 +148,7 @@ public class DeclHeaderParser {
         return modifiers;
     }
 
-    // (Typ name [= default], ...) ; erwartet "("
+    // (Type name [= default], ...); expects "("
     public Node parseParams() {
         Node params = this.state.node("params", "");
         this.state.consumeSymbol("(", "Expected '(' before parameters");
@@ -189,7 +189,7 @@ public class DeclHeaderParser {
         return params;
     }
 
-    // where T, U: A & B   – am Aufrufer nur aufrufen, wenn isWord(0, "where")
+    // where T, U: A & B   - callers must check isWord(0, "where") first
     public Node parseWhere() {
         Token keyword = this.state.advance();
         Node where = this.state.nodeAt(keyword, "where", "");
@@ -217,7 +217,7 @@ public class DeclHeaderParser {
         return where;
     }
 
-    // A, B, C  (mindestens ein Typ)
+    // A, B, C  (at least one type)
     public Node parseTypeList(String kind) {
         Node list = this.state.node(kind, "");
         TypeParser types = TypeParser(this.state);
@@ -230,7 +230,7 @@ public class DeclHeaderParser {
         return list;
     }
 
-    // Hängt Annotationen (aus holder) und modifiers an die Deklaration an
+    // Attaches annotations (from holder) and modifiers to the declaration
     public Void attach(Node declaration, Node holder, Node modifiers) {
         Int index = 0;
 

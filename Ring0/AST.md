@@ -1,64 +1,75 @@
 # Ring0 AST
 
-Einheitlicher Knoten `Node(kind, text, line, column)` mit Kindern (`src/ring0/syntax/Node.ems`).
-`node.dump(0)` gibt den Baum eingerückt aus. Maßgeblich sind die Kopfkommentare der Parser:
+Uniform node `Node(kind, text, line, column)` with children (`src/ring0/syntax/Node.ems`).
+`node.dump(0)` prints the tree indented. The header comments of the parsers are authoritative:
 
-| Bereich | Datei |
+| Area | File |
 | --- | --- |
-| Datei, package, use | `parsing/TopLevelParser.ems` |
-| Deklarationen, Mitglieder | `parsing/DeclMemberParser.ems`, `parsing/DeclHeaderParser.ems` |
-| Typen | `parsing/TypeParser.ems` |
+| File, package, use | `parsing/TopLevelParser.ems` |
+| Declarations, members | `parsing/DeclMemberParser.ems`, `parsing/DeclHeaderParser.ems` |
+| Types | `parsing/TypeParser.ems` |
 | Statements | `parsing/StatementParser.ems` |
-| Ausdrücke | `parsing/ExpressionParser.ems` |
+| Expressions | `parsing/ExpressionParser.ems` |
 
-## Datei und Deklarationen
+## File and declarations
 
-Jede Deklaration hat als Kinder zuerst `annotation*`, dann `modifiers`, danach die Spezifika.
+Each declaration has the children `annotation*` first, then `modifiers`, then its specifics.
 
-| Kind | text | Weitere Kinder |
+| Kind | text | Further children |
 | --- | --- | --- |
-| `file` | – | `package?`, `use*`, Deklarationen |
+| `file` | – | `package?`, `use*`, declarations |
 | `package` | `a.b` | – |
-| `use` | – | `use-item*` (text = voller Pfad, optional Kind `alias`) |
-| `annotation` | Name | Argumentausdrücke |
+| `use` | – | `use-item*` (text = full path, optional child `alias`) |
+| `annotation` | name | argument expressions |
 | `modifiers` | – | `modifier*` (public/private/protected/static/abstract/override/final) |
-| `class` | Name | `where?`, `based?`, `implements?`, `body` |
-| `data-class` | Name | `params`, `where?`, `based?`, `implements?`, `body?` |
-| `record` | Name | `params`, `body?` |
-| `interface` | Name | `where?`, `based?`, `body` |
-| `enum` | Name | `body` (`enum-entry*`, danach Mitglieder) |
-| `exception` | Name | `params?`, `based?`, `body?` |
-| `macro` | Name | `params`, `targets` (`target*`), `block` |
-| `method` | Name | `return-type?` (Typ), `params`, `where?`, `block` \| `placeholder` \| nichts |
-| `constructor` | Name | `params`, `super-call?` (text super/this, Argumente), `block` |
-| `property` | Name | Typ, `accessors` (`accessor` text get/set), Initializer? |
-| `field` | Name | Typ, Initializer? |
-| `variable` | Name | Typ (`type var`), Initializer? (z. B. `final var X = 1`) |
-| `params` | – | `param*` (text = Name; `annotation*`, `modifiers`, Typ, Default?) |
-| `where` | – | `typeparam*` (text = Name; Bounds als Typ-Knoten) |
-| `based` / `implements` | – | Typ-Knoten |
-| `body` | – | Mitglieder |
+| `class` | name | `where?`, `based?`, `implements?`, `body` |
+| `data-class` | name | `params`, `where?`, `based?`, `implements?`, `body?` |
+| `record` | name | `params`, `body?` |
+| `interface` | name | `where?`, `based?`, `body` |
+| `enum` | name | `body` (`enum-entry*`, then members) |
+| `exception` | name | `params?`, `based?`, `body?` |
+| `macro` | name | `params`, `targets` (`target*`), `block` |
+| `method` | name | `return-type?` (type), `params`, `where?`, `block` \| `placeholder` \| nothing |
+| `constructor` | name | `params`, `super-call?` (text super/this, arguments), `block` |
+| `property` | name | type, `accessors` (`accessor` text get/set), initializer? |
+| `field` | name | type, initializer? |
+| `variable` | name | type (`type var`), initializer? (e.g. `final var X = 1`) |
+| `params` | – | `param*` (text = name; `annotation*`, `modifiers`, type, default?) |
+| `where` | – | `typeparam*` (text = name; bounds as type nodes) |
+| `based` / `implements` | – | type nodes |
+| `body` | – | members |
 
-## Typen
+## Types
 
-`type` (text = Basisname, Kinder = Typargumente), `tuple-type` (Kinder = Elementtypen), `var` für Inferenz.
+`type` (text = base name, children = type arguments), `tuple-type` (children = element types), `var` for inference.
 
 ## Statements
 
 `block`, `placeholder`, `local`, `init`, `destructure`, `binding`, `wildcard`, `cascade`, `cascade-item`,
 `if`, `while`, `for`, `foreach`, `return`, `fail`, `success`, `break`, `continue`, `switch`, `case`,
 `pattern-success`, `pattern-error`, `pattern-name`, `pattern-value`, `assign`, `expr-stmt`.
-Kinderreihenfolge: Kopfkommentar in `StatementParser.ems`.
+Child order: see the header comment in `StatementParser.ems`.
 
-## Ausdrücke
+## Expressions
 
 `int-literal`, `float-literal`, `string`, `bool-literal`, `null-literal`, `name`, `this`, `generic-ref`,
 `splice`, `member`, `call`, `index`, `propagate` (`?`), `unwrap` (`!`), `postfix`, `unary`, `binary`,
 `ternary`, `assign`, `is`, `as`, `cascade`, `cascade-section`, `lambda`, `list-literal`, `dict-literal`,
 `dict-entry`, `task` (fiber/virtual/thread), `switch`, `case`, `pattern`, `pattern-literal`, `quote`, `error`.
-Details: Kopfkommentar in `ExpressionParser.ems`.
+Details: see the header comment in `ExpressionParser.ems`.
 
-## Prüfung
+## Verification
 
-`scripts/run-sandbox.sh tests/showcase.ev` baut Ring0 in der Sandbox und gibt den Baum aus
-(`--tokens` zeigt nur Tokens). `tests/showcase.ev` ist der Sprachentwurf und parst ohne Diagnostics.
+`scripts/run-sandbox.sh tests/showcase.ev` builds Ring0 in the sandbox and prints the tree
+(`--tokens` prints tokens only). `tests/showcase.ev` is the language draft and parses without diagnostics.
+
+## Hardening (frontend)
+
+- `string`: `text` stays the raw text (escapes resolved). Each successfully parsed `${expression}` yields a child
+  `interpolation` with the expression as its only child. Unparseable parts (e.g. `$(...)` in macros) stay in the raw text only.
+- `assign`: `text` is `=`, `+=`, `-=`, `*=`, `/=` or `%=`.
+- Local variables and loop variables may be named like the keywords `exception`, `method`, `macro`, `record`, `class`,
+  `interface`, `enum`, `package`, `use`.
+- `?` at line end is a ternary if, within the next 3 lines at bracket depth 0, a `:` follows before another
+  `?`, `;`, `->` or `=`; otherwise it is propagation.
+- Tests: `scripts/check-syntax.sh` (negative/positive tests under `tests/syntax/`, AST comparison `tests/golden/showcase.ast`).

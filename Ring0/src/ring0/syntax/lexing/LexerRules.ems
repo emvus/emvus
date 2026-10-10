@@ -148,6 +148,10 @@ public class LexerRules {
             return true;
         }
 
+        if (second == "=" && (first == "+" || first == "-" || first == "*" || first == "/" || first == "%")) {
+            return true;
+        }
+
         return first == "." && second == ".";
     }
 

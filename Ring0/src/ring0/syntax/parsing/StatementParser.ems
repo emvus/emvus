@@ -1,40 +1,40 @@
 namespace ring0::syntax;
 
 
-// StatementParser: Statements und Blöcke.
+// StatementParser: statements and blocks.
 //
 // API
 //   parseBlock()     -> "block"   konsumiert `{ ... }`, Semikolons optional
-//   parseStatement() -> Statement-Knoten, konsumiert ein optionales `;`
+//   parseStatement() -> statement node, consumes an optional `;`
 //
-// Erzeugte Knotenarten (Kinder in Reihenfolge)
+// Produced node kinds (children in order)
 //   block         []  Statements
-//   empty         []  nur intern für ein einzelnes `;` (wird in Blöcken verworfen)
+//   empty         []  internal only, for a lone `;` (dropped inside blocks)
 //   placeholder   []  `...` Platzhalter-Body
 //   local         text=Name; [modifier* (text final|scoped), type|var, init?]
-//                 type = Knoten von TypeParser, var = Knoten "var" (inferiert), dynamic = Knoten "type" text "dynamic"
-//   init          [expr | cascade]  Initialisierer von local/destructure
+//                 type = node from TypeParser, var = "var" node (inferred), dynamic = "type" node with text "dynamic"
+//   init          [expr | cascade]  initializer of local/destructure
 //   destructure   [modifier*, (binding | wildcard)+, init]   `var { a, _ } = e`
 //   binding       text=Name, wildcard text=_
-//   cascade       [expr, cascade-item+]   Ausdruck gefolgt von `..`-Abschnitten
+//   cascade       [expr, cascade-item+]   expression followed by `..` sections
 //   cascade-item  [expr]
-//   if            [cond-expr, body, else?]   else-Zweig nur mit Fehler "else not supported"
+//   if            [cond-expr, body, else?]   else branch only with the error "else not supported"
 //   else          [body]
 //   while         [cond-expr, body]
-//   for           [init, condition, update, body]   immer 4 Kinder, init/condition/update ggf. ohne Kinder
+//   for           [init, condition, update, body]   always 4 children; init/condition/update may be empty
 //                 init=[statement], condition=[expr], update=[expr*]
 //   foreach       text=Variablenname; [type|var, iterable-expr, body]
-//   return        [expr?]   Wert nur, wenn er in derselben Zeile wie `return` steht
+//   return        [expr?]   value only if it is on the same line as `return`
 //   fail          [expr]
 //   success       [expr]
 //   break, continue  []
 //   switch        [subject-expr, case*]
-//   case          [pattern+, body]   Body = letztes Kind (Statement oder block)
-//   pattern-success  [binding|wildcard]?        `success` oder `success(x)`
-//   pattern-error    [type?, binding|wildcard]? `error`, `error(e)`, `error(Typ e)`
-//   pattern-name     text=Name                   freier Name, z. B. `unknown` oder Enum-Konstante
-//   pattern-value    [expr]                      Literal / qualifizierter Ausdruck
-//   assign        [lhs, rhs]   nur falls ExpressionParser `=` nicht selbst verarbeitet
+//   case          [pattern+, body]   body = last child (statement or block)
+//   pattern-success  [binding|wildcard]?        `success` or `success(x)`
+//   pattern-error    [type?, binding|wildcard]? `error`, `error(e)`, `error(Type e)`
+//   pattern-name     text=Name                   free name, e.g. `unknown` or an enum constant
+//   pattern-value    [expr]                      literal / qualified expression
+//   assign        [lhs, rhs]   only if ExpressionParser does not handle `=` itself
 //   expr-stmt     [expr | cascade | assign]
 public class StatementParser {
     private ParserState state;
@@ -208,7 +208,7 @@ public class StatementParser {
         return cascade;
     }
 
-    // Ausdruck, ggf. gefolgt von `= rhs`, falls der ExpressionParser Zuweisungen nicht selbst kennt
+    // Expression, optionally followed by `= rhs` in case ExpressionParser does not handle assignments itself
     private Node parseExpressionWithAssign() {
         Node expression = ExpressionParser(this.state).parse();
 
@@ -254,14 +254,40 @@ public class StatementParser {
             return false;
         }
 
-        // Spekulativ: Typ, danach ein Bezeichner ergibt eine Deklaration
+        // Speculative: a type followed by an identifier is a declaration
         Int start = this.state.position();
         this.state.beginSpeculation();
         TypeParser(this.state).parse();
         Bool parsed = this.state.endSpeculation();
-        Bool declaration = parsed && this.state.peek().kindIs("identifier");
+        Bool declaration = parsed && this.atDeclarationName();
         this.state.seek(start);
         return declaration;
+    }
+
+    // An identifier, or a keyword (e.g. `exception`) as a variable name when it is followed by
+    // `=`, `;` or a line break. Control-flow keywords are never names.
+    private Bool atDeclarationName() {
+        Token token = this.state.peek();
+
+        if (token.kindIs("identifier")) {
+            return true;
+        }
+
+        if (!this.isNameKeyword(token)) {
+            return false;
+        }
+
+        Token next = this.state.peekAt(1);
+        return next.isSymbol("=") || next.isSymbol(";") || next.line() != token.line() || next.kindIs("eof");
+    }
+
+    private Bool isNameKeyword(Token token) {
+        if (!token.kindIs("keyword")) {
+            return false;
+        }
+
+        String text = token.text();
+        return text == "exception" || text == "method" || text == "macro" || text == "record" || text == "class" || text == "interface" || text == "enum" || text == "package" || text == "use";
     }
 
     private Node parseLocal() {
@@ -292,7 +318,7 @@ public class StatementParser {
     }
 
     private Node finishLocal(Token start, List<Node> modifiers, Node typeNode) {
-        Token nameToken = this.state.consumeKind("identifier", "Expected variable name");
+        Token nameToken = this.consumeName("Expected variable name");
         Node local = this.state.nodeAt(start, "local", nameToken.text());
         Int index = 0;
 
@@ -347,7 +373,7 @@ public class StatementParser {
         return node;
     }
 
-    // Namen dürfen auch Schlüsselwörter sein (z. B. `exception` in `error(exception)`)
+    // Names may also be keywords (e.g. `exception` in `error(exception)`)
     private Token consumeName(String message) {
         if (this.state.peek().kindIs("keyword")) {
             return this.state.advance();
@@ -410,7 +436,7 @@ public class StatementParser {
         }
 
         Bool parsed = this.state.endSpeculation();
-        Bool result = parsed && this.state.peek().kindIs("identifier") && this.isWord(this.state.peekAt(1), "in");
+        Bool result = parsed && (this.state.peek().kindIs("identifier") || this.isNameKeyword(this.state.peek())) && this.isWord(this.state.peekAt(1), "in");
         this.state.seek(start);
         return result;
     }

@@ -83,7 +83,7 @@ public class LexerTokenReader {
         return Token("number", text, startLine, startColumn);
     }
 
-    // Escapes werden aufgelöst, ${...} und $(...) bleiben roh im Text.
+    // Escapes are resolved; ${...} and $(...) stay raw in the text.
     public Token readString() {
         Int startLine = this.cursor.line();
         Int startColumn = this.cursor.column();

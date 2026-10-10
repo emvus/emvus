@@ -1,0 +1,2943 @@
+file
+  package main
+  use
+    use-item std.collections.IIterator
+    use-item std.collections.IList
+    use-item std.collections.ListIterator
+    use-item std.functional.IPredicate
+    use-item util.playermanager
+    use-item util.playermanager.gamingPlayer
+      alias Gamer
+  variable MAX_PLAYERS
+    modifiers
+      modifier final
+    type var
+    int-literal 20
+  variable SERVER_NAME
+    modifiers
+      modifier final
+    type var
+    string Emvus
+  enum Rank
+    modifiers
+    body
+      enum-entry MEMBER
+      enum-entry MODERATOR
+      enum-entry ADMIN
+  record Point
+    modifiers
+    params
+      param x
+        modifiers
+        type Int
+      param y
+        modifiers
+        type Int
+  class Config
+    modifiers
+    body
+      property path
+        modifiers
+        type String
+        accessors
+          accessor get
+      constructor Config
+        modifiers
+        params
+          param path
+            modifiers
+            type String
+        block
+          expr-stmt
+            assign =
+              member path
+                name this
+              name path
+  exception SaveFileException
+    modifiers
+  exception ReadFileException
+    modifiers
+    based
+      type IOException
+  exception ParseException
+    modifiers
+    params
+      param input
+        modifiers
+        type String
+      param position
+        modifiers
+        type Int
+  exception ConfigException
+    modifiers
+    params
+      param path
+        modifiers
+        type String
+    based
+      type IOException
+  exception NegativeNumberException
+    modifiers
+    params
+      param value
+        modifiers
+        type Int
+  exception RangeException
+    modifiers
+    params
+      param value
+        modifiers
+        type Int
+      param min
+        modifiers
+        type Int
+      param max
+        modifiers
+        type Int
+    body
+      method message
+        modifiers
+        return-type
+          type String
+        params
+        block
+          return
+            string ${value} liegt nicht zwischen ${min} und ${max}
+              interpolation
+                name value
+              interpolation
+                name min
+              interpolation
+                name max
+  data-class Member
+    modifiers
+    params
+      param name
+        modifiers
+        type String
+      param age
+        modifiers
+        type Int
+  data-class Server
+    modifiers
+    params
+      param host
+        modifiers
+        type String
+      param port
+        modifiers
+        type Int
+        int-literal 25565
+      param online
+        modifiers
+        type Boolean
+        bool-literal true
+  data-class Coordinates
+    modifiers
+    params
+      param x
+        modifiers
+        type Int
+      param y
+        modifiers
+        type Int
+  data-class Employee
+    modifiers
+    params
+      param name
+        modifiers
+        type String
+      param age
+        modifiers
+        type Int
+    body
+      method isAdult
+        modifiers
+        return-type
+          type Boolean
+        params
+        block
+          return
+            binary >=
+              name age
+              int-literal 18
+      method greeting
+        modifiers
+        return-type
+          type String
+        params
+        block
+          return
+            string Hallo ${name}
+              interpolation
+                name name
+  data-class Pair
+    modifiers
+    params
+      param first
+        modifiers
+        type T
+      param second
+        modifiers
+        type U
+    where
+      typeparam T
+      typeparam U
+  data-class Limit
+    modifiers
+    params
+      param value
+        modifiers
+        type T
+    where
+      typeparam T
+        type Comparable
+          type T
+  method showDataClasses
+    modifiers
+    params
+    block
+      local member
+        type Member
+        init
+          call
+            name Member
+            string Jason
+            int-literal 20
+      local clone
+        type Member
+        init
+          call
+            member copy
+              name member
+      local aged
+        type Member
+        init
+          call
+            member withAge
+              name member
+            int-literal 21
+      local renamed
+        type Member
+        init
+          call
+            member withName
+              name member
+            string Anna
+      local same
+        type Boolean
+        init
+          call
+            member equals
+              name member
+            name clone
+      local sameOperator
+        type Boolean
+        init
+          binary ==
+            name member
+            name clone
+      local hash
+        type Int
+        init
+          call
+            member hashCode
+              name member
+      local description
+        type String
+        init
+          call
+            member toString
+              name member
+      expr-stmt
+        call
+          name println
+          string ${member.name} ${aged.age} ${renamed.name}
+            interpolation
+              member name
+                name member
+            interpolation
+              member age
+                name aged
+            interpolation
+              member name
+                name renamed
+      expr-stmt
+        call
+          name println
+          string ${same} ${sameOperator} ${hash} ${description}
+            interpolation
+              name same
+            interpolation
+              name sameOperator
+            interpolation
+              name hash
+            interpolation
+              name description
+      local local
+        type Server
+        init
+          call
+            name Server
+            string localhost
+      local custom
+        type Server
+        init
+          call
+            name Server
+            string example.com
+            int-literal 25566
+      local position
+        type Coordinates
+        init
+          call
+            name Coordinates
+            int-literal 10
+            int-literal 20
+      destructure
+        binding x
+        binding y
+        init
+          name position
+      destructure
+        binding horizontal
+        wildcard _
+        init
+          name position
+      local pair
+        type Pair
+          type Int
+          type String
+        init
+          call
+            name Pair
+            int-literal 1
+            string eins
+      expr-stmt
+        call
+          name println
+          string ${x + y} ${horizontal} ${local.port} ${custom.port} ${pair.first}
+            interpolation
+              binary +
+                name x
+                name y
+            interpolation
+              name horizontal
+            interpolation
+              member port
+                name local
+            interpolation
+              member port
+                name custom
+            interpolation
+              member first
+                name pair
+  interface ISpeaker
+    modifiers
+    body
+      method speak
+        modifiers
+        return-type
+          type String
+        params
+  interface IPet
+    modifiers
+    based
+      type ISpeaker
+    body
+      method isHungry
+        modifiers
+        return-type
+          type Boolean
+        params
+  interface ITrainable
+    modifiers
+    body
+      method tricks
+        modifiers
+        return-type
+          type Int
+        params
+  class Animal
+    modifiers
+      modifier abstract
+    implements
+      type ISpeaker
+    body
+      property name
+        modifiers
+        type String
+        accessors
+          accessor get
+      constructor Animal
+        modifiers
+        params
+          param name
+            modifiers
+            type String
+        block
+          expr-stmt
+            assign =
+              member name
+                name this
+              name name
+      method sound
+        modifiers
+          modifier abstract
+        return-type
+          type String
+        params
+      method label
+        modifiers
+          modifier protected
+        return-type
+          type String
+        params
+        block
+          return
+            string [${name}]
+              interpolation
+                name name
+      method speak
+        modifiers
+        return-type
+          type String
+        params
+        block
+          return
+            string ${label()} sagt ${sound()}
+              interpolation
+                call
+                  name label
+              interpolation
+                call
+                  name sound
+  class Dog
+    modifiers
+    based
+      type Animal
+    implements
+      type IPet
+      type ITrainable
+    body
+      constructor Dog
+        modifiers
+        params
+          param name
+            modifiers
+            type String
+        super-call super
+          name name
+        block
+      method sound
+        modifiers
+          modifier override
+        return-type
+          type String
+        params
+        block
+          return
+            string Wuff
+      method isHungry
+        modifiers
+        return-type
+          type Boolean
+        params
+        block
+          return
+            bool-literal true
+      method tricks
+        modifiers
+        return-type
+          type Int
+        params
+        block
+          return
+            int-literal 3
+  class Person
+    modifiers
+    body
+      property name
+        modifiers
+        type String
+        accessors
+          accessor get
+      property age
+        modifiers
+        type Int
+        accessors
+          accessor get
+          accessor set
+      field visits
+        modifiers
+          modifier private
+        type Int
+      constructor Person
+        modifiers
+        params
+          param name
+            modifiers
+            type String
+          param age
+            modifiers
+            type Int
+        block
+          expr-stmt
+            assign =
+              member name
+                name this
+              name name
+          expr-stmt
+            assign =
+              member age
+                name this
+              name age
+      method introduce
+        modifiers
+        return-type
+          type String
+        params
+        block
+          return
+            string Hey, ich bin ${name} und ${age} Jahre alt!
+              interpolation
+                name name
+              interpolation
+                name age
+      method calculate
+        annotation Async
+        modifiers
+        return-type
+          type Int
+        params
+          param value
+            modifiers
+            type Int
+        block
+          return
+            binary *
+              name value
+              name value
+      method birthday
+        annotation Synchronized
+        modifiers
+        params
+        block
+          expr-stmt
+            postfix ++
+              name age
+  class Box
+    modifiers
+    where
+      typeparam T
+    body
+      property value
+        modifiers
+        type T
+        accessors
+          accessor get
+          accessor set
+      constructor Box
+        modifiers
+        params
+          param value
+            modifiers
+            type T
+        block
+          expr-stmt
+            assign =
+              member value
+                name this
+              name value
+      method matches
+        modifiers
+        return-type
+          type Boolean
+        params
+          param predicate
+            modifiers
+            type IPredicate
+              type T
+        block
+          return
+            call
+              member test
+                name predicate
+              name value
+  class Profile
+    modifiers
+    body
+      property nickname
+        modifiers
+        type String
+        accessors
+          accessor get
+          accessor set
+        null-literal
+  method displayName
+    modifiers
+    return-type
+      type String
+    params
+      param nickname
+        modifiers
+        type String
+    block
+      if
+        binary ==
+          name nickname
+          null-literal
+        block
+          return
+            string Unbekannt
+      return
+        name nickname
+  method nicknameLength
+    modifiers
+    return-type
+      type Int
+    params
+      param profile
+        modifiers
+        type Profile
+    block
+      local nickname
+        modifier final
+        var var
+        init
+          member nickname
+            name profile
+      if
+        binary ==
+          name nickname
+          null-literal
+        block
+          return
+            int-literal 0
+      return
+        call
+          member length
+            name nickname
+  method first
+    modifiers
+    return-type
+      type T
+    params
+      param list
+        modifiers
+        type List
+          type T
+    where
+      typeparam T
+    block
+      return
+        call
+          member get
+            name list
+          int-literal 0
+  method size
+    modifiers
+    return-type
+      type Int
+    params
+      param list
+        modifiers
+        type List
+          type T
+    where
+      typeparam T
+    block
+      return
+        call
+          member size
+            name list
+  method print
+    modifiers
+    params
+      param value
+        modifiers
+        type T
+    where
+      typeparam T
+    block
+      expr-stmt
+        call
+          name println
+          name value
+  method max
+    modifiers
+    return-type
+      type T
+    params
+      param a
+        modifiers
+        type T
+      param b
+        modifiers
+        type T
+    where
+      typeparam T
+        type Comparable
+          type T
+    block
+      return
+        ternary
+          binary >
+            call
+              member compareTo
+                name a
+              name b
+            int-literal 0
+          name a
+          name b
+  method group
+    modifiers
+    return-type
+      type Dictionary
+        type K
+        type List
+          type V
+    params
+      param items
+        modifiers
+        type List
+          type V
+      param key
+        modifiers
+        type Function
+          type V
+          type K
+    where
+      typeparam K
+      typeparam V
+    placeholder
+  method process
+    modifiers
+    return-type
+      type T
+    params
+      param value
+        modifiers
+        type T
+    where
+      typeparam T
+        type Serializable
+        type Comparable
+          type T
+    placeholder
+  method describeAge
+    modifiers
+    return-type
+      type String
+    params
+      param age
+        modifiers
+        type Int
+    block
+      if
+        binary <
+          name age
+          int-literal 0
+        block
+          return
+            string ungültig
+      if
+        binary <
+          name age
+          int-literal 18
+        block
+          return
+            string minderjährig
+      return
+        string volljährig
+  method factorial
+    modifiers
+    return-type
+      type Result
+        type Int
+        type NegativeNumberException
+    params
+      param n
+        modifiers
+        type Int
+    block
+      if
+        binary <
+          name n
+          int-literal 0
+        block
+          fail
+            call
+              name NegativeNumberException
+              name n
+      local result
+        type Int
+        init
+          int-literal 1
+      for
+        init
+          local i
+            type Int
+            init
+              int-literal 2
+        condition
+          binary <=
+            name i
+            name n
+        update
+          postfix ++
+            name i
+        block
+          expr-stmt
+            assign =
+              name result
+              binary *
+                name result
+                name i
+      success
+        name result
+  method retry
+    modifiers
+    params
+      param attempts
+        modifiers
+        type Int
+    block
+      local attempt
+        type Int
+        init
+          int-literal 0
+      while
+        binary <
+          name attempt
+          name attempts
+        block
+          expr-stmt
+            postfix ++
+              name attempt
+          if
+            binary ==
+              name attempt
+              int-literal 2
+            block
+              continue
+          if
+            binary >
+              name attempt
+              name MAX_PLAYERS
+            block
+              break
+          expr-stmt
+            call
+              name println
+              string Versuch ${attempt}
+                interpolation
+                  name attempt
+  method readConfig
+    modifiers
+    return-type
+      type Result
+        type String
+        type ReadFileException
+    params
+      param path
+        modifiers
+        type String
+    block
+      if
+        call
+          member isEmpty
+            name path
+        block
+          fail
+            call
+              name ReadFileException
+              string Pfad fehlt
+      return
+        call
+          member readText
+            name Files
+          name path
+  method printConfig
+    modifiers
+    params
+      param path
+        modifiers
+        type String
+    block
+      switch
+        call
+          name readConfig
+          name path
+        case
+          pattern-success
+            binding text
+          expr-stmt
+            call
+              name println
+              name text
+        case
+          pattern-error
+            binding exception
+          expr-stmt
+            call
+              name errprintln
+              string Fehler: ${exception.message}
+                interpolation
+                  member message
+                    name exception
+  method loadConfig
+    modifiers
+    return-type
+      type Result
+        type Config
+        type IOException
+    params
+      param path
+        modifiers
+        type String
+    block
+      local text
+        type String
+        init
+          propagate
+            call
+              name readConfig
+              name path
+      if
+        call
+          member isEmpty
+            name text
+        block
+          fail
+            call
+              name ConfigException
+              name path
+      success
+        call
+          name Config
+          name path
+  method handleLoad
+    modifiers
+    params
+      param path
+        modifiers
+        type String
+    block
+      switch
+        call
+          name loadConfig
+          name path
+        case
+          pattern-success
+            binding config
+          expr-stmt
+            call
+              name println
+              member path
+                name config
+        case
+          pattern-error
+            type ConfigException
+            binding exception
+          expr-stmt
+            call
+              name errprintln
+              string Config leer: ${exception.path}
+                interpolation
+                  member path
+                    name exception
+        case
+          pattern-error
+            type IOException
+            binding exception
+          expr-stmt
+            call
+              name errprintln
+              member message
+                name exception
+  method parsePort
+    modifiers
+    return-type
+      type Result
+        type Int
+        type ParseException
+    params
+      param input
+        modifiers
+        type String
+    block
+      local port
+        type Int
+        init
+          propagate
+            call
+              member parse
+                name Int
+              name input
+      if
+        binary >
+          call
+            member length
+              name input
+          int-literal 5
+        block
+          fail
+            call
+              name ParseException
+              name input
+              int-literal 5
+      success
+        name port
+  method checkPort
+    modifiers
+    return-type
+      type Result
+        type Int
+        type RangeException
+    params
+      param port
+        modifiers
+        type Int
+    block
+      if
+        binary ||
+          binary <
+            name port
+            int-literal 1
+          binary >
+            name port
+            int-literal 65535
+        block
+          fail
+            call
+              name RangeException
+              name port
+              int-literal 1
+              int-literal 65535
+      success
+        name port
+  method showResults
+    modifiers
+    params
+    block
+      local port
+        type Int
+        init
+          unwrap
+            call
+              name parsePort
+              string 25565
+      local fallback
+        type Int
+        init
+          call
+            member orElse
+              call
+                name parsePort
+                string abc
+            int-literal 25565
+      switch
+        call
+          name checkPort
+          name port
+        case
+          pattern-success
+            binding value
+          expr-stmt
+            call
+              name println
+              name value
+        case
+          pattern-error
+            binding exception
+          expr-stmt
+            call
+              name errprintln
+              member message
+                name exception
+      expr-stmt
+        call
+          name println
+          string ${fallback} ${factorial(5)!}
+            interpolation
+              name fallback
+            interpolation
+              unwrap
+                call
+                  name factorial
+                  int-literal 5
+  method readFile
+    modifiers
+    return-type
+      type String
+    params
+      param path
+        modifiers
+        type String
+    block
+      local file
+        modifier scoped
+        var var
+        init
+          call
+            member open
+              name Files
+            name path
+      return
+        call
+          member readAll
+            name file
+  method showCascade
+    modifiers
+    params
+    block
+      local person
+        type Person
+        init
+          cascade
+            call
+              name Person
+              string Anna
+              int-literal 30
+            cascade-section
+              call
+                name birthday
+            cascade-section
+              assign =
+                name age
+                cascade
+                  int-literal 40
+                  cascade-section
+                    call
+                      name birthday
+      expr-stmt
+        call
+          name println
+          call
+            member introduce
+              name person
+  method printNumber
+    modifiers
+    params
+      param value
+        modifiers
+        type String
+    block
+      switch
+        call
+          member toLowerCase
+            name value
+        case
+          pattern-value
+            string one
+          expr-stmt
+            call
+              name println
+              int-literal 1
+        case
+          pattern-value
+            string two
+          expr-stmt
+            call
+              name println
+              int-literal 2
+        case
+          pattern-name unknown
+          expr-stmt
+            call
+              name println
+              int-literal 0
+  method parseNumberStrict
+    modifiers
+    return-type
+      type Result
+        type Int
+        type UnknownCaseException
+    params
+      param value
+        modifiers
+        type String
+    block
+      return
+        switch
+          call
+            member toLowerCase
+              name value
+          case
+            patterns
+              pattern-literal
+                string one
+            success
+              int-literal 1
+          case
+            patterns
+              pattern-literal
+                string two
+            success
+              int-literal 2
+          case
+            patterns
+              pattern unknown
+            fail
+              call
+                name UnknownCaseException
+  method printNumberStrict
+    modifiers
+    params
+      param value
+        modifiers
+        type String
+    block
+      switch
+        call
+          name parseNumberStrict
+          name value
+        case
+          pattern-success
+            binding number
+          expr-stmt
+            call
+              name println
+              name number
+        case
+          pattern-error
+            binding exception
+          expr-stmt
+            call
+              name errprintln
+              member message
+                name exception
+  method toNumber
+    modifiers
+    return-type
+      type Int
+    params
+      param value
+        modifiers
+        type String
+    block
+      local number
+        type Int
+        init
+          switch
+            call
+              member toLowerCase
+                name value
+            case
+              patterns
+                pattern-literal
+                  string one
+              int-literal 1
+            case
+              patterns
+                pattern-literal
+                  string two
+              int-literal 2
+            case
+              patterns
+                pattern unknown
+              int-literal 0
+      return
+        name number
+  method parseNumber
+    modifiers
+    return-type
+      type Int
+    params
+      param value
+        modifiers
+        type String
+    block
+      return
+        switch
+          call
+            member toLowerCase
+              name value
+          case
+            patterns
+              pattern-literal
+                string one
+            int-literal 1
+          case
+            patterns
+              pattern-literal
+                string two
+            int-literal 2
+          case
+            patterns
+              pattern unknown
+            int-literal 0
+  method rankLabel
+    modifiers
+    return-type
+      type String
+    params
+      param rank
+        modifiers
+        type Rank
+    block
+      return
+        switch
+          name rank
+          case
+            patterns
+              pattern MEMBER
+            string Mitglied
+          case
+            patterns
+              pattern MODERATOR
+            string Moderator
+          case
+            patterns
+              pattern ADMIN
+            string Administrator
+  method save
+    modifiers
+    return-type
+      type Result
+        type Boolean
+        type SaveFileException
+    params
+      param config
+        modifiers
+        type Config
+    block
+      if
+        call
+          member isEmpty
+            member path
+              name config
+        block
+          fail
+            call
+              name SaveFileException
+              string Pfad fehlt
+      success
+        bool-literal true
+  method handleSave
+    modifiers
+    params
+      param config
+        modifiers
+        type Config
+    block
+      local result
+        type Result
+          type Boolean
+          type SaveFileException
+        init
+          call
+            name save
+            name config
+      switch
+        name result
+        case
+          pattern-success
+          expr-stmt
+            call
+              name println
+              string SUCCESS
+        case
+          pattern-error
+          expr-stmt
+            call
+              name errprintln
+              string ERROR
+      switch
+        name result
+        case
+          pattern-success
+            binding value
+          expr-stmt
+            call
+              name println
+              name value
+        case
+          pattern-error
+            binding exception
+          expr-stmt
+            call
+              name errprintln
+              name exception
+  method showCollections
+    modifiers
+    params
+    block
+      local numbers
+        type List
+          type Int
+        init
+          list-literal
+            int-literal 1
+            int-literal 2
+            int-literal 3
+            int-literal 4
+            int-literal 5
+      local doubled
+        type List
+          type Int
+        init
+          call
+            member map
+              name numbers
+            lambda
+              params
+                param x
+              binary *
+                name x
+                int-literal 2
+      local even
+        type List
+          type Int
+        init
+          call
+            member filter
+              name numbers
+            lambda
+              params
+                param x
+              binary ==
+                binary %
+                  name x
+                  int-literal 2
+                int-literal 0
+      local total
+        type Int
+        init
+          call
+            member reduce
+              name numbers
+            int-literal 0
+            lambda
+              params
+                param a
+                param b
+              binary +
+                name a
+                name b
+      expr-stmt
+        call
+          name println
+          string ${doubled} ${even} ${total}
+            interpolation
+              name doubled
+            interpolation
+              name even
+            interpolation
+              name total
+  method showDictionary
+    modifiers
+    params
+    block
+      local admin
+        type String
+        init
+          string Jason
+      local port
+        type Int
+        init
+          int-literal 25565
+      local online
+        type Boolean
+        init
+          bool-literal true
+      local server
+        type Dictionary
+          type String
+          type dynamic
+        init
+          dict-literal
+            dict-entry
+              string name
+              name SERVER_NAME
+            dict-entry
+              string port
+              name port
+            dict-entry
+              string online
+              name online
+            dict-entry
+              string motd
+              string Willkommen, ${admin}!
+                interpolation
+                  name admin
+            dict-entry
+              string players
+              list-literal
+                name admin
+                string David
+                string Anna
+            dict-entry
+              string limits
+              dict-literal
+                dict-entry
+                  string maxPlayers
+                  name MAX_PLAYERS
+                dict-entry
+                  string slots
+                  binary -
+                    name MAX_PLAYERS
+                    int-literal 5
+            dict-entry computed
+              name admin
+              string Admin
+      local points
+        var var
+        init
+          dict-literal
+            dict-entry
+              string alpha
+              int-literal 10
+            dict-entry
+              string beta
+              int-literal 20
+      expr-stmt
+        call
+          name println
+          index
+            name points
+            string alpha
+      expr-stmt
+        call
+          name println
+          index
+            name server
+            string name
+      expr-stmt
+        call
+          name println
+          index
+            index
+              name server
+              string limits
+            string maxPlayers
+      expr-stmt
+        assign =
+          index
+            name server
+            string port
+          int-literal 25566
+      expr-stmt
+        call
+          member put
+            name server
+          string online
+          bool-literal false
+      if
+        call
+          member contains
+            name server
+          string motd
+        block
+          expr-stmt
+            call
+              member remove
+                name server
+              string motd
+      foreach key
+        type String
+        call
+          member keys
+            name server
+        block
+          expr-stmt
+            call
+              name println
+              string ${key}: ${server[key]}
+                interpolation
+                  name key
+                interpolation
+                  index
+                    name server
+                    name key
+      expr-stmt
+        call
+          name println
+          string Einträge: ${server.size()}
+            interpolation
+              call
+                member size
+                  name server
+      expr-stmt
+        call
+          name println
+          call
+            member toJson
+              name server
+  method showLambdas
+    modifiers
+    params
+    block
+      local square
+        type Function
+          type Int
+          type Int
+        init
+          lambda
+            params
+              param x
+            binary *
+              name x
+              name x
+      local add
+        type BiFunction
+          type Int
+          type Int
+          type Int
+        init
+          lambda
+            params
+              param a
+              param b
+            binary +
+              name a
+              name b
+      local greet
+        type Runnable
+        init
+          lambda
+            params
+            call
+              name println
+              string Hello
+      local verbose
+        type Function
+          type Int
+          type Int
+        init
+          lambda
+            params
+              param x
+            block
+              local result
+                type Int
+                init
+                  binary *
+                    name x
+                    name x
+              return
+                name result
+      expr-stmt
+        call
+          name greet
+      expr-stmt
+        call
+          name println
+          string ${square(4)} ${add(1, 2)} ${verbose(3)}
+            interpolation
+              call
+                name square
+                int-literal 4
+            interpolation
+              call
+                name add
+                int-literal 1
+                int-literal 2
+            interpolation
+              call
+                name verbose
+                int-literal 3
+  method showDynamic
+    modifiers
+    params
+    block
+      local value
+        type dynamic
+        init
+          int-literal 42
+      expr-stmt
+        call
+          name println
+          name value
+      expr-stmt
+        assign =
+          name value
+          string jetzt ein String
+      expr-stmt
+        call
+          name println
+          name value
+      expr-stmt
+        assign =
+          name value
+          list-literal
+            int-literal 1
+            int-literal 2
+            int-literal 3
+      expr-stmt
+        call
+          name println
+          name value
+      if
+        is
+          name value
+          type List
+        block
+          expr-stmt
+            call
+              name println
+              string Liste mit ${value.size()} Einträgen
+                interpolation
+                  call
+                    member size
+                      name value
+  method inspect
+    modifiers
+    params
+      param value
+        modifiers
+        type dynamic
+    block
+      if
+        is
+          name value
+          type List
+            type Int
+        block
+          expr-stmt
+            call
+              name println
+              call
+                member size
+                  name value
+  class RestAPI
+    modifiers
+    body
+      property url
+        modifiers
+        type String
+        accessors
+          accessor get
+      constructor RestAPI
+        modifiers
+        params
+          param url
+            modifiers
+            type String
+        block
+          expr-stmt
+            assign =
+              member url
+                name this
+              name url
+  class Body
+    modifiers
+    body
+      property content
+        modifiers
+        type String
+        accessors
+          accessor get
+      constructor Body
+        modifiers
+        params
+          param content
+            modifiers
+            type String
+        block
+          expr-stmt
+            assign =
+              member content
+                name this
+              name content
+  method createResponse
+    modifiers
+    return-type
+      tuple-type
+        type RestAPI
+        type Body
+    params
+    block
+      return
+        list-literal
+          call
+            name RestAPI
+            string https://example.com
+          call
+            name Body
+            string {}
+  method showTuples
+    modifiers
+    params
+    block
+      destructure
+        binding restAPI
+        binding body
+        init
+          call
+            name createResponse
+      expr-stmt
+        call
+          name println
+          string ${restAPI.url} ${body.content}
+            interpolation
+              member url
+                name restAPI
+            interpolation
+              member content
+                name body
+      destructure
+        binding api
+        wildcard _
+        init
+          call
+            name createResponse
+      local result
+        tuple-type
+          type RestAPI
+          type Body
+        init
+          call
+            name createResponse
+      expr-stmt
+        call
+          name println
+          member url
+            index
+              name result
+              int-literal 0
+  method showLiterals
+    modifiers
+    params
+    block
+      local numbers
+        var var
+        init
+          list-literal
+            int-literal 1
+            int-literal 2
+            int-literal 3
+      local words
+        var var
+        init
+          list-literal
+            string A
+            string B
+      local pair
+        var var
+        init
+          list-literal
+            int-literal 42
+            string Jason
+      local mixed
+        var var
+        init
+          list-literal
+            bool-literal true
+            int-literal 42
+            float-literal 3.14
+      local numeric
+        var var
+        init
+          list-literal
+            int-literal 1
+            float-literal 2.0
+      local items
+        type List
+          type Int
+        init
+          list-literal
+      local point
+        tuple-type
+          type Int
+          type Int
+        init
+          call
+            generic-ref Tuple
+              type Int
+              type Int
+            int-literal 1
+            int-literal 2
+      expr-stmt
+        call
+          member add
+            name numbers
+          int-literal 4
+      expr-stmt
+        call
+          member add
+            name items
+          int-literal 1
+      expr-stmt
+        call
+          name println
+          string ${words} ${pair[1].length()} ${mixed[2]} ${numeric[1]} ${point[0]}
+            interpolation
+              name words
+            interpolation
+              call
+                member length
+                  index
+                    name pair
+                    int-literal 1
+            interpolation
+              index
+                name mixed
+                int-literal 2
+            interpolation
+              index
+                name numeric
+                int-literal 1
+            interpolation
+              index
+                name point
+                int-literal 0
+  macro Logged
+    modifiers
+    params
+    targets
+      target Method
+    block
+      expr-stmt
+        call
+          member prepend
+            member body
+              name target
+          call
+            member expression
+              name Statement
+            call
+              member call
+                name Expression
+              string println
+              list-literal
+                call
+                  member str
+                    name Expression
+                  string → ${target.name}
+                    interpolation
+                      member name
+                        name target
+  macro GenerateId
+    modifiers
+    params
+    targets
+      target Class
+    block
+      expr-stmt
+        call
+          member addField
+            name target
+          quote field
+            field id
+              modifiers
+              type Int
+              int-literal 0
+      expr-stmt
+        call
+          member addMethod
+            name target
+          quote method
+            method getId
+              modifiers
+              return-type
+                type Int
+              params
+              block
+                return
+                  member id
+                    name this
+  macro Trace
+    modifiers
+    params
+    targets
+      target Method
+    block
+      expr-stmt
+        call
+          member prepend
+            member body
+              name target
+          quote statement
+            block
+              expr-stmt
+                call
+                  name println
+                  string Method entered
+  macro Validate
+    modifiers
+    params
+    targets
+      target Method
+    block
+      if
+        call
+          member isEmpty
+            member params
+              name target
+        block
+          expr-stmt
+            call
+              member fail
+                name Macro
+              name target
+              string @Validate braucht mindestens einen Parameter
+      local param
+        type Parameter
+        init
+          call
+            member first
+              member params
+                name target
+      expr-stmt
+        call
+          member prepend
+            member body
+              name target
+          quote statement
+            block
+              if
+                binary <
+                  splice
+                    member name
+                      name param
+                  int-literal 0
+                block
+                  expr-stmt
+                    call
+                      name panic
+                      string $(param.name) must not be negative
+  macro Resettable
+    modifiers
+    params
+    targets
+      target Class
+    block
+      if
+        unary !
+          call
+            member hasProperty
+              name target
+            string count
+        block
+          expr-stmt
+            call
+              member fail
+                name Macro
+              name target
+              string @Resettable braucht ein Feld count
+      expr-stmt
+        call
+          member addMethod
+            name target
+          quote method
+            method reset
+              modifiers
+              params
+              block
+                expr-stmt
+                  assign =
+                    member count
+                      name this
+                    int-literal 0
+      expr-stmt
+        call
+          member addMethod
+            name target
+          quote method
+            method isEmpty
+              modifiers
+              return-type
+                type Boolean
+              params
+              block
+                return
+                  binary ==
+                    member count
+                      name this
+                    int-literal 0
+  macro ReplaceBody
+    modifiers
+    params
+    targets
+      target Method
+    block
+      expr-stmt
+        call
+          member replace
+            member body
+              name target
+          int-literal 0
+          quote statement
+            block
+              return
+                int-literal 42
+  macro Range
+    modifiers
+    params
+      param min
+        modifiers
+        type Int
+      param max
+        modifiers
+        type Int
+    targets
+      target Parameter
+    block
+      expr-stmt
+        call
+          member prepend
+            member body
+              member owner
+                name target
+          quote statement
+            block
+              if
+                binary ||
+                  binary <
+                    splice
+                      member name
+                        name target
+                    splice
+                      name min
+                  binary >
+                    splice
+                      member name
+                        name target
+                    splice
+                      name max
+                block
+                  expr-stmt
+                    call
+                      name panic
+                      string $(target.name) muss zwischen $(min) und $(max) liegen
+  macro ToString
+    modifiers
+    params
+    targets
+      target Class
+    block
+      local parts
+        type List
+          type Expression
+        init
+          call
+            member map
+              member properties
+                name target
+            lambda
+              params
+                param property
+              quote expression
+                string $(property.name)=${this.$(property.name)}
+      expr-stmt
+        call
+          member addMethod
+            name target
+          quote method
+            method toString
+              modifiers
+              return-type
+                type String
+              params
+              block
+                return
+                  splice
+                    call
+                      member join
+                        name Expression
+                      string , 
+                      name parts
+  macro Countable
+    modifiers
+    params
+    targets
+      target Enum
+    block
+      expr-stmt
+        call
+          member addMethod
+            name target
+          quote method
+            method count
+              modifiers
+                modifier static
+              return-type
+                type Int
+              params
+              block
+                return
+                  splice
+                    call
+                      member size
+                        member entries
+                          name target
+  macro TraceAll
+    modifiers
+    params
+    targets
+      target Method
+      target Class
+    block
+      if
+        is
+          name target
+          type Method
+        block
+          expr-stmt
+            call
+              member prepend
+                member body
+                  name target
+              call
+                name trace
+                member name
+                  name target
+          return
+      expr-stmt
+        call
+          member forEach
+            member methods
+              name target
+          lambda
+            params
+              param method
+            call
+              member prepend
+                member body
+                  name method
+              call
+                name trace
+                member name
+                  name method
+  method trace
+    modifiers
+      modifier private
+      modifier static
+    return-type
+      type Statement
+    params
+      param name
+        modifiers
+        type String
+    block
+      return
+        quote statement
+          block
+            expr-stmt
+              call
+                name println
+                string → $(name)
+  method compute
+    annotation Logged
+    modifiers
+    return-type
+      type Int
+    params
+      param x
+        modifiers
+        type Int
+    block
+      return
+        binary *
+          name x
+          name x
+  method setLevel
+    modifiers
+    return-type
+      type Int
+    params
+      param level
+        annotation Range
+          int-literal 1
+          int-literal 10
+        modifiers
+        type Int
+    block
+      return
+        name level
+  class User
+    annotation GenerateId
+    modifiers
+    body
+      field name
+        modifiers
+          modifier private
+        type String
+      constructor User
+        modifiers
+        params
+          param name
+            modifiers
+            type String
+        block
+          expr-stmt
+            assign =
+              member name
+                name this
+              name name
+      method getName
+        modifiers
+        return-type
+          type String
+        params
+        block
+          return
+            member name
+              name this
+  class Calculator
+    modifiers
+    body
+      method add
+        annotation Trace
+        modifiers
+        return-type
+          type Int
+        params
+          param a
+            modifiers
+            type Int
+          param b
+            modifiers
+            type Int
+        block
+          return
+            binary +
+              name a
+              name b
+      method multiply
+        annotation Trace
+        modifiers
+        return-type
+          type Int
+        params
+          param a
+            modifiers
+            type Int
+          param b
+            modifiers
+            type Int
+        block
+          return
+            binary *
+              name a
+              name b
+  class Account
+    modifiers
+    body
+      field balance
+        modifiers
+          modifier private
+        type Int
+      constructor Account
+        modifiers
+        params
+        block
+          expr-stmt
+            assign =
+              member balance
+                name this
+              int-literal 0
+      method deposit
+        annotation Validate
+        modifiers
+        params
+          param value
+            modifiers
+            type Int
+        block
+          expr-stmt
+            assign =
+              member balance
+                name this
+              binary +
+                member balance
+                  name this
+                name value
+  class Counter
+    annotation Resettable
+    modifiers
+    body
+      field count
+        modifiers
+          modifier private
+        type Int
+      constructor Counter
+        modifiers
+        params
+        block
+          expr-stmt
+            assign =
+              member count
+                name this
+              int-literal 0
+      method increment
+        modifiers
+        params
+        block
+          expr-stmt
+            assign =
+              member count
+                name this
+              binary +
+                member count
+                  name this
+                int-literal 1
+      method getCount
+        modifiers
+        return-type
+          type Int
+        params
+        block
+          return
+            member count
+              name this
+  class Answer
+    modifiers
+    body
+      method calculate
+        annotation ReplaceBody
+        modifiers
+        return-type
+          type Int
+        params
+        block
+          return
+            int-literal 100
+  class Player
+    annotation ToString
+    modifiers
+    body
+      property name
+        modifiers
+        type String
+        accessors
+          accessor get
+      property score
+        modifiers
+        type Int
+        accessors
+          accessor get
+          accessor set
+      constructor Player
+        modifiers
+        params
+          param name
+            modifiers
+            type String
+          param score
+            modifiers
+            type Int
+        block
+          expr-stmt
+            assign =
+              member name
+                name this
+              name name
+          expr-stmt
+            assign =
+              member score
+                name this
+              name score
+  enum Difficulty
+    annotation Countable
+    modifiers
+    body
+      enum-entry EASY
+      enum-entry NORMAL
+      enum-entry HARD
+  method showMacros
+    modifiers
+    params
+    block
+      local user
+        type User
+        init
+          call
+            name User
+            string Anna
+      expr-stmt
+        call
+          name println
+          string ${user.getName()} ${user.getId()}
+            interpolation
+              call
+                member getName
+                  name user
+            interpolation
+              call
+                member getId
+                  name user
+      local calculator
+        type Calculator
+        init
+          call
+            name Calculator
+      expr-stmt
+        call
+          name println
+          call
+            member add
+              name calculator
+            int-literal 1
+            int-literal 2
+      expr-stmt
+        call
+          name println
+          call
+            member multiply
+              name calculator
+            int-literal 3
+            int-literal 4
+      local account
+        type Account
+        init
+          call
+            name Account
+      expr-stmt
+        call
+          member deposit
+            name account
+          int-literal 50
+      local counter
+        type Counter
+        init
+          cascade
+            call
+              name Counter
+            cascade-section
+              call
+                name increment
+            cascade-section
+              call
+                name increment
+      expr-stmt
+        call
+          name println
+          call
+            member getCount
+              name counter
+      expr-stmt
+        call
+          member reset
+            name counter
+      expr-stmt
+        call
+          name println
+          call
+            member isEmpty
+              name counter
+      expr-stmt
+        call
+          name println
+          call
+            member calculate
+              call
+                name Answer
+      expr-stmt
+        call
+          name println
+          call
+            name compute
+            int-literal 5
+      expr-stmt
+        call
+          name println
+          call
+            name setLevel
+            int-literal 5
+      expr-stmt
+        call
+          name println
+          call
+            member toString
+              call
+                name Player
+                string Anna
+                int-literal 12
+      expr-stmt
+        call
+          name println
+          call
+            member count
+              name Difficulty
+  method calculate
+    modifiers
+    return-type
+      type Int
+    params
+      param value
+        modifiers
+        type Int
+    block
+      return
+        binary *
+          name value
+          name value
+  method sum
+    modifiers
+      modifier private
+      modifier static
+    return-type
+      type Int
+    params
+      param a
+        modifiers
+        type Int
+      param b
+        modifiers
+        type Int
+    block
+      return
+        binary +
+          name a
+          name b
+  method head
+    modifiers
+      modifier private
+      modifier static
+    return-type
+      type T
+    params
+      param values
+        modifiers
+        type List
+          type T
+    where
+      typeparam T
+    block
+      return
+        call
+          member get
+            name values
+          int-literal 0
+  method showTasks
+    modifiers
+    params
+    block
+      local fiberTask
+        var var
+        init
+          task fiber
+            block
+              return
+                call
+                  name sum
+                  int-literal 10
+                  int-literal 20
+      local virtualTask
+        var var
+        init
+          task virtual
+            block
+              return
+                call
+                  name sum
+                  int-literal 30
+                  int-literal 40
+      local threadTask
+        var var
+        init
+          task thread
+            block
+              return
+                call
+                  name sum
+                  int-literal 50
+                  int-literal 60
+      local total
+        type Int
+        init
+          binary +
+            binary +
+              call
+                member await
+                  name fiberTask
+              call
+                member await
+                  name virtualTask
+            call
+              member await
+                name threadTask
+      expr-stmt
+        call
+          name println
+          string Total: ${total}
+            interpolation
+              name total
+  method showTypedTasks
+    modifiers
+    params
+    block
+      local fiberValue
+        type Fiber
+          type Int
+        init
+          task fiber
+            block
+              return
+                int-literal 42
+      local virtualValue
+        type VirtualThread
+          type String
+        init
+          task virtual
+            block
+              return
+                string Hello
+      local threadValue
+        type Thread
+          type Boolean
+        init
+          task thread
+            block
+              return
+                bool-literal true
+      expr-stmt
+        call
+          name println
+          string ${fiberValue.await()} ${virtualValue.await()} ${threadValue.await()}
+            interpolation
+              call
+                member await
+                  name fiberValue
+            interpolation
+              call
+                member await
+                  name virtualValue
+            interpolation
+              call
+                member await
+                  name threadValue
+  method showInlineAwait
+    modifiers
+    params
+    block
+      local fiberResult
+        type Int
+        init
+          call
+            member await
+              task fiber
+                block
+                  return
+                    int-literal 42
+      local virtualResult
+        type String
+        init
+          call
+            member await
+              task virtual
+                block
+                  return
+                    string Hi
+      local threadResult
+        type Boolean
+        init
+          call
+            member await
+              task thread
+                block
+                  return
+                    bool-literal true
+      expr-stmt
+        call
+          name println
+          string ${fiberResult} ${virtualResult} ${threadResult}
+            interpolation
+              name fiberResult
+            interpolation
+              name virtualResult
+            interpolation
+              name threadResult
+  method start
+    modifiers
+    params
+    block
+      local person
+        type Person
+        init
+          call
+            name Person
+            string Jason
+            int-literal 20
+      local worker
+        var var
+        init
+          task thread
+            block
+              expr-stmt
+                call
+                  name println
+                  call
+                    member introduce
+                      name person
+      expr-stmt
+        call
+          member await
+            name worker
+  method startInline
+    modifiers
+    params
+    block
+      local person
+        type Person
+        init
+          call
+            name Person
+            string Jason
+            int-literal 20
+      expr-stmt
+        call
+          member await
+            task thread
+              block
+                expr-stmt
+                  call
+                    name println
+                    call
+                      member introduce
+                        name person
+  method showSemicolons
+    modifiers
+    params
+    block
+      local a
+        var var
+        init
+          task fiber
+            block
+              return
+                call
+                  name calculate
+                  int-literal 10
+      local b
+        var var
+        init
+          task virtual
+            block
+              return
+                call
+                  name calculate
+                  int-literal 20
+      local c
+        var var
+        init
+          task thread
+            block
+              return
+                call
+                  name calculate
+                  int-literal 30
+      expr-stmt
+        call
+          name println
+          string a=${a.await()} b=${b.await()} c=${c.await()}
+            interpolation
+              call
+                member await
+                  name a
+            interpolation
+              call
+                member await
+                  name b
+            interpolation
+              call
+                member await
+                  name c
+  method main
+    modifiers
+      modifier static
+    params
+    block
+      local person
+        type Person
+        init
+          call
+            name Person
+            string Jason
+            int-literal 20
+      expr-stmt
+        call
+          name println
+          call
+            member introduce
+              name person
+      expr-stmt
+        call
+          name showTasks
+      expr-stmt
+        call
+          name showTypedTasks
+      expr-stmt
+        call
+          name showInlineAwait
+      expr-stmt
+        call
+          name start
+      expr-stmt
+        call
+          name startInline
+      expr-stmt
+        call
+          name showSemicolons
+      local asyncResult
+        type Fiber
+          type Int
+        init
+          call
+            member calculate
+              name person
+            int-literal 12
+      expr-stmt
+        call
+          name println
+          string Async result: ${asyncResult.await()}
+            interpolation
+              call
+                member await
+                  name asyncResult
+      expr-stmt
+        call
+          member birthday
+            name person
+      expr-stmt
+        call
+          name println
+          call
+            member introduce
+              name person
+      local dog
+        type Dog
+        init
+          call
+            name Dog
+            string Rex
+      expr-stmt
+        call
+          name println
+          call
+            member speak
+              name dog
+      expr-stmt
+        call
+          name showCascade
+      expr-stmt
+        call
+          name showCollections
+      expr-stmt
+        call
+          name showDictionary
+      expr-stmt
+        call
+          name showLambdas
+      expr-stmt
+        call
+          name showDynamic
+      expr-stmt
+        call
+          name showTuples
+      expr-stmt
+        call
+          name showLiterals
+      expr-stmt
+        call
+          name showResults
+      expr-stmt
+        call
+          name showDataClasses
+      expr-stmt
+        call
+          name showMacros
+

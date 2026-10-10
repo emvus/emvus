@@ -1,8 +1,8 @@
 namespace ring0::syntax;
 
-// Der Projektlader löst Klassen nur über `use` auf. Dieser Prelude listet alle Klassen des
-// Frontends, damit sich die Parser (zyklisch voneinander abhängig) ohne eigene `use`-Zeilen
-// finden. Main bindet nur diese Datei ein: `use ring0::syntax::SyntaxPrelude;`.
+// The project loader resolves classes only through `use`. This prelude lists every class of the
+// frontend so the parsers (which depend on each other cyclically) find one another without their own `use` lines.
+// Main imports only this file: `use ring0::syntax::SyntaxPrelude;`.
 use ring0::diagnostic::Diagnostic;
 use ring0::diagnostic::DiagnosticBag;
 use ring0::syntax::Token;

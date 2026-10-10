@@ -1,6 +1,6 @@
 namespace ring0::syntax;
 
-// Einheitlicher AST-Knoten. Die Knotenarten und ihre Kinder sind in AST.md dokumentiert.
+// Uniform AST node. Node kinds and their children are documented in AST.md.
 public class Node {
     private String kindValue;
     private String textValue;

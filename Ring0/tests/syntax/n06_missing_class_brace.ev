@@ -1,0 +1,8 @@
+// expect: Expected '}'@9
+class A {
+    Int x { get }
+
+    method<Int> value {
+        return 1
+    }
+

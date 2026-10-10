@@ -1,8 +1,8 @@
 namespace ring0::syntax;
 
-// Knoten:
-//   type        text=Basisname (qualifiziert mit '.'), Kinder = Typargumente
-//   tuple-type  Kinder = Elementtypen  ([A, B])
+// Nodes:
+//   type        text=base name (qualified with '.'), children = type arguments
+//   tuple-type  children = element types  ([A, B])
 public class TypeParser {
     private ParserState state;
 

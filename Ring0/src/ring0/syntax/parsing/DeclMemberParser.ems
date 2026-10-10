@@ -7,27 +7,27 @@ use ring0::syntax::ParserState;
 use ring0::syntax::StatementParser;
 use ring0::syntax::Token;
 use ring0::syntax::TypeParser;
-// Mitglieder und Top-Level-Elemente (parseMember) – auch für quote field/method/class.
+// Members and top-level elements (parseMember), also used for quote field/method/class.
 //
-// Knotenarten (Kinder: annotation*, modifiers, dann):
-//   method       text=Name  [return-type(Typ-Knoten)] params [where] [block | placeholder]
-//   constructor  text=Name  params [super-call(text=super|this; Kinder: Argumente)] block
-//   property     text=Name  Typ-Knoten accessors(accessor text=get|set) [Initializer]
-//   field        text=Name  Typ-Knoten [Initializer]
-//   variable     text=Name  Typ-Knoten (text "var" bei var) [Initializer]   (z.B. final var X = 1)
-//   placeholder  ein Body, der nur aus ... besteht
-//   Dazu alle Typ-Deklarationen oben (verschachtelte Klassen etc.).
-// Typ-Deklarationen: class, data class, interface, enum, record, exception, macro.
-// Jede Deklaration hat als Kinder zuerst annotation*, dann modifiers, danach:
+// Node kinds (children: annotation*, modifiers, then):
+//   method       text=Name  [return-type(type node)] params [where] [block | placeholder]
+//   constructor  text=Name  params [super-call(text=super|this; children: arguments)] block
+//   property     text=name  type-node accessors(accessor text=get|set) [initializer]
+//   field        text=name  type-node [initializer]
+//   variable     text=name  type-node (text "var" for var) [initializer]   (e.g. final var X = 1)
+//   placeholder  a body that consists only of ...
+//   Plus all type declarations above (nested classes etc.).
+// Type declarations: class, data class, interface, enum, record, exception, macro.
+// Each declaration has children annotation* first, then modifiers, then:
 //   class       text=Name  [where] [based(types)] [implements(types)] body
 //   data-class  text=Name  params [where] [body]
 //   record      text=Name  params [body]
 //   interface   text=Name  [where] [based(types)] body
-//   enum        text=Name  body (enum-entry*, Mitglieder)
+//   enum        text=Name  body (enum-entry*, members)
 //   exception   text=Name  [params] [based(types)] [body]
 //   macro       text=Name  params targets(target text=Class|Method|...) block
-//   body        Kinder: Mitglieder (siehe DeclMemberParser)
-//   enum-entry  text=Name, Kinder: Argumentausdrücke
+//   body        children: members (see DeclMemberParser)
+//   enum-entry  text=name, children: argument expressions
 public class DeclMemberParser {
     private ParserState state;
     private DeclHeaderParser header;
@@ -41,7 +41,7 @@ public class DeclMemberParser {
         Node holder = this.state.node("holder", "");
         this.header.parseAnnotations(holder);
         Node modifiers = this.header.parseModifiers();
-        // Annotationen dürfen auch zwischen Modifiern stehen
+        // Annotations may also appear between modifiers
         this.header.parseAnnotations(holder);
 
         Node result = this.parseDeclaration(holder, modifiers);
@@ -93,7 +93,7 @@ public class DeclMemberParser {
         return this.parseField(holder, modifiers);
     }
 
-    // Parameterliste oder leerer params-Knoten, wenn keine Klammer folgt
+    // Parameter list, or an empty params node when no parenthesis follows
     private Node parseOptionalParams() {
         if (this.state.checkSymbol("(")) {
             return this.header.parseParams();
@@ -198,7 +198,7 @@ public class DeclMemberParser {
         return variable;
     }
 
-    // Typ name [{ get, set }] [= expr]
+    // Type name [{ get, set }] [= expr]
     private Node parseField(Node holder, Node modifiers) {
         TypeParser typeParser = TypeParser(this.state);
         Node typeNode = typeParser.parse();
@@ -286,7 +286,7 @@ public class DeclMemberParser {
             declaration.add(this.header.parseTypeList("implements"));
         }
 
-        // where darf auch nach based/implements stehen
+        // where may also follow based/implements
         if (this.header.isWord(0, "where")) {
             declaration.add(this.header.parseWhere());
         }
@@ -358,7 +358,7 @@ public class DeclMemberParser {
         Node body = this.state.node("body", "");
         this.state.consumeSymbol("{", "Expected '{' before enum body");
 
-        // Einträge bis ';' oder '}'
+        // Entries up to ';' or '}'
         while (this.header.isNameAt(0) && !this.state.checkSymbol("}") && !this.state.isAtEnd()) {
             Token nameToken = this.state.advance();
             Node entry = this.state.nodeAt(nameToken, "enum-entry", nameToken.text());

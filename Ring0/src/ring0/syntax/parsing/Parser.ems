@@ -6,7 +6,7 @@ use ring0::syntax::Token;
 use ring0::syntax::TopLevelParser;
 use ring0::diagnostic::DiagnosticBag;
 
-// Einstieg: Tokens -> Knoten "file" (siehe TopLevelParser).
+// Entry point: tokens -> "file" node (see TopLevelParser).
 public class Parser {
     private ParserState state;
 

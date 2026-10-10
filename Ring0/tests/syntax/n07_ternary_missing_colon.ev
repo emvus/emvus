@@ -1,0 +1,4 @@
+// expect: Expected ':' in conditional expression@3
+method f(Int a) {
+    Int x = a > 0 ? 1 2
+}

@@ -119,7 +119,7 @@ public class ParserState {
         return this.peek();
     }
 
-    // Spekulatives Parsen: Fehler werden nicht gemeldet, nur gemerkt.
+    // Speculative parsing: errors are recorded instead of reported.
     // Muster: Int start = state.position(); state.beginSpeculation(); ...parse...;
     // Bool ok = state.endSpeculation(); if (!ok) { state.seek(start); }
     public Void beginSpeculation() {
@@ -127,7 +127,7 @@ public class ParserState {
         this.speculationFailed = false;
     }
 
-    // true, wenn kein Fehler auftrat
+    // true if no error occurred
     public Bool endSpeculation() {
         this.speculationDepth = this.speculationDepth - 1;
         Bool ok = !this.speculationFailed;

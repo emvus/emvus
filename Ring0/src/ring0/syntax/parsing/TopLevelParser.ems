@@ -7,9 +7,9 @@ use ring0::syntax::ParserState;
 use ring0::syntax::Token;
 // Datei-Ebene.
 //
-// file     Kinder: [package] use* Deklarationen (siehe DeclMemberParser)
+// file     children: [package] use* declarations (see DeclMemberParser)
 // package  text="a.b"
-// use      Kinder: use-item (text=voller Pfad "std.collections.IList"; optional Kind alias text=Name)
+// use      children: use-item (text=full path "std.collections.IList"; optional child alias text=name)
 public class TopLevelParser {
     private ParserState state;
     private DeclHeaderParser header;
@@ -49,7 +49,7 @@ public class TopLevelParser {
         return file;
     }
 
-    // Ein Mitglied bzw. Top-Level-Element (auch für quote-Ausdrücke)
+    // One member or top-level element (also used by quote expressions)
     public Node parseMember() {
         DeclMemberParser members = DeclMemberParser(this.state);
         return members.parseMember();
@@ -62,7 +62,7 @@ public class TopLevelParser {
         return this.state.nodeAt(keyword, "package", name);
     }
 
-    // use { a.b.[X, Y], c as D }   oder   use a.b.C [as D]
+    // use { a.b.[X, Y], c as D }   or   use a.b.C [as D]
     private Node parseUse() {
         Token keyword = this.state.advance();
         Node use = this.state.nodeAt(keyword, "use", "");
