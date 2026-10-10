@@ -60,7 +60,7 @@ Details: see the header comment in `parsing/expressions/ExpressionParser.ems`.
 
 ## Verification
 
-`scripts/run-sandbox.sh tests/showcase.ev` builds Ring0 in the sandbox and prints the tree
+`scripts/runSandbox.sh tests/showcase.ev` builds Ring0 in the sandbox and prints the tree
 (`--tokens` prints tokens only). `tests/showcase.ev` is the language draft and parses without diagnostics.
 
 ## Hardening (frontend)
@@ -72,7 +72,7 @@ Details: see the header comment in `parsing/expressions/ExpressionParser.ems`.
   `interface`, `enum`, `package`, `use`.
 - `?` at line end is a ternary if, within the next 3 lines at bracket depth 0, a `:` follows before another
   `?`, `;`, `->` or `=`; otherwise it is propagation.
-- Tests: `scripts/check-syntax.sh` (negative/positive tests under `tests/syntax/`, AST comparison `tests/golden/showcase.ast`).
+- Tests: `scripts/checkSyntax.sh` (negative/positive tests under `tests/syntax/`, AST comparison `tests/golden/showcase.ast`).
 
 ## Cascades
 

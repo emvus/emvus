@@ -21,7 +21,7 @@ namespace ring0::syntax;
 //   ternary         [condition, then, else]
 //   assign          text==|+=|-=|*=|/=|%=, [target, value]
 //   is / as         [expression, type]
-//   cascade         [receiver, cascade-section...]    one flat list, see AST.md
+//   cascade         [receiver, cascade-section...]    one flat list, see ast.md
 //   cascade-section [member/call chain relative to the receiver, or assign]
 //   lambda          [params, body]  params: children "param" (text=name, optional [type]); body: expression or "block"
 //   list-literal    [elements...]   (list or tuple, typing decides)

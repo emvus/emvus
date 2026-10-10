@@ -1,6 +1,6 @@
 namespace ring0::syntax;
 
-// AST node kinds (see AST.md); centralised so comparisons cannot contain typos.
+// AST node kinds (see ast.md); centralised so comparisons cannot contain typos.
 public class AstKinds {
     public AstKinds() {
     }

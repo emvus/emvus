@@ -1,6 +1,6 @@
 namespace ring0::syntax;
 
-// Uniform AST node. Node kinds and their children are documented in AST.md.
+// Uniform AST node. Node kinds and their children are documented in ast.md.
 public class Node {
     private String kindValue;
     private String textValue;
