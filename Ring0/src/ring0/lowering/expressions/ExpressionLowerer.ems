@@ -1,0 +1,95 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Lowers an expression of the supported subset to Sublang values.
+public class ExpressionLowerer {
+    private LoweringContext context;
+
+    public ExpressionLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        String kind = node.kind();
+
+        if (kind == "int-literal") {
+            return this.lowerInt(node);
+        }
+
+        if (kind == "bool-literal") {
+            return this.lowerBool(node);
+        }
+
+        if (kind == "float-literal") {
+            return this.lowerFloat(node);
+        }
+
+        if (kind == "string") {
+            return StringLowerer(this.context).lowerLiteral(node);
+        }
+
+        if (kind == "name") {
+            return this.lowerName(node);
+        }
+
+        if (kind == "member") {
+            return RecordLowerer(this.context).readField(node);
+        }
+
+        if (kind == "binary") {
+            return OperatorLowerer(this.context).lowerBinary(node);
+        }
+
+        if (kind == "unary") {
+            return OperatorLowerer(this.context).lowerUnary(node);
+        }
+
+        if (kind == "call") {
+            return CallLowerer(this.context).lower(node);
+        }
+
+        return this.reject(node);
+    }
+
+    private LoweredValue lowerInt(Node node) {
+        Int value = node.text().toInt();
+        Int id = this.context.builder().ops().constInt(value, this.context.span(node));
+        return LoweredValue(id, "Int");
+    }
+
+    private LoweredValue lowerFloat(Node node) {
+        Int bits = FloatBits.of(node.text());
+
+        if (bits < 0) {
+            this.context.unsupported(node, "float literal '" + node.text() + "' is outside the supported range (18 digits, 1e-18 to 9e18)");
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.builder().ops().constFloatBits(bits, this.context.span(node));
+        return LoweredValue(id, "Float");
+    }
+
+    private LoweredValue lowerBool(Node node) {
+        Bool value = node.text() == "true";
+        Int id = this.context.builder().ops().constBool(value, this.context.span(node));
+        return LoweredValue(id, "Bool");
+    }
+
+    private LoweredValue lowerName(Node node) {
+        VariableEnv env = this.context.env();
+        Int index = env.indexOf(node.text());
+
+        if (index < 0) {
+            this.context.unsupported(node, "unknown variable '" + node.text() + "'");
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue(env.valueAt(index), env.kindAt(index));
+    }
+
+    private LoweredValue reject(Node node) {
+        this.context.unsupported(node, "expression '" + node.kind() + "' is not part of the prototype subset");
+        return LoweredValue.unsupported();
+    }
+}

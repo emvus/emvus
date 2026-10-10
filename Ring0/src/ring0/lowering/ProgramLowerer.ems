@@ -1,0 +1,93 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+
+// Lowers a checked Emvus file into a Sublang High IR builder (subset: top-level methods over
+// Int, Bool, Float and String). Problems are reported as diagnostics.
+// Keep this object alive as long as the returned module is used: the module refers
+// to the names this object retains.
+public class ProgramLowerer {
+    private DiagnosticBag bag;
+    private RetainedPool pool;
+
+    public ProgramLowerer(DiagnosticBag diagnostics) {
+        this.bag = diagnostics;
+        this.pool = RetainedPool();
+    }
+
+    // The caller creates and keeps the builder: a builder that is created in here and
+    // referenced by the context would be released together with its module.
+    public Void lower(Node file, SublangBuilder builder, String sourceName) {
+        LoweringContext context = LoweringContext(builder, this.bag, this.pool, this.pool.keep(sourceName));
+        this.collectMethods(file, context);
+
+        if (this.bag.hasErrors()) {
+            return;
+        }
+
+        this.emitMethods(context);
+    }
+
+    private Void collectMethods(Node file, LoweringContext context) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            this.collectDeclaration(file.child(index), context);
+            index = index + 1;
+        }
+    }
+
+    private Void collectDeclaration(Node node, LoweringContext context) {
+        String kind = node.kind();
+
+        if (kind == "package" || kind == "use") {
+            return;
+        }
+
+        if (kind == "record") {
+            RecordLowerer(context).declare(node);
+            return;
+        }
+
+        if (kind != "method") {
+            context.unsupported(node, "top-level '" + kind + "' is not part of the prototype subset");
+            return;
+        }
+
+        if (context.methods().indexOf(node.text()) >= 0) {
+            context.unsupported(node, "method '" + node.text() + "' is declared twice (names are case-insensitive)");
+            return;
+        }
+
+        context.methods().add(node);
+    }
+
+    private Void emitMethods(LoweringContext context) {
+        CallGraph graph = CallGraph(context.methods());
+        List<Int> order = graph.emissionOrder();
+
+        if (graph.hasCycle()) {
+            context.unsupported(context.methods().declarationAt(0), "mutual recursion needs forward declarations, which Sublang High IR does not offer yet");
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < order.length()) {
+            this.emitMethod(order.get(index), context);
+            index = index + 1;
+        }
+    }
+
+    private Void emitMethod(Int methodIndex, LoweringContext context) {
+        Node method = context.methods().declarationAt(methodIndex);
+        Int functionId = FunctionLowerer(context).lower(methodIndex);
+
+        if (functionId != 0 && method.text().toLowerCase() == "main" && AstQuery.isStatic(method)) {
+            context.builder().module().setEntry(functionId);
+        }
+    }
+}

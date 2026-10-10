@@ -1,0 +1,27 @@
+namespace ring0::lowering;
+
+// Targets of `continue` and `break` for one loop, plus the variable indices that
+// travel through its block parameters.
+public class LoopFrame {
+    private Int continueBlock;
+    private Int breakBlock;
+    private List<Int> carried;
+
+    public LoopFrame(Int continueTarget, Int breakTarget, List<Int> carriedIndices) {
+        this.continueBlock = continueTarget;
+        this.breakBlock = breakTarget;
+        this.carried = carriedIndices;
+    }
+
+    public Int continueTarget() {
+        return this.continueBlock;
+    }
+
+    public Int breakTarget() {
+        return this.breakBlock;
+    }
+
+    public List<Int> carriedIndices() {
+        return this.carried;
+    }
+}

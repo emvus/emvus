@@ -1,0 +1,92 @@
+namespace ring0::lowering;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+
+// Shared mutable state of one lowering run. Lowerers are stateless wrappers around it,
+// which avoids cyclic class references between statement and expression lowering.
+public class LoweringContext {
+    private SublangBuilder irBuilder;
+    private DiagnosticBag bag;
+    private VariableEnv variables;
+    private MethodTable methodTable;
+    private RecordTable recordTable;
+    private List<LoopFrame> loopFrames;
+    private Int sourceIdentifier;
+    private Int integerFailureId;
+    private RetainedPool pool;
+
+    public LoweringContext(SublangBuilder builder, DiagnosticBag diagnostics, RetainedPool retainedPool, String sourceName) {
+        this.irBuilder = builder;
+        this.bag = diagnostics;
+        this.variables = VariableEnv();
+        this.methodTable = MethodTable();
+        this.recordTable = RecordTable();
+        this.loopFrames = List();
+        this.sourceIdentifier = builder.source(sourceName);
+        this.integerFailureId = builder.failure("emvus.integer_failure");
+        this.pool = retainedPool;
+    }
+
+    public SublangBuilder builder() {
+        return this.irBuilder;
+    }
+
+    public VariableEnv env() {
+        return this.variables;
+    }
+
+    public MethodTable methods() {
+        return this.methodTable;
+    }
+
+    public RecordTable records() {
+        return this.recordTable;
+    }
+
+    // Kind of a source type: primitives first, then declared records; "" when unsupported.
+    public String kindOfType(Node typeNode) {
+        String kind = SourceTypes.kindOf(typeNode);
+
+        if (!kind.isEmpty() || this.recordTable.indexOf(typeNode.text()) < 0) {
+            return kind;
+        }
+
+        return RecordTable.kindFor(typeNode.text());
+    }
+
+    public Int typeIdOfKind(String kind) {
+        if (!RecordTable.isRecordKind(kind)) {
+            return SourceTypes.typeIdOf(this.irBuilder, kind);
+        }
+
+        return this.recordTable.typeIdAt(this.recordTable.indexOf(RecordTable.nameOfKind(kind)));
+    }
+
+    public List<LoopFrame> frames() {
+        return this.loopFrames;
+    }
+
+    public Int integerFailure() {
+        return this.integerFailureId;
+    }
+
+    // Sublang stores the strings it receives without copying them, so names taken from
+    // the AST are kept alive in the caller-owned pool for the lifetime of the module.
+    public String retain(String text) {
+        return this.pool.keep(text);
+    }
+
+    public Int span(Node node) {
+        return this.irBuilder.span(this.sourceIdentifier, node.line(), node.column());
+    }
+
+    public Void unsupported(Node node, String message) {
+        this.bag.error("Lowering: " + message, node.line(), node.column());
+    }
+
+    public Bool failed() {
+        return this.bag.hasErrors();
+    }
+}

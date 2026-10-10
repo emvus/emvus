@@ -1,0 +1,37 @@
+namespace ring0::lowering;
+
+// Result of lowering one expression: the SSA value id plus its Emvus kind.
+// Kinds: Int, Bool, Float, String, Record:<name>, Void, Unsupported. Value id 0 means "no value".
+public class LoweredValue {
+    private Int valueIdentifier;
+    private String kindName;
+
+    public LoweredValue(Int valueId, String kind) {
+        this.valueIdentifier = valueId;
+        this.kindName = kind;
+    }
+
+    public Int valueId() {
+        return this.valueIdentifier;
+    }
+
+    public String kind() {
+        return this.kindName + "";
+    }
+
+    public Bool isUsable() {
+        if (RecordTable.isRecordKind(this.kindName)) {
+            return true;
+        }
+
+        return this.kindName == "Int" || this.kindName == "Bool" || this.kindName == "Float" || this.kindName == "String";
+    }
+
+    public static LoweredValue unsupported() {
+        return LoweredValue(0, "Unsupported");
+    }
+
+    public static LoweredValue nothing() {
+        return LoweredValue(0, "Void");
+    }
+}

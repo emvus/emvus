@@ -1,0 +1,56 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// String literals (static strings), `length()` and equality. Strings are immutable in the
+// supported subset; interpolation and the other members are reported as unsupported.
+public class StringLowerer {
+    private LoweringContext context;
+
+    public StringLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lowerLiteral(Node node) {
+        if (node.count() > 0) {
+            this.context.unsupported(node, "string interpolation needs runtime string building, which Sublang does not offer");
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.builder().ops().constString(this.context.retain(node.text()), this.context.span(node));
+        return LoweredValue(id, "String");
+    }
+
+    // `receiver.length()`: call -> [member length -> receiver, arguments...].
+    public LoweredValue lowerMemberCall(Node node) {
+        Node member = node.child(0);
+
+        if (member.text() != "length" || node.count() != 1) {
+            this.context.unsupported(node, "member call '" + member.text() + "' is not part of the supported subset");
+            return LoweredValue.unsupported();
+        }
+
+        LoweredValue receiver = ExpressionLowerer(this.context).lower(member.child(0));
+
+        if (receiver.kind() != "String") {
+            this.context.unsupported(node, "length() is only supported on String");
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.builder().ops().stringLength(receiver.valueId(), this.context.span(node));
+        return LoweredValue(id, "Int");
+    }
+
+    public LoweredValue lowerEquality(Node node, String operator, LoweredValue left, LoweredValue right) {
+        Int span = this.context.span(node);
+        Int equal = this.context.builder().ops().stringEqual(left.valueId(), right.valueId(), span);
+
+        if (operator == "==") {
+            return LoweredValue(equal, "Bool");
+        }
+
+        Int falseValue = this.context.builder().ops().constBool(false, span);
+        Int different = this.context.builder().ops().compare("eq", equal, falseValue, span);
+        return LoweredValue(different, "Bool");
+    }
+}

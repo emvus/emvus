@@ -1,0 +1,90 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+
+// Value records: declaration (`record Point(Int x, Int y)`), construction `Point(1, 2)` and
+// field reads `p.x`. Sublang value records carry primitive fields only.
+public class RecordLowerer {
+    private LoweringContext context;
+
+    public RecordLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void declare(Node record) {
+        SublangBuilder builder = this.context.builder();
+        Int span = this.context.span(record);
+        Int typeId = builder.recordType(this.context.retain(record.text()), span);
+        Int index = this.context.records().add(record.text(), typeId);
+        Node params = AstQuery.childOfKind(record, "params");
+        Int position = 0;
+
+        while (position < params.count()) {
+            this.declareField(index, typeId, params.child(position));
+            position = position + 1;
+        }
+    }
+
+    private Void declareField(Int record, Int typeId, Node param) {
+        String kind = SourceTypes.kindOf(AstQuery.typeChild(param));
+
+        if (kind != "Int" && kind != "Bool" && kind != "Float") {
+            this.context.unsupported(param, "record field '" + param.text() + "' must be Int, Bool or Float");
+            return;
+        }
+
+        SublangBuilder builder = this.context.builder();
+        Int fieldId = builder.recordField(typeId, this.context.retain(param.text()), SourceTypes.typeIdOf(builder, kind), this.context.span(param));
+        this.context.records().addField(record, param.text(), fieldId, kind);
+    }
+
+    // `Point(a, b)`: arguments are matched to the fields by position and kind.
+    public LoweredValue construct(Node call, Int record, List<LoweredValue> arguments) {
+        RecordTable table = this.context.records();
+
+        if (arguments.length() != table.fieldCountAt(record)) {
+            this.context.unsupported(call, "record '" + call.child(0).text() + "' expects " + table.fieldCountAt(record).toString() + " arguments");
+            return LoweredValue.unsupported();
+        }
+
+        List<Int> ids = List();
+        Int index = 0;
+
+        while (index < arguments.length()) {
+            if (arguments.get(index).kind() != table.fieldKindAt(table.firstFieldSlot(record) + index)) {
+                this.context.unsupported(call, "argument " + (index + 1).toString() + " does not match the record field type");
+                return LoweredValue.unsupported();
+            }
+
+            ids.add(arguments.get(index).valueId());
+            index = index + 1;
+        }
+
+        Int id = this.context.builder().ops().recordMake(table.typeIdAt(record), ids, this.context.span(call));
+        return LoweredValue(id, RecordTable.kindFor(call.child(0).text()));
+    }
+
+    // `receiver.field` on a record value.
+    public LoweredValue readField(Node member) {
+        LoweredValue receiver = ExpressionLowerer(this.context).lower(member.child(0));
+
+        if (!RecordTable.isRecordKind(receiver.kind())) {
+            this.context.unsupported(member, "member access '" + member.text() + "' is only supported on records");
+            return LoweredValue.unsupported();
+        }
+
+        RecordTable table = this.context.records();
+        Int record = table.indexOf(RecordTable.nameOfKind(receiver.kind()));
+        Int slot = table.fieldSlot(record, member.text());
+
+        if (slot < 0) {
+            this.context.unsupported(member, "record has no field '" + member.text() + "'");
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.builder().ops().recordGet(receiver.valueId(), table.fieldIdAt(slot), this.context.span(member));
+        return LoweredValue(id, table.fieldKindAt(slot));
+    }
+}

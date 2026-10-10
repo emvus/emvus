@@ -1,0 +1,82 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Direct calls to top-level methods. println is rejected: Sublang has no output primitive.
+public class CallLowerer {
+    private LoweringContext context;
+
+    public CallLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        Node callee = node.child(0);
+
+        if (callee.kind() == "member") {
+            return StringLowerer(this.context).lowerMemberCall(node);
+        }
+
+        if (callee.kind() != "name") {
+            this.context.unsupported(node, "only calls of top-level methods are supported");
+            return LoweredValue.unsupported();
+        }
+
+        List<LoweredValue> arguments = this.lowerArguments(node);
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (callee.text().toLowerCase() == "println") {
+            this.context.unsupported(node, "println is not available on the Sublang native target: the program's observable result is the Int returned by main");
+            return LoweredValue.unsupported();
+        }
+
+        Int record = this.context.records().indexOf(callee.text());
+
+        if (record >= 0) {
+            return RecordLowerer(this.context).construct(node, record, arguments);
+        }
+
+        return this.lowerDirect(node, callee.text(), arguments);
+    }
+
+    private List<LoweredValue> lowerArguments(Node node) {
+        List<LoweredValue> values = List();
+        Int index = 1;
+
+        while (index < node.count()) {
+            values.add(ExpressionLowerer(this.context).lower(node.child(index)));
+            index = index + 1;
+        }
+
+        return values;
+    }
+
+    private LoweredValue lowerDirect(Node node, String name, List<LoweredValue> arguments) {
+        Int index = this.context.methods().indexOf(name);
+
+        if (index < 0 || this.context.methods().functionIdAt(index) == 0) {
+            this.context.unsupported(node, "call of unknown or not yet emitted method '" + name + "'");
+            return LoweredValue.unsupported();
+        }
+
+        return this.emitCall(node, this.context.methods().functionIdAt(index), this.context.methods().returnKindAt(index), arguments);
+    }
+
+    private LoweredValue emitCall(Node node, Int functionId, String returnKind, List<LoweredValue> arguments) {
+        List<Int> ids = List();
+        List<String> modes = List();
+        Int index = 0;
+
+        while (index < arguments.length()) {
+            ids.add(arguments.get(index).valueId());
+            modes.add("value");
+            index = index + 1;
+        }
+
+        Int result = this.context.builder().ops().callDirect(functionId, ids, modes, this.context.span(node));
+        return LoweredValue(result, returnKind);
+    }
+}

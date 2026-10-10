@@ -1,0 +1,50 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Finds the variables a statement subtree may reassign. Over-approximating is safe:
+// names that are not locals in scope are filtered out by the caller.
+public class AssignedNames {
+    public AssignedNames() {
+    }
+
+    public static Void collect(Node node, List<String> names) {
+        if (AssignedNames.isMutation(node) && node.count() > 0) {
+            Node target = node.child(0);
+
+            if (target.kind() == "name") {
+                AssignedNames.addUnique(names, target.text());
+            }
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            AssignedNames.collect(node.child(index), names);
+            index = index + 1;
+        }
+    }
+
+    private static Bool isMutation(Node node) {
+        if (node.kind() == "assign" || node.kind() == "postfix") {
+            return true;
+        }
+
+        return node.kind() == "unary" && (node.text() == "++" || node.text() == "--");
+    }
+
+    private static Void addUnique(List<String> names, String name) {
+        String key = name.toLowerCase() + "";
+        Int index = 0;
+
+        while (index < names.length()) {
+            if (names.get(index) == key) {
+                return;
+            }
+
+            index = index + 1;
+        }
+
+        names.add(key);
+    }
+}

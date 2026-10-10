@@ -1,0 +1,87 @@
+use ring0::binding::Binder;
+use ring0::binding::BindingPrelude;
+use ring0::diagnostic::DiagnosticBag;
+use ring0::lowering::LoweringPrelude;
+use ring0::lowering::ProgramLowerer;
+use ring0::lowering::WireExport;
+use ring0::syntax::Lexer;
+use ring0::syntax::Node;
+use ring0::syntax::Parser;
+use ring0::syntax::Token;
+use sublang::analysis::SublangVerification;
+use sublang::analysis::SublangVerifier;
+use sublang::dump::SublangDump;
+use sublang::ir::SublangBuilder;
+use Std::Io::File;
+use Std::Process::Process;
+
+// Emvus source -> parse -> check -> Sublang High IR.
+//   ring0-lower <file.ev> <out.sublang-wire>   writes the wire transport for the standalone compiler
+//   ring0-lower --dump <file.ev>               prints the readable dump and the verifier verdict
+// Built only by scripts/runLoweringSandbox.sh, which supplies the Sublang sources.
+main() {
+    List<String> args = Process.args();
+
+    Bool dump = args.length() > 0 && args.get(0) == "--dump";
+    Int first = 0;
+
+    if (dump) {
+        first = 1;
+    }
+
+    if (args.length() < first + 1 || (!dump && args.length() != 2)) {
+        println("Usage: ring0-lower <file.ev> <out.sublang-wire> | ring0-lower --dump <file.ev>");
+        Process.exit(1);
+    }
+
+    File file = File(args.get(first));
+
+    if (!file.exists()) {
+        println("Source file does not exist: " + args.get(first));
+        Process.exit(1);
+    }
+
+    // Sublang keeps the name it is given; an owned local outlives every use of the module.
+    String sourceName = args.get(first) + "";
+    DiagnosticBag bag = DiagnosticBag();
+    Lexer lexer = Lexer(file.readText(), bag);
+    List<Token> tokens = lexer.tokenize();
+    Parser parser = Parser(tokens, bag);
+    Node tree = parser.parse();
+
+    if (!bag.hasErrors()) {
+        Binder binder = Binder(bag);
+        binder.bind(tree);
+    }
+
+    if (bag.hasErrors()) {
+        bag.printAll();
+        Process.exit(1);
+    }
+
+    SublangBuilder builder = SublangBuilder(sourceName);
+    ProgramLowerer lowerer = ProgramLowerer(bag);
+    lowerer.lower(tree, builder, sourceName);
+
+    if (bag.hasErrors()) {
+        bag.printAll();
+        Process.exit(2);
+    }
+
+    if (!dump) {
+        WireExport.write(builder, args.get(1));
+        return;
+    }
+
+    println(SublangDump.render(builder.module()));
+    SublangVerifier verifier = SublangVerifier(builder.module());
+    SublangVerification verdict = verifier.verify();
+    Int index = 0;
+
+    while (index < verdict.diagnostics().length()) {
+        println("verifier: " + verdict.diagnostics().get(index).message());
+        index = index + 1;
+    }
+
+    println("structure=" + verdict.structureStatus() + " semantics=" + verdict.semanticsStatus() + " codegenReady=" + verdict.codegenReady().toString());
+}

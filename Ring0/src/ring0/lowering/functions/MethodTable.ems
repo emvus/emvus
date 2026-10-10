@@ -1,0 +1,62 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Top-level methods by case-insensitive name; the function id is filled when the
+// method is emitted. Emvus resolves identifiers without regard to case.
+public class MethodTable {
+    private List<String> keys;
+    private List<Node> declarations;
+    private List<Int> functionIds;
+    private List<String> returnKinds;
+
+    public MethodTable() {
+        this.keys = List();
+        this.declarations = List();
+        this.functionIds = List();
+        this.returnKinds = List();
+    }
+
+    public Void add(Node declaration) {
+        this.keys.add(declaration.text().toLowerCase() + "");
+        this.declarations.add(declaration);
+        this.functionIds.add(0);
+        this.returnKinds.add("Void");
+    }
+
+    public Int count() {
+        return this.keys.length();
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public Node declarationAt(Int index) {
+        return this.declarations.get(index);
+    }
+
+    public Int functionIdAt(Int index) {
+        return this.functionIds.get(index);
+    }
+
+    public String returnKindAt(Int index) {
+        return this.returnKinds.get(index) + "";
+    }
+
+    public Void record(Int index, Int functionId, String returnKind) {
+        this.functionIds.set(index, functionId);
+        this.returnKinds.set(index, returnKind + "");
+    }
+}

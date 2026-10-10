@@ -1,0 +1,88 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Orders methods so every callee is emitted before its callers: the builder has no
+// forward declarations for functions with a body. Self recursion needs no ordering
+// because a function id exists as soon as its body begins.
+public class CallGraph {
+    private MethodTable methods;
+    private List<Int> order;
+    private List<Int> state;
+    private Bool cyclic;
+
+    public CallGraph(MethodTable table) {
+        this.methods = table;
+        this.order = List();
+        this.state = List();
+        this.cyclic = false;
+        Int index = 0;
+
+        while (index < table.count()) {
+            this.state.add(0);
+            index = index + 1;
+        }
+    }
+
+    public List<Int> emissionOrder() {
+        Int index = 0;
+
+        while (index < this.methods.count()) {
+            this.visit(index);
+            index = index + 1;
+        }
+
+        return this.order;
+    }
+
+    public Bool hasCycle() {
+        return this.cyclic;
+    }
+
+    // state: 0 = new, 1 = in progress, 2 = done
+    private Void visit(Int index) {
+        if (this.state.get(index) == 2) {
+            return;
+        }
+
+        if (this.state.get(index) == 1) {
+            this.cyclic = true;
+            return;
+        }
+
+        this.state.set(index, 1);
+        List<Int> callees = List();
+        this.collectCallees(this.methods.declarationAt(index), callees);
+        Int next = 0;
+
+        while (next < callees.length()) {
+            Int callee = callees.get(next);
+
+            if (callee != index) {
+                this.visit(callee);
+            }
+
+            next = next + 1;
+        }
+
+        this.state.set(index, 2);
+        this.order.add(index);
+    }
+
+    private Void collectCallees(Node node, List<Int> callees) {
+        if (node.kind() == "call" && node.count() > 0 && node.child(0).kind() == "name") {
+            Int callee = this.methods.indexOf(node.child(0).text());
+
+            if (callee >= 0) {
+                callees.add(callee);
+            }
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            this.collectCallees(node.child(index), callees);
+            index = index + 1;
+        }
+    }
+}

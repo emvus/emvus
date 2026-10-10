@@ -1,0 +1,90 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+
+// Lowers one top-level method: signature, parameters and body.
+public class FunctionLowerer {
+    private LoweringContext context;
+
+    public FunctionLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Returns the Sublang function id, or 0 when the method is outside the subset.
+    public Int lower(Int methodIndex) {
+        Node method = this.context.methods().declarationAt(methodIndex);
+        String returnKind = this.returnKindOf(method);
+        Node params = AstQuery.childOfKind(method, "params");
+        Node block = AstQuery.childOfKind(method, "block");
+
+        if (returnKind.isEmpty() || !this.paramsSupported(params) || AstQuery.isNone(block)) {
+            this.context.unsupported(method, "method '" + method.text() + "' uses features outside the prototype subset");
+            return 0;
+        }
+
+        SublangBuilder builder = this.context.builder();
+        Int typeId = this.context.typeIdOfKind(returnKind);
+        Int functionId = builder.beginFunction(this.context.retain(method.text()), typeId, 0, this.context.span(method));
+        this.context.methods().record(methodIndex, functionId, returnKind);
+        this.declareParams(params);
+        builder.beginBlock();
+        Bool terminated = StatementLowerer(this.context).lowerBlock(block);
+        this.finishBody(method, returnKind, terminated);
+        this.context.env().truncate(0);
+        return functionId;
+    }
+
+    private String returnKindOf(Node method) {
+        Node returnType = AstQuery.childOfKind(method, "return-type");
+
+        if (AstQuery.isNone(returnType)) {
+            return "Void";
+        }
+
+        return this.context.kindOfType(returnType.child(0));
+    }
+
+    private Bool paramsSupported(Node params) {
+        Int index = 0;
+
+        while (index < params.count()) {
+            Node typeNode = AstQuery.typeChild(params.child(index));
+
+            if (AstQuery.isNone(typeNode) || this.context.kindOfType(typeNode) == "" || AstQuery.hasDefaultValue(params.child(index))) {
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+
+    private Void declareParams(Node params) {
+        SublangBuilder builder = this.context.builder();
+        Int index = 0;
+
+        while (index < params.count()) {
+            Node param = params.child(index);
+            String kind = this.context.kindOfType(AstQuery.typeChild(param));
+            Int value = builder.addParam(this.context.retain(param.text()), this.context.typeIdOfKind(kind), "value", false);
+            this.context.env().declare(param.text(), value, kind);
+            index = index + 1;
+        }
+    }
+
+    private Void finishBody(Node method, String returnKind, Bool terminated) {
+        if (terminated) {
+            return;
+        }
+
+        if (returnKind != "Void") {
+            this.context.unsupported(method, "method '" + method.text() + "' can end without returning a value");
+            return;
+        }
+
+        this.context.builder().ops().returnValue(0, this.context.span(method));
+    }
+}

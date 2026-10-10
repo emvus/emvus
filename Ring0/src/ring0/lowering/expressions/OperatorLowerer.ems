@@ -1,0 +1,176 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Arithmetic, comparison and boolean operators. Integer operations use overflow
+// "trap", matching Emvus checked arithmetic; there is no wrapping operator.
+public class OperatorLowerer {
+    private LoweringContext context;
+
+    public OperatorLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lowerBinary(Node node) {
+        String operator = node.text();
+
+        if (operator == "&&" || operator == "||") {
+            return LogicalLowerer(this.context).lower(node);
+        }
+
+        LoweredValue left = ExpressionLowerer(this.context).lower(node.child(0));
+        LoweredValue right = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (!left.isUsable() || !right.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        return this.apply(node, operator, left, right);
+    }
+
+    public LoweredValue lowerUnary(Node node) {
+        LoweredValue operand = ExpressionLowerer(this.context).lower(node.child(0));
+
+        if (!operand.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+
+        if (node.text() == "-" && operand.kind() == "Int") {
+            Int negated = this.context.builder().ops().intNeg(operand.valueId(), "trap", this.context.integerFailure(), span);
+            return LoweredValue(negated, "Int");
+        }
+
+        if (node.text() == "-" && operand.kind() == "Float") {
+            // Multiplying by -1.0 is exact and keeps the sign of zero and NaN payload rules.
+            Int minusOne = this.context.builder().ops().constFloatBits(-4616189618054758400, span);
+            Int product = this.context.builder().ops().floatBinary("float.mul", operand.valueId(), minusOne, "rne", span);
+            return LoweredValue(product, "Float");
+        }
+
+        if (node.text() == "!" && operand.kind() == "Bool") {
+            Int falseValue = this.context.builder().ops().constBool(false, span);
+            Int inverted = this.context.builder().ops().compare("eq", operand.valueId(), falseValue, span);
+            return LoweredValue(inverted, "Bool");
+        }
+
+        this.context.unsupported(node, "unary '" + node.text() + "' on " + operand.kind());
+        return LoweredValue.unsupported();
+    }
+
+    // Public so compound assignment can reuse it: `x += y` is `x = x + y`.
+    public LoweredValue apply(Node node, String operator, LoweredValue left, LoweredValue right) {
+        Int span = this.context.span(node);
+        String opcode = this.arithmeticOpcode(operator);
+
+        if (!opcode.isEmpty() && left.kind() == "Int" && right.kind() == "Int") {
+            Int id = this.context.builder().ops().intBinary(opcode, left.valueId(), right.valueId(), "trap", this.context.integerFailure(), span);
+            return LoweredValue(id, "Int");
+        }
+
+        if (!opcode.isEmpty() && left.kind() == "Float" && right.kind() == "Float" && operator != "%") {
+            Int id = this.context.builder().ops().floatBinary("float." + this.floatOpName(operator), left.valueId(), right.valueId(), "rne", span);
+            return LoweredValue(id, "Float");
+        }
+
+        if (left.kind() == "String" && right.kind() == "String" && (operator == "==" || operator == "!=")) {
+            return StringLowerer(this.context).lowerEquality(node, operator, left, right);
+        }
+
+        String predicate = this.comparePredicate(operator);
+
+        if (!predicate.isEmpty() && left.kind() == right.kind() && this.isPrimitive(left.kind())) {
+            Int id = this.context.builder().ops().compare(this.predicateFor(left.kind(), predicate), left.valueId(), right.valueId(), span);
+            return LoweredValue(id, "Bool");
+        }
+
+        this.context.unsupported(node, "operator '" + operator + "' on " + left.kind() + " and " + right.kind());
+        return LoweredValue.unsupported();
+    }
+
+    private Bool isPrimitive(String kind) {
+        return kind == "Int" || kind == "Bool" || kind == "Float";
+    }
+
+    private String floatOpName(String operator) {
+        if (operator == "+") {
+            return "add";
+        }
+
+        if (operator == "-") {
+            return "sub";
+        }
+
+        if (operator == "*") {
+            return "mul";
+        }
+
+        return "div";
+    }
+
+    // Float comparisons name ordered predicates; != is unordered so NaN != NaN holds.
+    private String predicateFor(String kind, String predicate) {
+        if (kind != "Float") {
+            return predicate;
+        }
+
+        if (predicate == "ne") {
+            return "une";
+        }
+
+        return "o" + predicate;
+    }
+
+    private String arithmeticOpcode(String operator) {
+        if (operator == "+") {
+            return "int.add";
+        }
+
+        if (operator == "-") {
+            return "int.sub";
+        }
+
+        if (operator == "*") {
+            return "int.mul";
+        }
+
+        if (operator == "/") {
+            return "int.div";
+        }
+
+        if (operator == "%") {
+            return "int.rem";
+        }
+
+        return "";
+    }
+
+    private String comparePredicate(String operator) {
+        if (operator == "==") {
+            return "eq";
+        }
+
+        if (operator == "!=") {
+            return "ne";
+        }
+
+        if (operator == "<") {
+            return "lt";
+        }
+
+        if (operator == "<=") {
+            return "le";
+        }
+
+        if (operator == ">") {
+            return "gt";
+        }
+
+        if (operator == ">=") {
+            return "ge";
+        }
+
+        return "";
+    }
+}

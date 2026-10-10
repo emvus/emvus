@@ -1,0 +1,104 @@
+namespace ring0::lowering;
+
+// Declared value records by case-insensitive name, with their fields in declaration
+// order. Fields are stored in flat parallel lists; each record knows its first slot.
+public class RecordTable {
+    private List<String> keys;
+    private List<Int> typeIds;
+    private List<Int> firstFields;
+    private List<Int> fieldCounts;
+    private List<String> fieldKeys;
+    private List<Int> fieldIds;
+    private List<String> fieldKinds;
+
+    public RecordTable() {
+        this.keys = List();
+        this.typeIds = List();
+        this.firstFields = List();
+        this.fieldCounts = List();
+        this.fieldKeys = List();
+        this.fieldIds = List();
+        this.fieldKinds = List();
+    }
+
+    public Int add(String name, Int typeId) {
+        this.keys.add(name.toLowerCase() + "");
+        this.typeIds.add(typeId);
+        this.firstFields.add(this.fieldKeys.length());
+        this.fieldCounts.add(0);
+        return this.keys.length() - 1;
+    }
+
+    // Fields must be added right after their record, before the next record is added.
+    public Void addField(Int record, String name, Int fieldId, String kind) {
+        this.fieldKeys.add(name.toLowerCase() + "");
+        this.fieldIds.add(fieldId);
+        this.fieldKinds.add(kind + "");
+        this.fieldCounts.set(record, this.fieldCounts.get(record) + 1);
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public Int typeIdAt(Int record) {
+        return this.typeIds.get(record);
+    }
+
+    public Int fieldCountAt(Int record) {
+        return this.fieldCounts.get(record);
+    }
+
+    // Flat slot of a field of the record, or -1.
+    public Int fieldSlot(Int record, String name) {
+        String key = name.toLowerCase();
+        Int slot = this.firstFields.get(record);
+        Int end = slot + this.fieldCounts.get(record);
+
+        while (slot < end) {
+            if (this.fieldKeys.get(slot) == key) {
+                return slot;
+            }
+
+            slot = slot + 1;
+        }
+
+        return -1;
+    }
+
+    public Int firstFieldSlot(Int record) {
+        return this.firstFields.get(record);
+    }
+
+    public Int fieldIdAt(Int slot) {
+        return this.fieldIds.get(slot);
+    }
+
+    public String fieldKindAt(Int slot) {
+        return this.fieldKinds.get(slot) + "";
+    }
+
+    // Kind string of a record value: "Record:<lowercase name>".
+    public static String kindFor(String name) {
+        return "Record:" + name.toLowerCase();
+    }
+
+    public static Bool isRecordKind(String kind) {
+        return kind.length() > 7 && kind.substring(0, 7) == "Record:";
+    }
+
+    public static String nameOfKind(String kind) {
+        return kind.substring(7, kind.length());
+    }
+}

@@ -1,0 +1,36 @@
+namespace ring0::lowering;
+
+// Lists every lowering class: the project loader resolves classes only through `use`,
+// and the lowerers refer to each other. Entry points import only this file.
+use ring0::lowering::AssignedNames;
+use ring0::lowering::BinaryQuotient;
+use ring0::lowering::DecimalParts;
+use ring0::lowering::FloatBits;
+use ring0::lowering::BranchLowerer;
+use ring0::lowering::CallGraph;
+use ring0::lowering::CallLowerer;
+use ring0::lowering::CarriedVariables;
+use ring0::lowering::ExpressionLowerer;
+use ring0::lowering::FunctionLowerer;
+use ring0::lowering::LogicalLowerer;
+use ring0::lowering::LoopFrame;
+use ring0::lowering::LoopLowerer;
+use ring0::lowering::LoweredValue;
+use ring0::lowering::LoweringContext;
+use ring0::lowering::MethodTable;
+use ring0::lowering::OperatorLowerer;
+use ring0::lowering::ProgramLowerer;
+use ring0::lowering::RecordLowerer;
+use ring0::lowering::RecordTable;
+use ring0::lowering::RetainedPool;
+use ring0::lowering::RetainedText;
+use ring0::lowering::SourceTypes;
+use ring0::lowering::StatementLowerer;
+use ring0::lowering::StringLowerer;
+use ring0::lowering::VariableEnv;
+use ring0::lowering::WireExport;
+
+public class LoweringPrelude {
+    public LoweringPrelude() {
+    }
+}
