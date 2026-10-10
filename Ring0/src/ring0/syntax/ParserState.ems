@@ -8,6 +8,8 @@ public class ParserState {
     private DiagnosticBag bag;
     private Int speculationDepth;
     private Bool speculationFailed;
+    // While > 0 a `..` after an operand belongs to the enclosing cascade, not to that operand.
+    private Int cascadeHold;
 
     public ParserState(List<Token> tokens, DiagnosticBag diagnostics) {
         this.tokenList = tokens;
@@ -15,6 +17,7 @@ public class ParserState {
         this.bag = diagnostics;
         this.speculationDepth = 0;
         this.speculationFailed = false;
+        this.cascadeHold = 0;
     }
 
     public Token peek() {
@@ -117,6 +120,28 @@ public class ParserState {
 
         this.errorHere(message);
         return this.peek();
+    }
+
+    public Bool cascadesHeld() {
+        return this.cascadeHold > 0;
+    }
+
+    // Returns the previous hold so the caller can restore it with restoreCascades.
+    public Int holdCascades() {
+        Int saved = this.cascadeHold;
+        this.cascadeHold = 1;
+        return saved;
+    }
+
+    // Brackets and blocks start a fresh expression context where cascades are allowed again.
+    public Int clearCascades() {
+        Int saved = this.cascadeHold;
+        this.cascadeHold = 0;
+        return saved;
+    }
+
+    public Void restoreCascades(Int saved) {
+        this.cascadeHold = saved;
     }
 
     // Speculative parsing: errors are recorded instead of reported.

@@ -1,0 +1,22 @@
+// expect-ok
+// Cascade sections stay siblings of one cascade, also when a section assigns a value.
+class Person {
+    String name { get, set }
+    Int age { get, set }
+
+    method birthday {
+        age++
+    }
+}
+
+method showCascades {
+    Person person = Person()
+        ..birthday()
+        ..age = 40
+        ..name = "Anna"
+        ..birthday()
+
+    Person nested = Person()
+        ..age = compute(person ..birthday(), 2)
+        ..birthday()
+}

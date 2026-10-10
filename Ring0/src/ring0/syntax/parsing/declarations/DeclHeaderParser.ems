@@ -1,18 +1,12 @@
 namespace ring0::syntax;
 
-use ring0::syntax::ExpressionParser;
-use ring0::syntax::Node;
-use ring0::syntax::ParserState;
-use ring0::syntax::Token;
-use ring0::syntax::TypeParser;
-// Helper parser for declarations: words, annotations, modifiers, parameters, where, type lists.
+// Helper parser for declarations: words, annotations, modifiers, where clauses, type lists.
 //
-// Knotenarten:
+// Node kinds:
 //   annotation    text=name, children: argument expressions
 //   modifiers     text="" ; children: modifier (text=public|private|protected|static|abstract|override|final)
-//   params        children: param (text=name; children: annotation*, modifiers, type node, [default expression])
 //   where         children: typeparam (text=name; children: type nodes as bounds)
-//   types         children: type nodes (for based/implements)
+//   based / implements   children: type nodes
 public class DeclHeaderParser {
     private ParserState state;
 
@@ -22,18 +16,11 @@ public class DeclHeaderParser {
 
     // Keyword or identifier with this text (regardless of token kind)
     public Bool isWord(Int offset, String text) {
-        Token token = this.state.peekAt(offset);
-
-        if (!token.kindIs("identifier") && !token.kindIs("keyword")) {
-            return false;
-        }
-
-        return token.text() == text;
+        return this.state.peekAt(offset).isWord(text);
     }
 
     public Bool isNameAt(Int offset) {
-        Token token = this.state.peekAt(offset);
-        return token.kindIs("identifier") || token.kindIs("keyword");
+        return this.state.peekAt(offset).isName();
     }
 
     public Bool matchWord(String text) {
@@ -88,7 +75,7 @@ public class DeclHeaderParser {
         while (this.state.checkSymbol("@")) {
             Token at = this.state.advance();
             String name = this.parseQualifiedName("Expected annotation name after '@'");
-            Node annotation = this.state.nodeAt(at, "annotation", name);
+            Node annotation = this.state.nodeAt(at, AstKinds.annotation(), name);
 
             if (this.state.checkSymbol("(")) {
                 this.state.advance();
@@ -110,93 +97,35 @@ public class DeclHeaderParser {
     }
 
     public Bool isModifierAt(Int offset) {
-        if (this.isWord(offset, "public")) {
-            return true;
+        Token token = this.state.peekAt(offset);
+
+        if (!token.isName()) {
+            return false;
         }
 
-        if (this.isWord(offset, "private")) {
-            return true;
-        }
-
-        if (this.isWord(offset, "protected")) {
-            return true;
-        }
-
-        if (this.isWord(offset, "static")) {
-            return true;
-        }
-
-        if (this.isWord(offset, "abstract")) {
-            return true;
-        }
-
-        if (this.isWord(offset, "override")) {
-            return true;
-        }
-
-        return this.isWord(offset, "final");
+        String text = token.text();
+        return text == "public" || text == "private" || text == "protected" || text == "static" || text == "abstract" || text == "override" || text == "final";
     }
 
     public Node parseModifiers() {
-        Node modifiers = this.state.node("modifiers", "");
+        Node modifiers = this.state.node(AstKinds.modifiers(), "");
 
         while (this.isModifierAt(0)) {
             Token token = this.state.advance();
-            modifiers.add(this.state.nodeAt(token, "modifier", token.text()));
+            modifiers.add(this.state.nodeAt(token, AstKinds.modifier(), token.text()));
         }
 
         return modifiers;
     }
 
-    // (Type name [= default], ...); expects "("
-    public Node parseParams() {
-        Node params = this.state.node("params", "");
-        this.state.consumeSymbol("(", "Expected '(' before parameters");
-
-        while (!this.state.checkSymbol(")") && !this.state.isAtEnd()) {
-            Node holder = this.state.node("holder", "");
-            this.parseAnnotations(holder);
-            Node modifiers = this.parseModifiers();
-
-            TypeParser types = TypeParser(this.state);
-            Node typeNode = types.parse();
-            Token nameToken = this.consumeName("Expected parameter name");
-            Node param = this.state.nodeAt(nameToken, "param", nameToken.text());
-
-            Int index = 0;
-
-            while (index < holder.count()) {
-                param.add(holder.child(index));
-                index = index + 1;
-            }
-
-            param.add(modifiers);
-            param.add(typeNode);
-
-            if (this.state.matchSymbol("=")) {
-                ExpressionParser expressions = ExpressionParser(this.state);
-                param.add(expressions.parse());
-            }
-
-            params.add(param);
-
-            if (!this.state.matchSymbol(",")) {
-                break;
-            }
-        }
-
-        this.state.consumeSymbol(")", "Expected ')' after parameters");
-        return params;
-    }
-
     // where T, U: A & B   - callers must check isWord(0, "where") first
     public Node parseWhere() {
         Token keyword = this.state.advance();
-        Node where = this.state.nodeAt(keyword, "where", "");
+        Node where = this.state.nodeAt(keyword, AstKinds.whereClause(), "");
 
         while (this.isNameAt(0)) {
             Token nameToken = this.state.advance();
-            Node parameter = this.state.nodeAt(nameToken, "typeparam", nameToken.text());
+            Node parameter = this.state.nodeAt(nameToken, AstKinds.typeParam(), nameToken.text());
 
             if (this.state.matchSymbol(":")) {
                 TypeParser types = TypeParser(this.state);

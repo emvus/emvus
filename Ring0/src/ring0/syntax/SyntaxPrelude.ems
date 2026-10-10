@@ -1,24 +1,45 @@
 namespace ring0::syntax;
 
 // The project loader resolves classes only through `use`. This prelude lists every class of the
-// frontend so the parsers (which depend on each other cyclically) find one another without their own `use` lines.
-// Main imports only this file: `use ring0::syntax::SyntaxPrelude;`.
+// frontend so the parsers (which depend on each other cyclically) find one another without their
+// own `use` lines. Parser imports this file, so it must not list Parser itself (no import cycles).
+// A new class must be added here, otherwise the loader reports "Unknown function or class".
 use ring0::diagnostic::Diagnostic;
 use ring0::diagnostic::DiagnosticBag;
-use ring0::syntax::Token;
+use ring0::syntax::AstKinds;
 use ring0::syntax::Node;
 use ring0::syntax::ParserState;
+use ring0::syntax::Token;
 use ring0::syntax::Lexer;
 use ring0::syntax::LexerCursor;
 use ring0::syntax::LexerRules;
 use ring0::syntax::LexerTokenReader;
+use ring0::syntax::TopLevelParser;
 use ring0::syntax::TypeParser;
-use ring0::syntax::ExpressionParser;
-use ring0::syntax::StatementParser;
 use ring0::syntax::DeclHeaderParser;
 use ring0::syntax::DeclMemberParser;
-use ring0::syntax::TopLevelParser;
-use ring0::syntax::Parser;
+use ring0::syntax::EnumParser;
+use ring0::syntax::FieldParser;
+use ring0::syntax::MacroParser;
+use ring0::syntax::MethodParser;
+use ring0::syntax::ParameterParser;
+use ring0::syntax::TypeDeclarationParser;
+use ring0::syntax::BinaryExpressionParser;
+use ring0::syntax::ExpressionParser;
+use ring0::syntax::PrimaryParser;
+use ring0::syntax::StringPartsParser;
+use ring0::syntax::TernaryLookahead;
+use ring0::syntax::UnaryPostfixParser;
+use ring0::syntax::CollectionLiteralParser;
+use ring0::syntax::LambdaParser;
+use ring0::syntax::QuoteParser;
+use ring0::syntax::ControlFlowParser;
+use ring0::syntax::LocalDeclarationParser;
+use ring0::syntax::StatementExpressionParser;
+use ring0::syntax::StatementParser;
+use ring0::syntax::StatementSwitchParser;
+use ring0::syntax::SwitchParser;
+use ring0::syntax::SwitchPatternParser;
 
 public class SyntaxPrelude {
     public SyntaxPrelude() {

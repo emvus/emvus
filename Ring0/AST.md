@@ -48,7 +48,7 @@ Each declaration has the children `annotation*` first, then `modifiers`, then it
 `block`, `placeholder`, `local`, `init`, `destructure`, `binding`, `wildcard`, `cascade`, `cascade-item`,
 `if`, `while`, `for`, `foreach`, `return`, `fail`, `success`, `break`, `continue`, `switch`, `case`,
 `pattern-success`, `pattern-error`, `pattern-name`, `pattern-value`, `assign`, `expr-stmt`.
-Child order: see the header comment in `StatementParser.ems`.
+Child order: see the header comments in `parsing/statements/` (`StatementParser`, `LocalDeclarationParser`, `ControlFlowParser`, `StatementSwitchParser`).
 
 ## Expressions
 
@@ -56,7 +56,7 @@ Child order: see the header comment in `StatementParser.ems`.
 `splice`, `member`, `call`, `index`, `propagate` (`?`), `unwrap` (`!`), `postfix`, `unary`, `binary`,
 `ternary`, `assign`, `is`, `as`, `cascade`, `cascade-section`, `lambda`, `list-literal`, `dict-literal`,
 `dict-entry`, `task` (fiber/virtual/thread), `switch`, `case`, `pattern`, `pattern-literal`, `quote`, `error`.
-Details: see the header comment in `ExpressionParser.ems`.
+Details: see the header comment in `parsing/expressions/ExpressionParser.ems`.
 
 ## Verification
 
@@ -73,3 +73,48 @@ Details: see the header comment in `ExpressionParser.ems`.
 - `?` at line end is a ternary if, within the next 3 lines at bracket depth 0, a `:` follows before another
   `?`, `;`, `->` or `=`; otherwise it is propagation.
 - Tests: `scripts/check-syntax.sh` (negative/positive tests under `tests/syntax/`, AST comparison `tests/golden/showcase.ast`).
+
+## Cascades
+
+`receiver ..a() ..x = 1 ..b()` is ONE `cascade` node: child 0 is the receiver, every further child is a
+`cascade-section` whose single child is the member/call chain relative to the receiver, or an `assign`
+whose target is that chain.
+
+```text
+cascade
+  call (the receiver, e.g. Person("Anna", 30))
+  cascade-section
+    call
+      name birthday
+  cascade-section
+    assign =
+      name age
+      int-literal 40
+  cascade-section
+    call
+      name birthday
+```
+
+The value of `..x = value` ends at the next `..`: that `..` starts the following section instead of
+cascading on the value. Inside brackets, argument lists and blocks cascades work again as usual
+(`..x = compute(a ..b())`). Earlier versions produced a nested `cascade` on the literal for
+`..age = 40 ..birthday()`; that shape no longer occurs.
+
+`cascade` with `cascade-item` children is a statement-level fallback for a `..` that follows a complete
+expression the expression parser did not absorb (for example after `x is T`).
+
+## Parser layout
+
+```text
+syntax/                      Token, Node, ParserState, AstKinds (node kind constants), SyntaxPrelude
+syntax/lexing/               Lexer, LexerCursor, LexerRules, LexerTokenReader
+syntax/parsing/              Parser, TopLevelParser, TypeParser
+syntax/parsing/expressions/  ExpressionParser, BinaryExpressionParser, UnaryPostfixParser, TernaryLookahead,
+                             PrimaryParser, StringPartsParser
+syntax/parsing/expressions/literals/  CollectionLiteralParser, LambdaParser, QuoteParser
+syntax/parsing/switches/     SwitchParser, SwitchPatternParser          (expression switch)
+syntax/parsing/statements/   StatementParser, StatementExpressionParser, LocalDeclarationParser,
+                             ControlFlowParser, StatementSwitchParser   (statement switch)
+syntax/parsing/declarations/ DeclMemberParser, DeclHeaderParser, ParameterParser, MethodParser, FieldParser,
+                             TypeDeclarationParser, EnumParser, MacroParser
+```

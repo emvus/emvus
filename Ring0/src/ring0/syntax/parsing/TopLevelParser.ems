@@ -1,11 +1,6 @@
 namespace ring0::syntax;
 
-use ring0::syntax::DeclHeaderParser;
-use ring0::syntax::DeclMemberParser;
-use ring0::syntax::Node;
-use ring0::syntax::ParserState;
-use ring0::syntax::Token;
-// Datei-Ebene.
+// File level.
 //
 // file     children: [package] use* declarations (see DeclMemberParser)
 // package  text="a.b"
@@ -20,7 +15,7 @@ public class TopLevelParser {
     }
 
     public Node parseFile() {
-        Node file = Node("file", "", 1, 1);
+        Node file = Node(AstKinds.file(), "", 1, 1);
 
         while (!this.state.isAtEnd()) {
             Int start = this.state.position();
@@ -59,13 +54,13 @@ public class TopLevelParser {
         Token keyword = this.state.advance();
         String name = this.header.parseQualifiedName("Expected package name");
         this.state.matchSymbol(";");
-        return this.state.nodeAt(keyword, "package", name);
+        return this.state.nodeAt(keyword, AstKinds.packageDeclaration(), name);
     }
 
     // use { a.b.[X, Y], c as D }   or   use a.b.C [as D]
     private Node parseUse() {
         Token keyword = this.state.advance();
-        Node use = this.state.nodeAt(keyword, "use", "");
+        Node use = this.state.nodeAt(keyword, AstKinds.useDeclaration(), "");
 
         if (!this.state.matchSymbol("{")) {
             this.parseUseEntry(use);
@@ -86,6 +81,7 @@ public class TopLevelParser {
         return use;
     }
 
+    // `a.b.C [as D]` or a group `a.b.[X, Y as Z]`; a group ends the entry.
     private Void parseUseEntry(Node use) {
         Token startToken = this.state.peek();
         String prefix = this.header.consumeName("Expected name in use declaration").text();
@@ -93,39 +89,41 @@ public class TopLevelParser {
         while (this.state.checkSymbol(".")) {
             this.state.advance();
 
-            if (this.state.checkSymbol("[")) {
-                this.state.advance();
-
-                while (!this.state.checkSymbol("]") && !this.state.isAtEnd()) {
-                    Token item = this.header.consumeName("Expected name in use group");
-                    Node entry = this.state.nodeAt(item, "use-item", prefix + "." + item.text());
-
-                    if (this.header.matchWord("as")) {
-                        Token alias = this.header.consumeName("Expected alias name");
-                        entry.add(this.state.nodeAt(alias, "alias", alias.text()));
-                    }
-
-                    use.add(entry);
-
-                    if (!this.state.matchSymbol(",")) {
-                        break;
-                    }
-                }
-
-                this.state.consumeSymbol("]", "Expected ']' after use group");
+            if (this.state.matchSymbol("[")) {
+                this.parseUseGroup(use, prefix);
                 return;
             }
 
             prefix = prefix + "." + this.header.consumeName("Expected name after '.' in use declaration").text();
         }
 
-        Node entry = this.state.nodeAt(startToken, "use-item", prefix);
+        Node entry = this.state.nodeAt(startToken, AstKinds.useItem(), prefix);
+        this.parseAlias(entry);
+        use.add(entry);
+    }
 
-        if (this.header.matchWord("as")) {
-            Token alias = this.header.consumeName("Expected alias name");
-            entry.add(this.state.nodeAt(alias, "alias", alias.text()));
+    // Items of `prefix.[A, B as C]`; the opening `[` is already consumed.
+    private Void parseUseGroup(Node use, String prefix) {
+        while (!this.state.checkSymbol("]") && !this.state.isAtEnd()) {
+            Token item = this.header.consumeName("Expected name in use group");
+            Node entry = this.state.nodeAt(item, AstKinds.useItem(), prefix + "." + item.text());
+            this.parseAlias(entry);
+            use.add(entry);
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
         }
 
-        use.add(entry);
+        this.state.consumeSymbol("]", "Expected ']' after use group");
+    }
+
+    private Void parseAlias(Node entry) {
+        if (!this.header.matchWord("as")) {
+            return;
+        }
+
+        Token alias = this.header.consumeName("Expected alias name");
+        entry.add(this.state.nodeAt(alias, AstKinds.alias(), alias.text()));
     }
 }

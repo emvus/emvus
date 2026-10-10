@@ -1,0 +1,117 @@
+namespace ring0::syntax;
+
+// class, data class, record, interface and exception declarations. The keyword(s) are
+// still unconsumed when the parse methods are called.
+//
+//   body  children: members (see DeclMemberParser)
+//   based / implements  children: type nodes
+public class TypeDeclarationParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public TypeDeclarationParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    public Node parseClass(Node holder, Node modifiers) {
+        this.state.advance();
+        Node declaration = this.begin(AstKinds.classDeclaration(), "Expected class name", holder, modifiers);
+        this.parseClauses(declaration, true);
+        declaration.add(this.parseBody());
+        return declaration;
+    }
+
+    public Node parseDataClass(Node holder, Node modifiers) {
+        this.state.advance();
+        this.state.advance();
+        Node declaration = this.begin(AstKinds.dataClass(), "Expected data class name", holder, modifiers);
+        declaration.add(ParameterParser(this.state).parseParams());
+        this.parseClauses(declaration, true);
+        this.parseOptionalBody(declaration);
+        return declaration;
+    }
+
+    public Node parseRecord(Node holder, Node modifiers) {
+        this.state.advance();
+        Node declaration = this.begin(AstKinds.recordDeclaration(), "Expected record name", holder, modifiers);
+        declaration.add(ParameterParser(this.state).parseParams());
+        this.parseClauses(declaration, true);
+        this.parseOptionalBody(declaration);
+        return declaration;
+    }
+
+    public Node parseInterface(Node holder, Node modifiers) {
+        this.state.advance();
+        Node declaration = this.begin(AstKinds.interfaceDeclaration(), "Expected interface name", holder, modifiers);
+        this.parseClauses(declaration, false);
+        declaration.add(this.parseBody());
+        return declaration;
+    }
+
+    public Node parseException(Node holder, Node modifiers) {
+        this.state.advance();
+        Node declaration = this.begin(AstKinds.exceptionDeclaration(), "Expected exception name", holder, modifiers);
+
+        if (this.state.checkSymbol("(")) {
+            declaration.add(ParameterParser(this.state).parseParams());
+        }
+
+        this.parseClauses(declaration, false);
+        this.parseOptionalBody(declaration);
+        return declaration;
+    }
+
+    private Node begin(String kind, String message, Node holder, Node modifiers) {
+        Token nameToken = this.header.consumeName(message);
+        Node declaration = this.state.nodeAt(nameToken, kind, nameToken.text());
+        this.header.attach(declaration, holder, modifiers);
+        return declaration;
+    }
+
+    // where / based / implements, in any of the orders the language allows.
+    private Void parseClauses(Node declaration, Bool allowImplements) {
+        if (this.header.isWord(0, "where")) {
+            declaration.add(this.header.parseWhere());
+        }
+
+        if (this.header.isWord(0, "based")) {
+            this.state.advance();
+            declaration.add(this.header.parseTypeList(AstKinds.based()));
+        }
+
+        if (allowImplements && this.header.isWord(0, "implements")) {
+            this.state.advance();
+            declaration.add(this.header.parseTypeList(AstKinds.implementsClause()));
+        }
+
+        if (this.header.isWord(0, "where")) {
+            declaration.add(this.header.parseWhere());
+        }
+    }
+
+    private Void parseOptionalBody(Node declaration) {
+        if (this.state.checkSymbol("{")) {
+            declaration.add(this.parseBody());
+        }
+    }
+
+    // Expects "{" members "}"
+    private Node parseBody() {
+        Node body = this.state.node(AstKinds.body(), "");
+        this.state.consumeSymbol("{", "Expected '{' before body");
+        DeclMemberParser members = DeclMemberParser(this.state);
+
+        while (!this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            Int start = this.state.position();
+            body.add(members.parseMember());
+
+            if (this.state.position() == start) {
+                this.state.advance();
+            }
+        }
+
+        this.state.consumeSymbol("}", "Expected '}' after body");
+        return body;
+    }
+}

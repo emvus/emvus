@@ -1,0 +1,105 @@
+namespace ring0::syntax;
+
+// Entry point for expressions. This class owns the two loosest levels (assignment, ternary);
+// operators, postfix chains, primaries and literals live in sibling classes.
+//
+// Node kinds (kind, text, children):
+//   string          text=raw text; children: interpolation [expression] per successfully parsed ${...}
+//   int-literal / float-literal / bool-literal / null-literal   text=value
+//   name            text=identifier (also this, super)
+//   generic-ref     text=name, children=type arguments   (only before '(', e.g. Tuple<Int, Int>(1, 2))
+//   placeholder     '...'
+//   splice          [expression]                      $(expression) in macro code
+//   member          text=name, [object]
+//   call            [callee, arg...]
+//   index           [object, index]
+//   propagate       [expression]                      result?
+//   unwrap          [expression]                      result!
+//   postfix         text=++|--, [expression]
+//   unary           text=!|-|+|++|--, [expression]
+//   binary          text=operator, [left, right]
+//   ternary         [condition, then, else]
+//   assign          text==|+=|-=|*=|/=|%=, [target, value]
+//   is / as         [expression, type]
+//   cascade         [receiver, cascade-section...]    one flat list, see AST.md
+//   cascade-section [member/call chain relative to the receiver, or assign]
+//   lambda          [params, body]  params: children "param" (text=name, optional [type]); body: expression or "block"
+//   list-literal    [elements...]   (list or tuple, typing decides)
+//   dict-literal    [dict-entry...]
+//   dict-entry      text="computed" for [expr]: value, otherwise ""; [key, value]
+//   task            text=fiber|virtual|thread, [block]
+//   switch / case / pattern ...  see SwitchParser
+//   quote           text=statement|expression|field|method|class, [block | expression | member...]
+//   error           placeholder after a syntax error
+public class ExpressionParser {
+    private ParserState state;
+
+    public ExpressionParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parse() {
+        return this.parseAssignment();
+    }
+
+    // Starts at the 'switch' keyword; statements use their own StatementSwitchParser.
+    public Node parseSwitch() {
+        return SwitchParser(this.state).parse();
+    }
+
+    // Comma separated expressions up to (not including) `closer`; a trailing comma is allowed.
+    public Void parseSequence(Node owner, String closer) {
+        if (this.state.checkSymbol(closer)) {
+            return;
+        }
+
+        Bool more = true;
+
+        while (more) {
+            owner.add(this.parse());
+            more = this.state.matchSymbol(",");
+
+            if (more && this.state.checkSymbol(closer)) {
+                more = false;
+            }
+        }
+    }
+
+    private Node parseAssignment() {
+        Node left = this.parseTernary();
+        Token token = this.state.peek();
+
+        if (!token.kindIs("symbol") || !this.isAssignmentOperator(token.text())) {
+            return left;
+        }
+
+        this.state.advance();
+        Node value = this.parseAssignment();
+        Node assign = this.state.nodeAt(token, AstKinds.assign(), token.text());
+        assign.add(left);
+        assign.add(value);
+        return assign;
+    }
+
+    private Bool isAssignmentOperator(String op) {
+        return op == "=" || op == "+=" || op == "-=" || op == "*=" || op == "/=" || op == "%=";
+    }
+
+    private Node parseTernary() {
+        Node condition = BinaryExpressionParser(this.state).parseOr();
+
+        if (!this.state.checkSymbol("?")) {
+            return condition;
+        }
+
+        Node ternary = this.state.nodeAt(this.state.peek(), AstKinds.ternary(), "");
+        this.state.advance();
+        Node thenBranch = this.parseAssignment();
+        this.state.consumeSymbol(":", "Expected ':' in conditional expression");
+        Node elseBranch = this.parseAssignment();
+        ternary.add(condition);
+        ternary.add(thenBranch);
+        ternary.add(elseBranch);
+        return ternary;
+    }
+}

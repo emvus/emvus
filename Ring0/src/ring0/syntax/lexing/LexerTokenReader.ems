@@ -39,48 +39,57 @@ public class LexerTokenReader {
         Int start = this.cursor.index();
         Int startLine = this.cursor.line();
         Int startColumn = this.cursor.column();
-
-        while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
-            this.cursor.advanceText();
-        }
-
-        Bool real = false;
-
-        if (this.cursor.peekText() == "." && this.rules.isDigit(this.cursor.peekNextText())) {
-            real = true;
-            this.cursor.advanceText();
-
-            while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
-                this.cursor.advanceText();
-            }
-        }
-
-        if (this.cursor.peekText() == "e" || this.cursor.peekText() == "E") {
-            String after = this.cursor.peekNextText();
-            Bool signed = after == "+" || after == "-";
-            Bool hasDigits = this.rules.isDigit(after) || (signed && this.rules.isDigit(this.cursor.peekAt(2)));
-
-            if (hasDigits) {
-                real = true;
-                this.cursor.advanceText();
-
-                if (signed) {
-                    this.cursor.advanceText();
-                }
-
-                while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
-                    this.cursor.advanceText();
-                }
-            }
-        }
-
+        this.skipDigits();
+        Bool fraction = this.readFraction();
+        Bool exponent = this.readExponent();
         String text = this.cursor.slice(start, this.cursor.index());
 
-        if (real) {
+        if (fraction || exponent) {
             return Token("float", text, startLine, startColumn);
         }
 
         return Token("number", text, startLine, startColumn);
+    }
+
+    private Void skipDigits() {
+        while (!this.cursor.isAtEnd() && this.rules.isDigit(this.cursor.peekText())) {
+            this.cursor.advanceText();
+        }
+    }
+
+    // `.` only starts a fraction when a digit follows, so `1..x` and `1.method()` stay intact.
+    private Bool readFraction() {
+        if (this.cursor.peekText() != "." || !this.rules.isDigit(this.cursor.peekNextText())) {
+            return false;
+        }
+
+        this.cursor.advanceText();
+        this.skipDigits();
+        return true;
+    }
+
+    // An `e` without digits behind it is not an exponent: it belongs to the next token.
+    private Bool readExponent() {
+        if (this.cursor.peekText() != "e" && this.cursor.peekText() != "E") {
+            return false;
+        }
+
+        String after = this.cursor.peekNextText();
+        Bool signed = after == "+" || after == "-";
+        Bool hasDigits = this.rules.isDigit(after) || (signed && this.rules.isDigit(this.cursor.peekAt(2)));
+
+        if (!hasDigits) {
+            return false;
+        }
+
+        this.cursor.advanceText();
+
+        if (signed) {
+            this.cursor.advanceText();
+        }
+
+        this.skipDigits();
+        return true;
     }
 
     // Escapes are resolved; ${...} and $(...) stay raw in the text.
@@ -117,6 +126,8 @@ public class LexerTokenReader {
         return Token("string", text, startLine, startColumn);
     }
 
+    // Copies a `${...}` or `$(...)` verbatim, including nested brackets and string literals,
+    // so the expression parser can re-read it later.
     private String readInterpolation() {
         String result = this.cursor.advanceText();
         String open = this.cursor.advanceText();
@@ -135,28 +146,35 @@ public class LexerTokenReader {
 
             if (value == open) {
                 depth = depth + 1;
-                continue;
             }
 
             if (value == close) {
                 depth = depth - 1;
-                continue;
             }
 
             if (value == "\"") {
-                while (!this.cursor.isAtEnd() && this.cursor.peekText() != "\"") {
-                    String inner = this.cursor.advanceText();
-                    result = result + inner;
-
-                    if (inner == "\\" && !this.cursor.isAtEnd()) {
-                        result = result + this.cursor.advanceText();
-                    }
-                }
-
-                if (!this.cursor.isAtEnd()) {
-                    result = result + this.cursor.advanceText();
-                }
+                result = result + this.readQuotedRemainder();
             }
+        }
+
+        return result;
+    }
+
+    // Rest of a string literal nested inside an interpolation; the opening quote is consumed.
+    private String readQuotedRemainder() {
+        String result = "";
+
+        while (!this.cursor.isAtEnd() && this.cursor.peekText() != "\"") {
+            String inner = this.cursor.advanceText();
+            result = result + inner;
+
+            if (inner == "\\" && !this.cursor.isAtEnd()) {
+                result = result + this.cursor.advanceText();
+            }
+        }
+
+        if (!this.cursor.isAtEnd()) {
+            result = result + this.cursor.advanceText();
         }
 
         return result;

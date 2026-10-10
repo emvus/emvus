@@ -1,10 +1,7 @@
 namespace ring0::syntax;
 
-use ring0::syntax::Node;
-use ring0::syntax::ParserState;
-use ring0::syntax::Token;
-use ring0::syntax::TopLevelParser;
 use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::SyntaxPrelude;
 
 // Entry point: tokens -> "file" node (see TopLevelParser).
 public class Parser {

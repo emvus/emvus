@@ -1,0 +1,116 @@
+namespace ring0::syntax;
+
+public class LambdaParser {
+    private ParserState state;
+
+    public LambdaParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    // A '(' starts a lambda only when its matching ')' is followed by '->'.
+    public Bool isLambdaAhead() {
+        Int depth = 0;
+        Int offset = 0;
+
+        while (offset < this.maxLookaheadTokens()) {
+            Token token = this.state.peekAt(offset);
+
+            if (token.isEof()) {
+                return false;
+            }
+
+            if (token.isSymbol("(")) {
+                depth = depth + 1;
+            }
+
+            if (token.isSymbol(")")) {
+                depth = depth - 1;
+
+                if (depth == 0) {
+                    return this.state.peekAt(offset + 1).isSymbol("->");
+                }
+            }
+
+            offset = offset + 1;
+        }
+
+        return false;
+    }
+
+    private Int maxLookaheadTokens() {
+        return 400;
+    }
+
+    public Node parseLambda() {
+        Token open = this.state.advance();
+        Node lambda = this.state.nodeAt(open, AstKinds.lambda(), "");
+        Node parameters = this.state.nodeAt(open, AstKinds.params(), "");
+        this.parseParameters(parameters);
+        this.state.consumeSymbol(")", "Expected ')' after lambda parameters");
+        this.state.consumeSymbol("->", "Expected '->' in lambda");
+        lambda.add(parameters);
+        lambda.add(this.parseBody());
+        return lambda;
+    }
+
+    // Stops at the first position where no parameter could be read, so a broken
+    // parameter list cannot loop.
+    private Void parseParameters(Node parameters) {
+        if (this.state.checkSymbol(")")) {
+            return;
+        }
+
+        Bool more = true;
+
+        while (more) {
+            Int before = this.state.position();
+            parameters.add(this.parseParameter());
+            more = this.state.position() != before && this.state.matchSymbol(",");
+        }
+    }
+
+    public Node parseBareLambda(Token name) {
+        this.state.advance();
+        this.state.advance();
+        Node lambda = this.state.nodeAt(name, AstKinds.lambda(), "");
+        Node parameters = this.state.nodeAt(name, AstKinds.params(), "");
+        parameters.add(this.state.nodeAt(name, AstKinds.param(), name.text()));
+        lambda.add(parameters);
+        lambda.add(this.parseBody());
+        return lambda;
+    }
+
+    private Node parseBody() {
+        if (this.state.checkSymbol("{")) {
+            return StatementParser(this.state).parseBlock();
+        }
+
+        return ExpressionParser(this.state).parse();
+    }
+
+    // `Type name` or just `name`: try the typed form speculatively, fall back to a bare name.
+    private Node parseParameter() {
+        Token first = this.state.peek();
+        Int start = this.state.position();
+        this.state.beginSpeculation();
+        Node typeNode = TypeParser(this.state).parse();
+        Bool ok = this.state.endSpeculation();
+
+        if (ok && this.state.peek().isName()) {
+            Token name = this.state.advance();
+            Node param = this.state.nodeAt(name, AstKinds.param(), name.text());
+            param.add(typeNode);
+            return param;
+        }
+
+        this.state.seek(start);
+
+        if (!first.isName()) {
+            this.state.errorHere("Expected lambda parameter name");
+            return this.state.nodeAt(first, AstKinds.param(), "");
+        }
+
+        this.state.advance();
+        return this.state.nodeAt(first, AstKinds.param(), first.text());
+    }
+}

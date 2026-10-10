@@ -1106,11 +1106,10 @@ file
             cascade-section
               assign =
                 name age
-                cascade
-                  int-literal 40
-                  cascade-section
-                    call
-                      name birthday
+                int-literal 40
+            cascade-section
+              call
+                name birthday
       expr-stmt
         call
           name println

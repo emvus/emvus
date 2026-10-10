@@ -1,0 +1,201 @@
+namespace ring0::syntax;
+
+// Operands: literals, names, parenthesised expressions, collection literals, switch,
+// tasks, quote blocks, macro splices and placeholders.
+public class PrimaryParser {
+    private ParserState state;
+
+    public PrimaryParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parsePrimary() {
+        Token token = this.state.peek();
+        Node literal = this.parseLiteral(token);
+
+        if (!literal.kindIs(AstKinds.none())) {
+            return literal;
+        }
+
+        Node grouped = this.parseGrouped(token);
+
+        if (!grouped.kindIs(AstKinds.none())) {
+            return grouped;
+        }
+
+        if (token.isSymbol("$") && this.state.peekAt(1).isSymbol("(")) {
+            return this.parseSplice(token);
+        }
+
+        if (token.isName()) {
+            return this.parseWord(token);
+        }
+
+        this.state.errorHere("Expected expression");
+        return this.state.nodeAt(token, AstKinds.errorNode(), "");
+    }
+
+    // Numbers, strings and the `...` placeholder, or a `none` node.
+    private Node parseLiteral(Token token) {
+        if (token.isNumber()) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.intLiteral(), token.text());
+        }
+
+        if (token.isFloat()) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.floatLiteral(), token.text());
+        }
+
+        if (token.isString()) {
+            this.state.advance();
+            return StringPartsParser(this.state).parse(token);
+        }
+
+        return this.parsePlaceholder(token);
+    }
+
+    // The lexer emits `...` as one symbol, but `..` followed by `.` is accepted as well.
+    private Node parsePlaceholder(Token token) {
+        if (token.isSymbol("...")) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.placeholder(), "");
+        }
+
+        if (token.isSymbol("..") && this.state.peekAt(1).isSymbol(".")) {
+            this.state.advance();
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.placeholder(), "");
+        }
+
+        return this.state.nodeAt(token, AstKinds.none(), "");
+    }
+
+    // `(`, `[` and `{` introduce a nested expression context, or a `none` node.
+    private Node parseGrouped(Token token) {
+        if (token.isSymbol("(")) {
+            return this.parseParenthesized();
+        }
+
+        if (token.isSymbol("[")) {
+            return CollectionLiteralParser(this.state).parseList();
+        }
+
+        if (token.isSymbol("{")) {
+            return CollectionLiteralParser(this.state).parseDictionary();
+        }
+
+        return this.state.nodeAt(token, AstKinds.none(), "");
+    }
+
+    private Node parseSplice(Token dollar) {
+        this.state.advance();
+        this.state.advance();
+        Int saved = this.state.clearCascades();
+        Node splice = this.state.nodeAt(dollar, AstKinds.splice(), "");
+        splice.add(ExpressionParser(this.state).parse());
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol(")", "Expected ')' after $( expression");
+        return splice;
+    }
+
+    private Node parseParenthesized() {
+        LambdaParser lambdas = LambdaParser(this.state);
+
+        if (lambdas.isLambdaAhead()) {
+            return lambdas.parseLambda();
+        }
+
+        this.state.advance();
+        Int saved = this.state.clearCascades();
+        Node inner = ExpressionParser(this.state).parse();
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol(")", "Expected ')' after expression");
+        return inner;
+    }
+
+    private Node parseWord(Token token) {
+        Node special = this.parseSpecialWord(token);
+
+        if (!special.kindIs(AstKinds.none())) {
+            return special;
+        }
+
+        // A single parameter without parentheses: x -> expr
+        if (this.state.peekAt(1).isSymbol("->")) {
+            return LambdaParser(this.state).parseBareLambda(token);
+        }
+
+        // Generic call target: Tuple<Int, Int>(1, 2)
+        if (this.state.peekAt(1).isSymbol("<")) {
+            Node generic = this.tryGenericReference(token);
+
+            if (!generic.kindIs(AstKinds.errorNode())) {
+                return generic;
+            }
+        }
+
+        this.state.advance();
+        return this.state.nodeAt(token, AstKinds.nameReference(), token.text());
+    }
+
+    // Words that start their own construct (true, null, switch, tasks, quote), or a `none` node.
+    private Node parseSpecialWord(Token token) {
+        String text = token.text();
+
+        if (text == "true" || text == "false") {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.boolLiteral(), text);
+        }
+
+        if (text == "null") {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.nullLiteral(), "");
+        }
+
+        if (text == "switch" && this.state.peekAt(1).isSymbol("(")) {
+            return SwitchParser(this.state).parse();
+        }
+
+        if ((text == "fiber" || text == "virtual" || text == "thread") && this.state.peekAt(1).isSymbol("{")) {
+            return this.parseTask(token);
+        }
+
+        if (text == "quote" && this.state.peekAt(1).isName() && this.state.peekAt(2).isSymbol("{")) {
+            return QuoteParser(this.state).parse(token);
+        }
+
+        return this.state.nodeAt(token, AstKinds.none(), "");
+    }
+
+    private Node parseTask(Token keyword) {
+        this.state.advance();
+        Node task = this.state.nodeAt(keyword, AstKinds.task(), keyword.text());
+        task.add(StatementParser(this.state).parseBlock());
+        return task;
+    }
+
+    // Only a generic reference when a call follows the type arguments; otherwise the
+    // position is restored and `<` is read as a comparison.
+    private Node tryGenericReference(Token token) {
+        Int start = this.state.position();
+        this.state.beginSpeculation();
+        Node typeNode = TypeParser(this.state).parse();
+        Bool ok = this.state.endSpeculation();
+
+        if (ok && this.state.checkSymbol("(")) {
+            Node generic = this.state.nodeAt(token, AstKinds.genericRef(), typeNode.text());
+            Int index = 0;
+
+            while (index < typeNode.count()) {
+                generic.add(typeNode.child(index));
+                index = index + 1;
+            }
+
+            return generic;
+        }
+
+        this.state.seek(start);
+        return this.state.nodeAt(token, AstKinds.errorNode(), "");
+    }
+}

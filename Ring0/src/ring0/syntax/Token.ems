@@ -45,4 +45,34 @@ public class Token {
     public Bool isIdentifier(String text) {
         return this.kindValue == "identifier" && this.textValue == text;
     }
+
+    public Bool isEof() {
+        return this.kindValue == "eof";
+    }
+
+    public Bool isNumber() {
+        return this.kindValue == "number";
+    }
+
+    public Bool isFloat() {
+        return this.kindValue == "float";
+    }
+
+    public Bool isString() {
+        return this.kindValue == "string";
+    }
+
+    // Plain identifier, as opposed to a reserved keyword.
+    public Bool isPlainName() {
+        return this.kindValue == "identifier";
+    }
+
+    // Identifier or keyword: both can act as names (e.g. `exception` as a variable name).
+    public Bool isName() {
+        return this.kindValue == "identifier" || this.kindValue == "keyword";
+    }
+
+    public Bool isWord(String text) {
+        return this.isName() && this.textValue == text;
+    }
 }

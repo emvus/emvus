@@ -1,0 +1,52 @@
+namespace ring0::syntax;
+
+// `quote <kind> { ... }` code templates used by macros.
+public class QuoteParser {
+    private ParserState state;
+
+    public QuoteParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parse(Token quoteToken) {
+        this.state.advance();
+        Token kind = this.state.advance();
+        Node node = this.state.nodeAt(quoteToken, AstKinds.quote(), kind.text());
+        Int saved = this.state.clearCascades();
+
+        if (kind.text() == "statement") {
+            node.add(StatementParser(this.state).parseBlock());
+            this.state.restoreCascades(saved);
+            return node;
+        }
+
+        this.state.consumeSymbol("{", "Expected '{' after quote kind");
+
+        if (kind.text() == "expression") {
+            node.add(ExpressionParser(this.state).parse());
+            this.state.consumeSymbol("}", "Expected '}' after quote expression");
+        }
+
+        if (kind.text() != "expression") {
+            this.parseMembers(node);
+            this.state.consumeSymbol("}", "Expected '}' after quote body");
+        }
+
+        this.state.restoreCascades(saved);
+        return node;
+    }
+
+    // Field, method and class quotes hold declarations, which TopLevelParser already knows.
+    private Void parseMembers(Node node) {
+        TopLevelParser top = TopLevelParser(this.state);
+
+        while (!this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            Int before = this.state.position();
+            node.add(top.parseMember());
+
+            if (this.state.position() == before) {
+                this.state.advance();
+            }
+        }
+    }
+}
