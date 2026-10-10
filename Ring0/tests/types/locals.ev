@@ -1,0 +1,6 @@
+// Annotations for locals, parameters and original spelling under case-insensitive lookup.
+method<Int> twice(Int Value) {
+    Int Count = Value * 2
+    final var label = "x"
+    return count + VALUE
+}

@@ -86,7 +86,7 @@ public class LambdaChecker {
             }
 
             paramTypes.add(type + "");
-            this.context.scope().declare(param.text(), type, false);
+            this.context.scope().declareKind(param.text(), type, false, SymbolKinds.parameter());
             index = index + 1;
         }
 

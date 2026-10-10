@@ -30,6 +30,14 @@ public class SymbolKinds {
         return "field";
     }
 
+    public static String literal() {
+        return "literal";
+    }
+
+    public static String local() {
+        return "local";
+    }
+
     public static String macro() {
         return "macro";
     }
@@ -54,6 +62,10 @@ public class SymbolKinds {
         return "Parameter";
     }
 
+    public static String parameter() {
+        return "parameter";
+    }
+
     public static String privateAccess() {
         return "private";
     }
@@ -68,6 +80,22 @@ public class SymbolKinds {
 
     public static String publicAccess() {
         return "public";
+    }
+
+    public static String switchKind() {
+        return "switch";
+    }
+
+    public static String typeParameter() {
+        return "typeParameter";
+    }
+
+    public static String typeReference() {
+        return "type";
+    }
+
+    public static String value() {
+        return "value";
     }
 
     public static String variable() {

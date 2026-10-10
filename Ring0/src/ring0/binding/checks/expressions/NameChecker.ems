@@ -14,30 +14,33 @@ public class NameChecker {
         String name = node.text();
 
         if (name == "this") {
+            node.bind(SymbolKinds.local(), "this", "");
             return this.context.thisType();
         }
 
         if (name == "super") {
+            node.bind(SymbolKinds.local(), "super", "");
             return this.superType();
         }
 
         if (this.context.scope().has(name)) {
+            node.bind(this.context.scope().kindOf(name), this.context.scope().spellingOf(name), "");
             return this.context.scope().typeOf(name);
         }
 
-        String own = this.ownMemberType(name);
+        String own = this.ownMemberType(name, node);
 
         if (!own.isEmpty()) {
             return own;
         }
 
-        String global = this.globalType(name);
+        String global = this.globalType(name, node);
 
         if (!global.isEmpty()) {
             return global;
         }
 
-        String cascaded = this.cascadeMemberType(name);
+        String cascaded = this.cascadeMemberType(name, node);
 
         if (!cascaded.isEmpty()) {
             return cascaded;
@@ -81,6 +84,7 @@ public class NameChecker {
             return TypeNames.unknownType();
         }
 
+        at.bind(found.get(0).kind(), found.get(0).name(), found.get(0).owner());
         return this.memberResultType(found.get(0), lookup, name, at);
     }
 
@@ -95,7 +99,7 @@ public class NameChecker {
     }
 
     // Fields and properties of the current class; "" means no match.
-    private String ownMemberType(String name) {
+    private String ownMemberType(String name, Node node) {
         if (this.context.currentType().isEmpty()) {
             return "";
         }
@@ -107,6 +111,7 @@ public class NameChecker {
         }
 
         MemberSymbol first = members.get(0);
+        node.bind(first.kind(), first.name(), first.owner());
 
         if (first.kind() == SymbolKinds.method() && !Names.same(first.owner(), TypeNames.anyType())) {
             return TypeNames.unknownType();
@@ -120,24 +125,30 @@ public class NameChecker {
     }
 
     // Top-level variables, type names (static access), functions and type parameters.
-    private String globalType(String name) {
+    private String globalType(String name, Node node) {
         MemberSymbol variable = this.context.table().findTopLevel(name, SymbolKinds.variable());
 
         if (!variable.isMissing()) {
+            node.bind(SymbolKinds.variable(), variable.name(), "");
             return this.variableType(variable);
         }
 
         TypeSymbol typeSymbol = this.context.table().findType(name);
 
         if (!typeSymbol.isMissing()) {
+            node.bind(SymbolKinds.typeReference(), typeSymbol.name(), typeSymbol.kind());
             return TypeText.typeReference(typeSymbol.name());
         }
 
-        if (!this.context.table().findTopLevel(name, SymbolKinds.method()).isMissing()) {
+        MemberSymbol function = this.context.table().findTopLevel(name, SymbolKinds.method());
+
+        if (!function.isMissing()) {
+            node.bind(SymbolKinds.method(), function.name(), "");
             return TypeNames.unknownType();
         }
 
         if (this.context.typeParamNames().contains(name)) {
+            node.bind(SymbolKinds.typeParameter(), name, "");
             return TypeNames.unknownType();
         }
 
@@ -153,7 +164,7 @@ public class NameChecker {
     }
 
     // Inside a cascade section the members of the cascade target apply.
-    private String cascadeMemberType(String name) {
+    private String cascadeMemberType(String name, Node node) {
         if (this.context.cascadeReceiver().isEmpty()) {
             return "";
         }
@@ -164,6 +175,7 @@ public class NameChecker {
             return "";
         }
 
+        node.bind(viaReceiver.get(0).kind(), viaReceiver.get(0).name(), viaReceiver.get(0).owner());
         return viaReceiver.get(0).type() + "";
     }
 

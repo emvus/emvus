@@ -27,6 +27,7 @@ public class SwitchChecker {
         }
 
         this.requireExhaustive(node, subject, enumSymbol, info, isExpr);
+        node.bind(SymbolKinds.switchKind(), this.coverageKind(subject, enumSymbol, info), subject);
 
         if (!isExpr) {
             return TypeNames.voidType();
@@ -88,6 +89,31 @@ public class SwitchChecker {
         }
 
         this.context.report(node, "switch expression is not exhaustive; cover every case or add a catch-all such as 'unknown ->'");
+    }
+
+    // How the cases cover the subject: dynamic | catch-all | result | enum | boolean | partial.
+    private String coverageKind(String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        if (this.context.isLoose(subject)) {
+            return "dynamic";
+        }
+
+        if (info.catchAll()) {
+            return "catch-all";
+        }
+
+        if (TypeText.isResult(subject)) {
+            return "result";
+        }
+
+        if (enumSymbol.kind() == NodeKinds.enumDeclaration() && this.coversAllValues(subject, enumSymbol, info)) {
+            return "enum";
+        }
+
+        if (this.coversAllValues(subject, enumSymbol, info)) {
+            return "boolean";
+        }
+
+        return "partial";
     }
 
     private Void requireBothResultCases(Node node, SwitchInfo info) {

@@ -10,19 +10,47 @@ public class ArgumentChecker {
     }
 
     public MemberSymbol pickByArity(List<MemberSymbol> candidates, Int argCount) {
+        Int at = this.pickIndex(candidates, argCount);
+
+        if (at < 0) {
+            return MemberSymbol.missing();
+        }
+
+        return candidates.get(at);
+    }
+
+    // Position of the first candidate accepting argCount arguments, -1 if none does.
+    public Int pickIndex(List<MemberSymbol> candidates, Int argCount) {
         Int index = 0;
 
         while (index < candidates.length()) {
             MemberSymbol candidate = candidates.get(index);
 
             if ((candidate.kind() == NodeKinds.methodDeclaration() || candidate.kind() == NodeKinds.constructorDeclaration()) && argCount >= candidate.requiredCount() && argCount <= candidate.paramCount()) {
-                return candidate;
+                return index;
             }
 
             index = index + 1;
         }
 
-        return MemberSymbol.missing();
+        return -1;
+    }
+
+    // Overload number among the candidates of the same owner (declaration order).
+    public Int overloadNumber(List<MemberSymbol> candidates, Int at) {
+        String owner = candidates.get(at).owner();
+        Int number = 0;
+        Int index = 0;
+
+        while (index < at) {
+            if (Names.same(candidates.get(index).owner(), owner)) {
+                number = number + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return number;
     }
 
     public String arityText(MemberSymbol member) {
@@ -73,6 +101,7 @@ public class ArgumentChecker {
 
     public String callMethod(List<MemberSymbol> candidates, Node node, String name, String receiver, String expected) {
         Int argCount = node.count() - 1;
+        Int at = this.pickIndex(candidates, argCount);
         MemberSymbol chosen = this.pickByArity(candidates, argCount);
 
         if (chosen.isMissing()) {
@@ -106,6 +135,7 @@ public class ArgumentChecker {
         }
 
         this.checkArguments(chosen, node, name, ownerNames, ownerValues, names, values);
+        node.bind(SymbolKinds.method(), chosen.name(), CallTarget.make(chosen.owner(), this.overloadNumber(candidates, at), values));
         String result = TypeSubstitution.substitute(rawReturn, names, values);
 
         if (chosen.isAsync()) {

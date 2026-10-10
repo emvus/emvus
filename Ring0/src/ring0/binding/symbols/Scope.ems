@@ -5,12 +5,14 @@ public class Scope {
     private List<String> nameList;
     private List<String> typeList;
     private List<Bool> finalList;
+    private List<String> kindList;
     private List<Int> markList;
 
     public Scope() {
         this.nameList = List();
         this.typeList = List();
         this.finalList = List();
+        this.kindList = List();
         this.markList = List();
     }
 
@@ -31,13 +33,41 @@ public class Scope {
             this.nameList.removeAt(last);
             this.typeList.removeAt(last);
             this.finalList.removeAt(last);
+            this.kindList.removeAt(last);
         }
     }
 
     public Void declare(String name, String type, Bool isFinal) {
+        this.declareKind(name, type, isFinal, SymbolKinds.local());
+    }
+
+    // kind is SymbolKinds.local() or SymbolKinds.parameter(); it ends up in the AST annotations.
+    public Void declareKind(String name, String type, Bool isFinal, String kind) {
         this.nameList.add(name + "");
         this.typeList.add(type + "");
         this.finalList.add(isFinal);
+        this.kindList.add(kind + "");
+    }
+
+    public String kindOf(String name) {
+        Int index = this.indexOf(name);
+
+        if (index < 0) {
+            return "";
+        }
+
+        return this.kindList.get(index) + "";
+    }
+
+    // The spelling used at the declaration, since lookups are case-insensitive.
+    public String spellingOf(String name) {
+        Int index = this.indexOf(name);
+
+        if (index < 0) {
+            return "";
+        }
+
+        return this.nameList.get(index) + "";
     }
 
     private Int indexOf(String name) {

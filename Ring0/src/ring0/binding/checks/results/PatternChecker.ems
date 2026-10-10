@@ -52,6 +52,16 @@ public class PatternChecker {
             return;
         }
 
+        if (pattern.text() == "true") {
+            info.markTrue();
+            return;
+        }
+
+        if (pattern.text() == "false") {
+            info.markFalse();
+            return;
+        }
+
         this.applyName(pattern, Names.lastSegment(pattern.text()), subject, enumSymbol, info);
     }
 

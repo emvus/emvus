@@ -14,7 +14,9 @@ public class ConstructorChecker {
 
         if (!symbol.isUserDeclared()) {
             this.callChecker().evaluateArguments(node);
-            return this.externalConstructed(symbol, preset, expected);
+            String external = this.externalConstructed(symbol, preset, expected);
+            node.bind(SymbolKinds.constructor(), symbol.name(), CallTarget.make(symbol.name(), -1, TypeText.args(external)));
+            return external;
         }
 
         List<String> names = this.copyOf(symbol.typeParams());
@@ -27,6 +29,7 @@ public class ConstructorChecker {
             return TypeText.make(symbol.name(), values);
         }
 
+        Int at = this.argumentChecker().pickIndex(constructors, argCount);
         MemberSymbol chosen = this.argumentChecker().pickByArity(constructors, argCount);
 
         if (chosen.isMissing()) {
@@ -42,6 +45,7 @@ public class ConstructorChecker {
         List<String> noNames = List();
         List<String> noValues = List();
         this.argumentChecker().checkArguments(chosen, node, symbol.name(), noNames, noValues, names, values);
+        node.bind(SymbolKinds.constructor(), symbol.name(), CallTarget.make(symbol.name(), this.argumentChecker().overloadNumber(constructors, at), values));
         return TypeText.make(symbol.name(), values);
     }
 
@@ -163,6 +167,7 @@ public class ConstructorChecker {
                 at = at + 1;
             }
 
+            node.bind(SymbolKinds.constructor(), TypeNames.tupleType(), CallTarget.make(TypeNames.tupleType(), -1, explicit));
             return TypeText.tuple(explicit);
         }
 

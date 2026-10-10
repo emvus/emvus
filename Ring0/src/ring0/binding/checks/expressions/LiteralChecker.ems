@@ -154,16 +154,11 @@ public class LiteralChecker {
     public String typeOfCascade(Node node, String expected) {
         Node target = node.child(0);
         String type = this.expressionChecker().typeOf(target, expected);
-        Bool literal = target.kind().endsWith("-literal");
-        Bool nested = !this.context.cascadeReceiver().isEmpty() && literal;
         String saved = this.context.cascadeReceiver();
+        this.context.setCascadeReceiver(type);
 
-        if (!nested) {
-            this.context.setCascadeReceiver(type);
-
-            if (TypeText.isTypeReference(type) || TypeText.isUnknown(type) || type == TypeNames.dynamicType()) {
-                this.context.setCascadeReceiver("");
-            }
+        if (TypeText.isTypeReference(type) || TypeText.isUnknown(type) || type == TypeNames.dynamicType()) {
+            this.context.setCascadeReceiver("");
         }
 
         Int index = 1;

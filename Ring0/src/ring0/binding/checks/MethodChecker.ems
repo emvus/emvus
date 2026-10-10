@@ -45,7 +45,7 @@ public class MethodChecker {
         Int index = 0;
 
         while (index < method.paramCount()) {
-            this.context.scope().declare(method.paramName(index), method.paramType(index), false);
+            this.context.scope().declareKind(method.paramName(index), method.paramType(index), false, SymbolKinds.parameter());
             index = index + 1;
         }
     }

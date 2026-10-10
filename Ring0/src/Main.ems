@@ -1,5 +1,6 @@
 use ring0::binding::Binder;
 use ring0::binding::BindingPrelude;
+use ring0::binding::TypeDump;
 use ring0::diagnostic::DiagnosticBag;
 use ring0::syntax::Lexer;
 use ring0::syntax::Node;
@@ -9,7 +10,7 @@ use Std::Io::File;
 use Std::Process::Process;
 
 // Ring0: bootstrap compiler for Emvus, written in Emerald.
-// Usage: ring0 <file.ev> [--tokens | --check]
+// Usage: ring0 <file.ev> [--tokens | --check [--types]]
 main() {
     List<String> args = Process.args();
 
@@ -66,6 +67,11 @@ main() {
 
         if (bag.hasErrors()) {
             Process.exit(1);
+        }
+
+        if (args.length() > 2 && args.get(2) == "--types") {
+            TypeDump typeDump = TypeDump();
+            println(typeDump.dump(tree));
         }
 
         println("check ok");

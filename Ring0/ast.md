@@ -118,3 +118,27 @@ syntax/parsing/statements/   StatementParser, StatementExpressionParser, LocalDe
 syntax/parsing/declarations/ DeclMemberParser, DeclHeaderParser, ParameterParser, MethodParser, FieldParser,
                              TypeDeclarationParser, EnumParser, MacroParser
 ```
+
+## Binder annotations
+
+After `Binder.bind` every checked node carries a semantic annotation channel on `Node`. It is
+not part of `dump()`, so the syntax goldens do not change. `--check --types` prints it
+(`tests/types/*.ev`, goldens in `tests/types/golden/`).
+
+| Accessor | Meaning |
+|---|---|
+| `type()` | Static type text of the expression ("" if not checked), e.g. `Int`, `List<Int>`, `Result<Int,NegativeException>`; `Foo` of a type name appears as type reference |
+| `symbolKind()` | `local`, `parameter`, `variable` (top-level), `property`, `field`, `method`, `constructor`, `entry`, `type`, `typeParameter`, `value` (call of a function value), `literal`, `switch` |
+| `symbolName()` | The symbol's ORIGINAL spelling (lookups are case-insensitive); for literals the literal node kind; for `switch` the coverage |
+| `symbolDetail()` | `local`/`parameter`: "". Members: owner type. Types: type kind. Calls: `CallTarget` encoding `owner\|overload\|typeArgs`. `switch`: the subject type |
+
+Annotated nodes:
+
+- every expression node: `type()`; literals additionally `literal`
+- name and member nodes: the resolved symbol (`this`/`super` as `local`)
+- `call` nodes: the resolved callee (`method`, `constructor`, `value`); `CallTarget.owner/overload/typeArgs` parse the detail. `overload` is the position among the same-owner candidates of that name in declaration order (selection is by arity); `-1` marks constructors of external types without declared signature. `typeArgs` are the instantiated method type arguments (constructors: the type arguments of the constructed type)
+- `local` and destructuring `binding` statements: declared or inferred type and the declared spelling
+- `switch` nodes: coverage in `symbolName()` is `dynamic | catch-all | result | enum | boolean | partial`
+
+Limits: no annotations inside macro bodies or `quote` contents, unknown stdlib calls keep type `?`,
+expressions that are only checked speculatively keep the type of their last non-silent check.

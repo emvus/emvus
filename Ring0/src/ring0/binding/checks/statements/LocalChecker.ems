@@ -24,7 +24,7 @@ public class LocalChecker {
         if (declared == TypeNames.inferredType()) {
             if (AstQuery.isNone(valueNode)) {
                 this.context.report(stmt, "'var' requires an initializer");
-                this.context.declareLocal(stmt.text(), TypeNames.unknownType(), isFinal, stmt);
+                this.declare(stmt, TypeNames.unknownType(), isFinal);
                 return;
             }
 
@@ -40,7 +40,7 @@ public class LocalChecker {
                 inferred = TypeNames.unknownType();
             }
 
-            this.context.declareLocal(stmt.text(), inferred, isFinal, stmt);
+            this.declare(stmt, inferred, isFinal);
             return;
         }
 
@@ -49,7 +49,14 @@ public class LocalChecker {
             this.context.requireAssignable(declared, found, valueNode, "Initializer of '" + stmt.text() + "'");
         }
 
-        this.context.declareLocal(stmt.text(), declared, isFinal, stmt);
+        this.declare(stmt, declared, isFinal);
+    }
+
+    // Declares the local and records its type and spelling on the declaring node.
+    private Void declare(Node at, String type, Bool isFinal) {
+        at.setType(type + "");
+        at.bind(SymbolKinds.local(), at.text(), "");
+        this.context.declareLocal(at.text(), type, isFinal, at);
     }
 
     public Void checkDestructure(Node stmt) {
@@ -94,7 +101,7 @@ public class LocalChecker {
                     type = elements.get(position) + "";
                 }
 
-                this.context.declareLocal(child.text(), type, AstQuery.isFinal(stmt), child);
+                this.declare(child, type, AstQuery.isFinal(stmt));
             }
 
             position = position + 1;

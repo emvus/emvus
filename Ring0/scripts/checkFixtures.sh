@@ -2,6 +2,8 @@
 # Builds Ring0 once in the sandbox and checks:
 #  - tests/showcase.ev passes --check
 #  - every tests/binding/*.ev and tests/flow/*.ev (line 1: `// expect: <text>`) fails with that diagnostic
+#  - every tests/types/*.ev prints the annotation listing of `--check --types` equal to tests/types/golden/<name>.types
+#    (create a golden by running: scripts/runSandbox.sh tests/types/<name>.ev --check --types)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EMERALD_ROOT="${RING0_EMERALD_ROOT:-/run/media/syntaxjason/0A625B37625B272B/Code Space/Emerald/Emerald LLVM}"
@@ -23,5 +25,11 @@ docker run --rm --init --network=none --read-only --cap-drop=ALL \
         expect=$(head -1 "$f" | sed "s#^// expect: ##")
         out=$(timeout 30s /tmp/ring0 "$f" --check 2>&1)
         if echo "$out" | grep -qF -- "$expect"; then echo "PASS $(basename "$f")"; else echo "FAIL $(basename "$f") (expected: $expect)"; echo "$out" | head -5; fail=1; fi
+      done
+      for f in /project/tests/types/*.ev; do
+        name=$(basename "$f" .ev)
+        out=$(timeout 30s /tmp/ring0 "$f" --check --types 2>&1)
+        golden=/project/tests/types/golden/$name.types
+        if [ "$out" = "$(cat "$golden" 2>/dev/null)" ]; then echo "PASS $name.ev (types)"; else echo "FAIL $name.ev (types)"; echo "$out" | head -8; fail=1; fi
       done
       exit $fail'

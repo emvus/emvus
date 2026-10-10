@@ -151,6 +151,7 @@ public class CallChecker {
 
     private String callFunctionValue(Node node, String type, String name) {
         Int count = node.count() - 1;
+        node.bind(SymbolKinds.value(), name, "");
 
         if (TypeText.isUnknown(type) || type == TypeNames.dynamicType()) {
             this.evaluateArguments(node);

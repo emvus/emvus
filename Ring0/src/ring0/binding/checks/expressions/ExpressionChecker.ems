@@ -9,8 +9,20 @@ public class ExpressionChecker {
         this.context = checkContext;
     }
 
-    // Each helper returns "" for node kinds it does not handle; the first match wins.
+    // Checks the expression and records its type on the node. Silent passes (speculative
+    // re-checks) only annotate nodes that have no type yet, so a final pass always wins.
     public String typeOf(Node node, String expected) {
+        String type = this.computeType(node, expected);
+
+        if (this.context.silent() == 0 || node.type().isEmpty()) {
+            node.setType(type + "");
+        }
+
+        return type;
+    }
+
+    // Each helper returns "" for node kinds it does not handle; the first match wins.
+    private String computeType(Node node, String expected) {
         String literal = this.typeOfLiteral(node);
 
         if (!literal.isEmpty()) {
@@ -40,6 +52,10 @@ public class ExpressionChecker {
 
     private String typeOfLiteral(Node node) {
         String kind = node.kind();
+
+        if (kind.endsWith("-literal") || kind == NodeKinds.stringLiteral()) {
+            node.bind(SymbolKinds.literal(), kind, "");
+        }
 
         if (kind == NodeKinds.intLiteral()) {
             return TypeNames.intType();
