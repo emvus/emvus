@@ -1,0 +1,189 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Entry point of the null-safety analysis (control-flow based, no nullable type syntax).
+// Runs after the type checker, so every name and type is already known to be valid.
+public class NullFlowAnalyzer {
+    private FlowContext context;
+    private ExpressionFlow expressions;
+    private StatementFlow statements;
+
+    public NullFlowAnalyzer(DiagnosticBag diagnostics) {
+        this.context = FlowContext(diagnostics);
+        this.expressions = ExpressionFlow(this.context);
+        this.statements = StatementFlow(this.context, this.expressions);
+    }
+
+    public Void analyze(Node file) {
+        PropertyFacts.collectNullable(file, this.context);
+        Int index = 0;
+
+        while (index < file.count()) {
+            this.analyzeDeclaration(file.child(index));
+            index = index + 1;
+        }
+    }
+
+    private Void analyzeDeclaration(Node declaration) {
+        String kind = declaration.kind();
+
+        if (kind == NodeKinds.methodDeclaration()) {
+            this.analyzeMethod(declaration);
+            return;
+        }
+
+        if (kind == NodeKinds.variableDeclaration()) {
+            this.analyzeInitializer(declaration);
+            return;
+        }
+
+        if (kind == NodeKinds.classDeclaration() || kind == NodeKinds.dataClass() || kind == NodeKinds.recordDeclaration()) {
+            this.analyzeType(declaration);
+            return;
+        }
+
+        if (kind == NodeKinds.enumDeclaration() || kind == NodeKinds.exceptionDeclaration() || kind == NodeKinds.interfaceDeclaration()) {
+            this.analyzeType(declaration);
+        }
+    }
+
+    private Void analyzeType(Node declaration) {
+        Node body = AstQuery.childOfKind(declaration, NodeKinds.body());
+        List<Node> uninitialized = NullFlowAnalyzer.membersToInitialize(declaration, body);
+        Bool hasConstructor = false;
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node member = body.child(index);
+            hasConstructor = hasConstructor || member.kind() == NodeKinds.constructorDeclaration();
+            this.analyzeMember(member, uninitialized);
+            index = index + 1;
+        }
+
+        if (!hasConstructor) {
+            this.reportNeverInitialized(uninitialized);
+        }
+    }
+
+    // Annotated classes may receive members from macros, so they are not checked.
+    private static List<Node> membersToInitialize(Node declaration, Node body) {
+        Bool checked = declaration.kind() == NodeKinds.classDeclaration() && !AstQuery.hasChild(declaration, NodeKinds.annotation());
+
+        if (!checked) {
+            return List();
+        }
+
+        return PropertyFacts.uninitializedMembers(body);
+    }
+
+    private Void analyzeMember(Node member, List<Node> uninitialized) {
+        String kind = member.kind();
+
+        if (kind == NodeKinds.methodDeclaration()) {
+            this.analyzeMethod(member);
+            return;
+        }
+
+        if (kind == NodeKinds.constructorDeclaration()) {
+            this.analyzeConstructor(member, uninitialized);
+            return;
+        }
+
+        if (PropertyFacts.isPropertyOrField(member)) {
+            this.analyzeInitializer(member);
+        }
+    }
+
+    private Void analyzeInitializer(Node member) {
+        Node initializer = PropertyFacts.initializerOf(member);
+
+        if (!AstQuery.isNone(initializer)) {
+            this.expressions.eval(initializer, FlowEnv());
+        }
+    }
+
+    private Void analyzeMethod(Node method) {
+        Node block = AstQuery.childOfKind(method, NodeKinds.block());
+
+        if (AstQuery.isNone(block)) {
+            return;
+        }
+
+        FlowEnv env = NullFlowAnalyzer.parameterEnv(method);
+        Int exitMark = this.context.exitCount();
+        this.statements.flowStatement(block, env);
+        this.context.takeExitsFrom(exitMark);
+    }
+
+    // Every constructor path must assign each reference member that has no initializer.
+    private Void analyzeConstructor(Node constructor, List<Node> uninitialized) {
+        Node block = AstQuery.childOfKind(constructor, NodeKinds.block());
+        Node call = AstQuery.childOfKind(constructor, NodeKinds.superCall());
+        Bool delegates = !AstQuery.isNone(call) && call.text() == "this";
+
+        if (AstQuery.isNone(block)) {
+            return;
+        }
+
+        FlowEnv env = NullFlowAnalyzer.parameterEnv(constructor);
+        Int index = 0;
+
+        while (index < uninitialized.length()) {
+            env.set(FlowKinds.fieldKeyPrefix() + uninitialized.get(index).text(), NullState.nullValue());
+            index = index + 1;
+        }
+
+        Int exitMark = this.context.exitCount();
+        this.statements.flowStatement(block, env);
+        List<FlowEnv> exits = this.context.takeExitsFrom(exitMark);
+        index = 0;
+
+        while (index < exits.length()) {
+            env.becomeJoin(env, exits.get(index));
+            index = index + 1;
+        }
+
+        if (!delegates) {
+            this.reportUnassigned(constructor, uninitialized, env);
+        }
+    }
+
+    private Void reportUnassigned(Node constructor, List<Node> uninitialized, FlowEnv env) {
+        Int index = 0;
+
+        while (index < uninitialized.length()) {
+            String name = uninitialized.get(index).text();
+
+            if (env.get(FlowKinds.fieldKeyPrefix() + name) != NullState.nonNull()) {
+                this.context.error("property '" + name + "' may not be initialized on every path through this constructor", constructor);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void reportNeverInitialized(List<Node> uninitialized) {
+        Int index = 0;
+
+        while (index < uninitialized.length()) {
+            Node member = uninitialized.get(index);
+            this.context.error("property '" + member.text() + "' is never initialized; give it an initial value or add a constructor", member);
+            index = index + 1;
+        }
+    }
+
+    private static FlowEnv parameterEnv(Node callable) {
+        FlowEnv env = FlowEnv();
+        Node params = AstQuery.childOfKind(callable, NodeKinds.params());
+        Int index = 0;
+
+        while (index < params.count()) {
+            env.set(params.child(index).text(), NullState.nonNull());
+            index = index + 1;
+        }
+
+        return env;
+    }
+}

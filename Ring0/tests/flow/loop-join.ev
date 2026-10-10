@@ -1,0 +1,19 @@
+// expect: 'current' may be null; check it first
+package main
+
+class Holder {
+    String text { get, set } = null
+}
+
+method<Int> total(Holder holder) {
+    final var first = holder.text
+    var current = "start"
+    Int count = 0
+
+    for (Int i = 0; i < 3; i++) {
+        count = count + current.length()
+        current = first
+    }
+
+    return count
+}

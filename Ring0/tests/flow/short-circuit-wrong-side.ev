@@ -1,0 +1,11 @@
+// expect: 'text' is null; it cannot be dereferenced
+package main
+
+class Holder {
+    String text { get, set } = null
+}
+
+method<Boolean> broken(Holder holder) {
+    final var text = holder.text
+    return text == null && text.length() > 3
+}

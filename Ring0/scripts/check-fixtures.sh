@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds Ring0 once in the sandbox and checks:
 #  - tests/showcase.ev passes --check
-#  - every tests/binding/*.ev (line 1: `// expect: <text>`) fails with that diagnostic
+#  - every tests/binding/*.ev and tests/flow/*.ev (line 1: `// expect: <text>`) fails with that diagnostic
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EMERALD_ROOT="${RING0_EMERALD_ROOT:-/run/media/syntaxjason/0A625B37625B272B/Code Space/Emerald/Emerald LLVM}"
@@ -19,7 +19,7 @@ docker run --rm --init --network=none --read-only --cap-drop=ALL \
       fail=0
       out=$(timeout 30s /tmp/ring0 /project/tests/showcase.ev --check 2>&1)
       if [ "$out" = "check ok" ]; then echo "PASS showcase.ev"; else echo "FAIL showcase.ev"; echo "$out" | head -10; fail=1; fi
-      for f in /project/tests/binding/*.ev; do
+      for f in /project/tests/binding/*.ev /project/tests/flow/*.ev; do
         expect=$(head -1 "$f" | sed "s#^// expect: ##")
         out=$(timeout 30s /tmp/ring0 "$f" --check 2>&1)
         if echo "$out" | grep -qF -- "$expect"; then echo "PASS $(basename "$f")"; else echo "FAIL $(basename "$f") (expected: $expect)"; echo "$out" | head -5; fail=1; fi

@@ -1,0 +1,31 @@
+namespace ring0::binding;
+
+// Null states tracked per stable local. Join of two different states is MaybeNull.
+public class NullState {
+    public NullState() {
+    }
+
+    public static String nonNull() {
+        return "non-null";
+    }
+
+    public static String maybeNull() {
+        return "maybe-null";
+    }
+
+    public static String nullValue() {
+        return "null";
+    }
+
+    public static Bool isSafe(String state) {
+        return state == NullState.nonNull();
+    }
+
+    public static String join(String left, String right) {
+        if (left == right) {
+            return left + "";
+        }
+
+        return NullState.maybeNull();
+    }
+}

@@ -23,5 +23,12 @@ public class Binder {
 
         Checker checker = Checker(table, this.bag);
         checker.check(file);
+
+        if (this.bag.hasErrors()) {
+            return;
+        }
+
+        NullFlowAnalyzer flow = NullFlowAnalyzer(this.bag);
+        flow.analyze(file);
     }
 }

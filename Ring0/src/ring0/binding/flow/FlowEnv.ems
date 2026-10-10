@@ -1,0 +1,146 @@
+namespace ring0::binding;
+
+// Null states of the locals at one program point. Names are stored lower-case because
+// Emvus resolves identifiers case-insensitively. A dead environment (after return, fail,
+// break, continue) is ignored when branches are joined.
+public class FlowEnv {
+    private List<String> nameList;
+    private List<String> stateList;
+    private Bool aliveValue;
+
+    public FlowEnv() {
+        this.nameList = List();
+        this.stateList = List();
+        this.aliveValue = true;
+    }
+
+    public FlowEnv copy() {
+        FlowEnv result = FlowEnv();
+        result.adopt(this.nameList, this.stateList, this.aliveValue);
+        return result;
+    }
+
+    public Bool has(String name) {
+        return this.indexOf(Names.lower(name)) >= 0;
+    }
+
+    public String get(String name) {
+        Int index = this.indexOf(Names.lower(name));
+
+        if (index < 0) {
+            return NullState.nonNull();
+        }
+
+        return this.stateList.get(index) + "";
+    }
+
+    public Void set(String name, String state) {
+        String key = Names.lower(name);
+        Int index = this.indexOf(key);
+
+        if (index < 0) {
+            this.nameList.add(key);
+            this.stateList.add(state + "");
+            return;
+        }
+
+        this.stateList.set(index, state + "");
+    }
+
+    public Bool isAlive() {
+        return this.aliveValue;
+    }
+
+    public Void kill() {
+        this.aliveValue = false;
+    }
+
+    // Becomes the join of two environments; a dead branch contributes nothing.
+    public Void becomeJoin(FlowEnv first, FlowEnv second) {
+        if (!first.isAlive() && !second.isAlive()) {
+            this.adopt(first.nameList, first.stateList, false);
+            return;
+        }
+
+        if (!first.isAlive()) {
+            this.adopt(second.nameList, second.stateList, true);
+            return;
+        }
+
+        if (!second.isAlive()) {
+            this.adopt(first.nameList, first.stateList, true);
+            return;
+        }
+
+        this.adoptJoined(first, second);
+    }
+
+    private Void adoptJoined(FlowEnv first, FlowEnv second) {
+        List<String> names = List();
+        List<String> states = List();
+        Int index = 0;
+
+        while (index < first.nameList.length()) {
+            String name = first.nameList.get(index) + "";
+            String left = first.stateList.get(index) + "";
+            names.add(name);
+            states.add(NullState.join(left, second.getKey(name, left)));
+            index = index + 1;
+        }
+
+        index = 0;
+
+        while (index < second.nameList.length()) {
+            String name = second.nameList.get(index) + "";
+
+            if (first.indexOf(name) < 0) {
+                names.add(name);
+                states.add(second.stateList.get(index) + "");
+            }
+
+            index = index + 1;
+        }
+
+        this.adopt(names, states, true);
+    }
+
+    private String getKey(String key, String fallback) {
+        Int index = this.indexOf(key);
+
+        if (index < 0) {
+            return fallback;
+        }
+
+        return this.stateList.get(index) + "";
+    }
+
+    private Void adopt(List<String> names, List<String> states, Bool alive) {
+        List<String> copiedNames = List();
+        List<String> copiedStates = List();
+        Int index = 0;
+
+        while (index < names.length()) {
+            copiedNames.add(names.get(index) + "");
+            copiedStates.add(states.get(index) + "");
+            index = index + 1;
+        }
+
+        this.nameList = copiedNames;
+        this.stateList = copiedStates;
+        this.aliveValue = alive;
+    }
+
+    private Int indexOf(String key) {
+        Int index = 0;
+
+        while (index < this.nameList.length()) {
+            if (this.nameList.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+}

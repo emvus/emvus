@@ -1,0 +1,14 @@
+// expect: copy it into a final var and check that instead
+package main
+
+class Profile {
+    String nickname { get, set } = null
+}
+
+method<Int> nicknameLength(Profile profile) {
+    if (profile.nickname == null) {
+        return 0
+    }
+
+    return profile.nickname.length()
+}
