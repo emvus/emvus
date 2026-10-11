@@ -1,0 +1,72 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Builds declaration nodes for classes the lowering invents (function-type interfaces and
+// lambda classes), so they flow through the same declaration pipeline as source classes.
+public class SyntheticNodes {
+    public SyntheticNodes() {
+    }
+
+    // `Int`, `Foo`, `List<Int>`: a type node by its spelling; the resolver reads the text.
+    public static Node typeOf(Node at, String text) {
+        return Node("type", text, at.line(), at.column());
+    }
+
+    // Spelling of a value kind as a type name the resolver understands again.
+    public static String textOfKind(String kind) {
+        if (ClassTable.isClassKind(kind)) {
+            return ClassTable.nameOfKind(kind);
+        }
+
+        if (RecordTable.isRecordKind(kind)) {
+            return RecordTable.nameOfKind(kind);
+        }
+
+        if (EnumTable.isEnumKind(kind)) {
+            return EnumTable.nameOfKind(kind);
+        }
+
+        if (ListTable.isListKind(kind)) {
+            return "List<" + SyntheticNodes.textOfKind(ListTable.elementKindOf(kind)) + ">";
+        }
+
+        return kind + "";
+    }
+
+    public static Node param(Node at, String name, String kind) {
+        Node param = Node("param", name, at.line(), at.column());
+        param.add(Node("modifiers", "", at.line(), at.column()));
+        param.add(SyntheticNodes.typeOf(at, SyntheticNodes.textOfKind(kind)));
+        return param;
+    }
+
+    // A method header without body (interface member) or with `body` when given.
+    public static Node method(Node at, String name, List<String> paramNames, List<String> paramKinds, String returnKind, Node body) {
+        Node method = Node("method", name, at.line(), at.column());
+        method.add(Node("modifiers", "", at.line(), at.column()));
+
+        if (returnKind != "Void") {
+            Node returnType = Node("return-type", "", at.line(), at.column());
+            returnType.add(SyntheticNodes.typeOf(at, SyntheticNodes.textOfKind(returnKind)));
+            method.add(returnType);
+        }
+
+        Node params = Node("params", "", at.line(), at.column());
+        Int index = 0;
+
+        while (index < paramNames.length()) {
+            params.add(SyntheticNodes.param(at, paramNames.get(index), paramKinds.get(index)));
+            index = index + 1;
+        }
+
+        method.add(params);
+
+        if (!AstQuery.isNone(body)) {
+            method.add(body);
+        }
+
+        return method;
+    }
+}

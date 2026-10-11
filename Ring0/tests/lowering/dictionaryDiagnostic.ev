@@ -1,0 +1,5 @@
+// expect-error: dictionaries need a map layout
+static method<Int> main {
+    var points = { "alpha": 10, "beta": 20 }
+    return 0
+}

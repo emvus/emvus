@@ -1,0 +1,8 @@
+// Element reads, writes, compound assignment and ++ on a list element.
+static method<Int> main {
+    List<Int> xs = [5, 6, 7]
+    xs[1] = 60
+    xs[2] += 3
+    xs[0]++
+    return xs[0] * 10000 + xs[1] * 100 + xs[2]
+}

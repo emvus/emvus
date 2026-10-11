@@ -1,7 +1,6 @@
 namespace ring0::lowering;
 
 use ring0::syntax::Node;
-use sublang::ir::SublangBuilder;
 
 // Short-circuit `&&` and `||`: the right operand only runs on its own block and the
 // result joins through a Bool block parameter.
@@ -13,7 +12,6 @@ public class LogicalLowerer {
     }
 
     public LoweredValue lower(Node node) {
-        SublangBuilder builder = this.context.builder();
         Int span = this.context.span(node);
         LoweredValue left = ExpressionLowerer(this.context).lower(node.child(0));
 
@@ -22,21 +20,21 @@ public class LogicalLowerer {
             return LoweredValue.unsupported();
         }
 
-        Int rightBlock = builder.newBlock();
-        Int joinBlock = builder.newBlock();
+        Int rightBlock = this.context.newBlock();
+        Int joinBlock = this.context.newBlock();
         List<Int> none = List();
         List<Int> shortValue = List();
         shortValue.add(left.valueId());
 
         if (node.text() == "&&") {
-            builder.ops().condBranch(left.valueId(), rightBlock, none, joinBlock, shortValue, span);
+            this.context.ops().condBranch(left.valueId(), rightBlock, none, joinBlock, shortValue, span);
         }
 
         if (node.text() == "||") {
-            builder.ops().condBranch(left.valueId(), joinBlock, shortValue, rightBlock, none, span);
+            this.context.ops().condBranch(left.valueId(), joinBlock, shortValue, rightBlock, none, span);
         }
 
-        builder.enterBlock(rightBlock);
+        this.context.enterBlock(rightBlock);
         LoweredValue right = ExpressionLowerer(this.context).lower(node.child(1));
 
         if (right.kind() != "Bool") {
@@ -46,8 +44,8 @@ public class LogicalLowerer {
 
         List<Int> rightValue = List();
         rightValue.add(right.valueId());
-        builder.ops().branchTo(joinBlock, rightValue, span);
-        builder.enterBlock(joinBlock);
-        return LoweredValue(builder.addBlockParam(builder.boolType()), "Bool");
+        this.context.ops().branchTo(joinBlock, rightValue, span);
+        this.context.enterBlock(joinBlock);
+        return LoweredValue(this.context.addBlockParam(this.context.builder().boolType()), "Bool");
     }
 }

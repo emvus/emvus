@@ -1,0 +1,46 @@
+// abstract base, overrides called through a base-typed variable, an inherited member.
+abstract class Shape {
+    Int sides { get }
+
+    Shape(Int sides) {
+        this.sides = sides
+    }
+
+    abstract method<Int> area
+
+    method<Int> corners {
+        return sides
+    }
+}
+
+class Square based Shape {
+    Int side { get }
+
+    Square(Int side) : super(4) {
+        this.side = side
+    }
+
+    override method<Int> area {
+        return side * side
+    }
+}
+
+class Triangle based Shape {
+    Int baseLength { get }
+    Int height { get }
+
+    Triangle(Int baseLength, Int height) : super(3) {
+        this.baseLength = baseLength
+        this.height = height
+    }
+
+    override method<Int> area {
+        return baseLength * height / 2
+    }
+}
+
+static method<Int> main {
+    Shape first = Square(4)
+    Shape second = Triangle(6, 5)
+    return first.area() + second.area() + first.corners() + second.corners()
+}

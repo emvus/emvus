@@ -1,0 +1,65 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `condition ? a : b`: two blocks that join with the chosen value as a block parameter. Only
+// value kinds can be joined that way; references (text, objects, lists) would need reference
+// block parameters, which Sublang does not provide for owned values.
+public class TernaryLowerer {
+    private LoweringContext context;
+
+    public TernaryLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        LoweredValue condition = ExpressionLowerer(this.context).lower(node.child(0));
+        String kind = this.context.kinds().annotatedKind(node);
+
+        if (condition.kind() != "Bool" || !TernaryLowerer.isJoinable(kind)) {
+            this.context.unsupported(node, "a conditional expression needs a Bool condition and a value of kind Int, Bool, Float, record or enum (found " + node.type() + "; joining references needs reference block parameters, a backend requirement)");
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+        Int thenBlock = this.context.newBlock();
+        Int elseBlock = this.context.newBlock();
+        Int joinBlock = this.context.newBlock();
+        List<Int> none = List();
+        this.context.ops().condBranch(condition.valueId(), thenBlock, none, elseBlock, none, span);
+        Int first = this.arm(node.child(1), thenBlock, joinBlock, kind);
+        Int second = this.arm(node.child(2), elseBlock, joinBlock, kind);
+
+        if (first == 0 || second == 0) {
+            return LoweredValue.unsupported();
+        }
+
+        this.context.enterBlock(joinBlock);
+        Int result = this.context.addBlockParam(this.context.kinds().typeIdOfKind(kind));
+        return LoweredValue(result, kind);
+    }
+
+    // Lowers one arm in its own block and jumps to the join with its value; 0 on failure.
+    private Int arm(Node expression, Int block, Int join, String kind) {
+        this.context.enterBlock(block);
+        LoweredValue value = ExpressionLowerer(this.context).lower(expression);
+
+        if (!value.isUsable() || value.kind() != kind) {
+            this.context.unsupported(expression, "conditional branch has kind " + value.kind() + " but the expression is " + kind);
+            return 0;
+        }
+
+        List<Int> values = List();
+        values.add(value.valueId());
+        this.context.ops().branchTo(join, values, this.context.span(expression));
+        return value.valueId();
+    }
+
+    private static Bool isJoinable(String kind) {
+        if (kind == "Int" || kind == "Bool" || kind == "Float") {
+            return true;
+        }
+
+        return RecordTable.isRecordKind(kind) || EnumTable.isEnumKind(kind);
+    }
+}

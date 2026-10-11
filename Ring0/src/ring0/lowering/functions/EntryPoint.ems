@@ -1,0 +1,54 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// The Sublang entry is `() -> Int`. An Emvus `main` that returns Void gets a generated
+// wrapper that calls it and returns 0.
+public class EntryPoint {
+    private LoweringContext context;
+
+    public EntryPoint(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void install() {
+        Int index = this.context.methods().indexOf("main");
+
+        if (index < 0) {
+            return;
+        }
+
+        Node main = this.context.methods().declarationAt(index);
+        String kind = this.context.methods().returnKindAt(index);
+        Int id = this.context.methods().functionIdAt(index);
+
+        if (this.context.methods().paramCountAt(index) != 0) {
+            this.context.unsupported(main, "main must not take parameters on the native target (command-line arguments need a backend primitive)");
+            return;
+        }
+
+        if (kind == "Int") {
+            this.context.builder().module().setEntry(id);
+            return;
+        }
+
+        if (kind != "Void") {
+            this.context.unsupported(main, "main must return Int or Void; the native entry reports an Int");
+            return;
+        }
+
+        this.context.builder().module().setEntry(this.wrapper(main, id));
+    }
+
+    private Int wrapper(Node main, Int mainId) {
+        Int span = this.context.span(main);
+        Int id = this.context.declareFunction("emvus.entry", this.context.builder().intType(), span);
+        this.context.enterFunction(id);
+        this.context.beginBlock();
+        List<Int> args = List();
+        List<String> modes = List();
+        this.context.ops().callDirect(mainId, args, modes, span);
+        this.context.ops().returnValue(this.context.ops().constInt(0, span), span);
+        return id;
+    }
+}

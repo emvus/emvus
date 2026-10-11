@@ -1,0 +1,225 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::binding::CallTarget;
+use ring0::syntax::Node;
+
+// Finds every instantiation of a generic method, class or record before any signature is
+// declared, so mutation analysis, class layout and dispatch see the complete monomorphized
+// program. Work items are declaration subtrees with the type-parameter frame they are scanned
+// under; scanning an instance's body can discover further instances (a fixpoint, bounded).
+public class InstanceDiscovery {
+    private LoweringContext context;
+    private List<Node> unitNodes;
+    private List<String> unitFrames;
+    private Int created;
+
+    public InstanceDiscovery(LoweringContext loweringContext) {
+        this.context = loweringContext;
+        this.unitNodes = List();
+        this.unitFrames = List();
+        this.created = 0;
+    }
+
+    public Void run(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node declaration = file.child(index);
+
+            if (!GenericDecls.isGeneric(declaration)) {
+                this.enqueue(declaration, "");
+            }
+
+            index = index + 1;
+        }
+
+        Int position = 0;
+
+        while (position < this.unitNodes.length() && !this.context.failed()) {
+            this.scan(this.unitNodes.get(position), this.unitFrames.get(position) + "");
+            position = position + 1;
+        }
+    }
+
+    private Void enqueue(Node node, String frame) {
+        this.unitNodes.add(node);
+        this.unitFrames.add(frame + "");
+    }
+
+    private Void scan(Node node, String frame) {
+        String kind = node.kind();
+
+        if (kind == "type" || kind == "tuple-type") {
+            this.registerText(node, SourceTypeText.of(node), frame);
+        }
+
+        if (kind != "type" && kind != "tuple-type" && !node.type().isEmpty()) {
+            this.registerText(node, node.type(), frame);
+        }
+
+        if (kind == "call" || kind == "generic-ref") {
+            this.registerCall(node, frame);
+        }
+
+        if (kind == "lambda") {
+            this.registerLambda(node, frame);
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            this.scan(node.child(index), frame);
+            index = index + 1;
+        }
+    }
+
+    // The lambda's class (and the interface of its function type) is created now; its body is
+    // scanned under the same frame for nested lambdas and generic instances.
+    private Void registerLambda(Node lambda, String frame) {
+        Node declaration = LambdaClasses(this.context).register(lambda, frame);
+
+        if (!AstQuery.isNone(declaration)) {
+            this.enqueue(declaration, frame);
+        }
+    }
+
+    // Instances named inside a type text: `Pair<Int,Box<Float>>` instantiates Box<Float> then Pair<...>.
+    private Void registerText(Node at, String text, String frame) {
+        Int index = 0;
+
+        FunctionTypeDiscovery(this.context).register(at, text, frame);
+
+        while (index < text.length()) {
+            if (text.charAt(index).toString() == "<") {
+                this.registerApplication(at, text, index, frame);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    // `open` is the position of '<'; the generic name is the identifier right before it.
+    private Void registerApplication(Node at, String text, Int open, String frame) {
+        Int start = open;
+
+        while (start > 0 && GenericKinds.isNameChar(text.charAt(start - 1).toString())) {
+            start = start - 1;
+        }
+
+        String base = text.substring(start, open) + "";
+        Int genericIndex = this.context.generics().indexOf(base, true);
+
+        if (genericIndex < 0) {
+            return;
+        }
+
+        Int close = GenericKinds.matching(text, open);
+
+        if (close < 0) {
+            return;
+        }
+
+        List<String> arguments = GenericKinds.splitTopLevel(text.substring(open + 1, close) + "");
+        this.instantiateType(at, genericIndex, arguments, frame);
+    }
+
+    private List<String> kindsOf(List<String> argumentTexts, String frame) {
+        List<String> kinds = List();
+        this.context.function().bindings().push(frame);
+        Int index = 0;
+
+        while (index < argumentTexts.length()) {
+            kinds.add(this.context.kinds().kindOfTypeText(argumentTexts.get(index)) + "");
+            index = index + 1;
+        }
+
+        this.context.function().bindings().pop();
+        return kinds;
+    }
+
+    private Bool allResolved(List<String> kinds) {
+        Int index = 0;
+
+        while (index < kinds.length()) {
+            if (kinds.get(index).isEmpty()) {
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return kinds.length() > 0;
+    }
+
+    private Void instantiateType(Node at, Int genericIndex, List<String> argumentTexts, String frame) {
+        Node declaration = this.context.generics().nodeAt(genericIndex);
+        List<String> parameters = GenericDecls.paramNames(declaration);
+        List<String> kinds = this.kindsOf(argumentTexts, frame);
+
+        if (!this.allResolved(kinds) || kinds.length() != parameters.length()) {
+            return;
+        }
+
+        String key = GenericKinds.keyOf(declaration.text(), kinds);
+
+        if (!GenericKinds.kindOfKey(this.context, key).isEmpty() || !this.reserve(at)) {
+            return;
+        }
+
+        String instanceFrame = TypeBindings.frameOf(parameters, kinds);
+
+        if (declaration.kind() == "class" || declaration.kind() == "interface") {
+            ClassDeclarer(this.context).collectInstance(declaration, key, instanceFrame);
+        }
+
+        if (declaration.kind() != "class" && declaration.kind() != "interface") {
+            RecordDeclarer(this.context).declareInstance(declaration, key, instanceFrame);
+        }
+
+        this.enqueue(declaration, instanceFrame);
+    }
+
+    // Calls of generic methods: the checker records the instantiated type arguments.
+    private Void registerCall(Node call, String frame) {
+        Node callee = call.child(0);
+        Int genericIndex = this.context.generics().indexOf(callee.text(), false);
+
+        if (call.kind() != "call" || (callee.kind() != "name" && callee.kind() != "generic-ref") || genericIndex < 0) {
+            return;
+        }
+
+        Node declaration = this.context.generics().nodeAt(genericIndex);
+        List<String> parameters = GenericDecls.paramNames(declaration);
+        List<String> kinds = this.kindsOf(GenericKinds.splitTopLevel(CallTarget.typeArgs(call.symbolDetail())), frame);
+
+        if (!this.allResolved(kinds) || kinds.length() != parameters.length()) {
+            this.context.unsupported(call, "cannot determine the type arguments of the call to generic method '" + callee.text() + "'");
+            return;
+        }
+
+        String key = GenericKinds.keyOf(declaration.text(), kinds);
+
+        if (this.context.methods().indexOf(key) >= 0 || !this.reserve(call)) {
+            return;
+        }
+
+        String instanceFrame = TypeBindings.frameOf(parameters, kinds);
+        Int entry = this.context.methods().addKeyed(key, declaration, -1);
+        this.context.methods().setBinding(entry, instanceFrame);
+        this.enqueue(declaration, instanceFrame);
+    }
+
+    // Bounded instantiation: a generic that instantiates itself with ever larger types would
+    // otherwise never reach a fixpoint.
+    private Bool reserve(Node at) {
+        this.created = this.created + 1;
+
+        if (this.created > 128) {
+            this.context.unsupported(at, "more than 128 generic instantiations: recursive instantiation is not supported");
+            return false;
+        }
+
+        return true;
+    }
+}

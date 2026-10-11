@@ -1,0 +1,63 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Tuple values: `[a, b]` literals, `t[0]` with a literal index and positional destructuring
+// (which is the record destructuring). A tuple is a value record, so copies are independent.
+public class TupleLowerer {
+    private LoweringContext context;
+
+    public TupleLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue literal(Node node) {
+        String kind = this.context.kinds().annotatedKind(node);
+
+        if (!TupleTypes.isTupleKind(kind)) {
+            this.context.unsupported(node, "tuple literal " + node.type() + " needs elements of kind Int, Bool or Float (Sublang value records hold primitive fields only; backend requirement: reference fields in value records)");
+            return LoweredValue.unsupported();
+        }
+
+        Int record = this.context.records().indexOf(RecordTable.nameOfKind(kind));
+        List<Int> ids = List();
+        Int index = 0;
+
+        while (index < node.count()) {
+            LoweredValue element = ExpressionLowerer(this.context).lower(node.child(index));
+            Int slot = this.context.records().firstFieldSlot(record) + index;
+
+            if (!element.isUsable() || element.kind() != this.context.records().fieldKindAt(slot)) {
+                this.context.unsupported(node.child(index), "tuple element " + index.toString() + " does not have the kind " + this.context.records().fieldKindAt(slot));
+                return LoweredValue.unsupported();
+            }
+
+            ids.add(element.valueId());
+            index = index + 1;
+        }
+
+        return LoweredValue(this.context.ops().recordMake(this.context.records().typeIdAt(record), ids, this.context.span(node)), kind);
+    }
+
+    // `t[0]`: the index must be an integer literal so the element kind is static.
+    public LoweredValue index(Node node, LoweredValue tuple) {
+        Node position = node.child(1);
+
+        if (position.kind() != "int-literal") {
+            this.context.unsupported(node, "tuple elements are read with a literal index (t[0]); a computed index has no static element type");
+            return LoweredValue.unsupported();
+        }
+
+        Int record = this.context.records().indexOf(RecordTable.nameOfKind(tuple.kind()));
+        Int ordinal = position.text().toInt();
+
+        if (ordinal < 0 || ordinal >= this.context.records().fieldCountAt(record)) {
+            this.context.unsupported(node, "tuple index " + position.text() + " is out of range");
+            return LoweredValue.unsupported();
+        }
+
+        Int slot = this.context.records().firstFieldSlot(record) + ordinal;
+        Int id = this.context.ops().recordGet(tuple.valueId(), this.context.records().fieldIdAt(slot), this.context.span(node));
+        return LoweredValue(id, this.context.records().fieldKindAt(slot));
+    }
+}

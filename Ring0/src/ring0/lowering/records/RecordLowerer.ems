@@ -4,8 +4,10 @@ use ring0::binding::AstQuery;
 use ring0::syntax::Node;
 use sublang::ir::SublangBuilder;
 
-// Value records: declaration (`record Point(Int x, Int y)`), construction `Point(1, 2)` and
-// field reads `p.x`. Sublang value records carry primitive fields only.
+// Value records: `record`, `data class` and `exception` declarations, construction,
+// field reads, `copy()` / `withX()` and positional destructuring. Sublang value records
+// carry primitive fields only (no text, no nested records); other field types are
+// diagnosed as a backend requirement.
 public class RecordLowerer {
     private LoweringContext context;
 
@@ -14,77 +16,171 @@ public class RecordLowerer {
     }
 
     public Void declare(Node record) {
-        SublangBuilder builder = this.context.builder();
-        Int span = this.context.span(record);
-        Int typeId = builder.recordType(this.context.retain(record.text()), span);
-        Int index = this.context.records().add(record.text(), typeId);
-        Node params = AstQuery.childOfKind(record, "params");
-        Int position = 0;
-
-        while (position < params.count()) {
-            this.declareField(index, typeId, params.child(position));
-            position = position + 1;
-        }
+        RecordDeclarer(this.context).declare(record);
     }
 
-    private Void declareField(Int record, Int typeId, Node param) {
-        String kind = SourceTypes.kindOf(AstQuery.typeChild(param));
-
-        if (kind != "Int" && kind != "Bool" && kind != "Float") {
-            this.context.unsupported(param, "record field '" + param.text() + "' must be Int, Bool or Float");
-            return;
-        }
-
-        SublangBuilder builder = this.context.builder();
-        Int fieldId = builder.recordField(typeId, this.context.retain(param.text()), SourceTypes.typeIdOf(builder, kind), this.context.span(param));
-        this.context.records().addField(record, param.text(), fieldId, kind);
-    }
-
-    // `Point(a, b)`: arguments are matched to the fields by position and kind.
+    // `Point(a, b)`: arguments are matched to the fields by position and kind; trailing
+    // defaults are filled from the declaration.
     public LoweredValue construct(Node call, Int record, List<LoweredValue> arguments) {
         RecordTable table = this.context.records();
+        Int visible = table.visibleFieldCountAt(record);
 
-        if (arguments.length() != table.fieldCountAt(record)) {
-            this.context.unsupported(call, "record '" + call.child(0).text() + "' expects " + table.fieldCountAt(record).toString() + " arguments");
+        if (arguments.length() > visible) {
+            this.context.unsupported(call, "'" + call.child(0).text() + "' takes at most " + visible.toString() + " arguments");
             return LoweredValue.unsupported();
         }
 
         List<Int> ids = List();
         Int index = 0;
 
-        while (index < arguments.length()) {
-            if (arguments.get(index).kind() != table.fieldKindAt(table.firstFieldSlot(record) + index)) {
-                this.context.unsupported(call, "argument " + (index + 1).toString() + " does not match the record field type");
+        while (index < table.fieldCountAt(record)) {
+            Int slot = table.firstFieldSlot(record) + index;
+            LoweredValue value = this.argumentFor(call, table, record, slot, arguments, index);
+
+            if (!value.isUsable()) {
                 return LoweredValue.unsupported();
             }
 
-            ids.add(arguments.get(index).valueId());
+            ids.add(value.valueId());
             index = index + 1;
         }
 
-        Int id = this.context.builder().ops().recordMake(table.typeIdAt(record), ids, this.context.span(call));
-        return LoweredValue(id, RecordTable.kindFor(call.child(0).text()));
+        Int id = this.context.ops().recordMake(table.typeIdAt(record), ids, this.context.span(call));
+        return LoweredValue(id, RecordTable.kindFor(table.nameAt(record)));
+    }
+
+    private LoweredValue argumentFor(Node call, RecordTable table, Int record, Int slot, List<LoweredValue> arguments, Int index) {
+        if (index < arguments.length()) {
+            return this.matching(call, table, slot, arguments.get(index), index);
+        }
+
+        Node fallback = table.defaultAt(slot);
+
+        if (!AstQuery.isNone(fallback)) {
+            return this.matching(call, table, slot, ExpressionLowerer(this.context).lower(fallback), index);
+        }
+
+        if (index < table.visibleFieldCountAt(record)) {
+            this.context.unsupported(call, "missing argument " + (index + 1).toString() + " for '" + call.child(0).text() + "'");
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue(this.context.ops().constInt(0, this.context.span(call)), "Int");
+    }
+
+    private LoweredValue matching(Node call, RecordTable table, Int slot, LoweredValue value, Int index) {
+        if (value.kind() != table.fieldKindAt(slot)) {
+            this.context.unsupported(call, "argument " + (index + 1).toString() + " does not match the field type " + table.fieldKindAt(slot));
+            return LoweredValue.unsupported();
+        }
+
+        return value;
     }
 
     // `receiver.field` on a record value.
     public LoweredValue readField(Node member) {
-        LoweredValue receiver = ExpressionLowerer(this.context).lower(member.child(0));
+        return this.readFieldOf(member, ExpressionLowerer(this.context).lower(member.child(0)));
+    }
 
+    public LoweredValue readFieldOf(Node member, LoweredValue receiver) {
         if (!RecordTable.isRecordKind(receiver.kind())) {
             this.context.unsupported(member, "member access '" + member.text() + "' is only supported on records");
             return LoweredValue.unsupported();
         }
 
+        return this.fieldOf(member, receiver, member.text());
+    }
+
+    private LoweredValue fieldOf(Node at, LoweredValue receiver, String name) {
         RecordTable table = this.context.records();
         Int record = table.indexOf(RecordTable.nameOfKind(receiver.kind()));
-        Int slot = table.fieldSlot(record, member.text());
+        Int slot = table.fieldSlot(record, name);
 
         if (slot < 0) {
-            this.context.unsupported(member, "record has no field '" + member.text() + "'");
+            this.context.unsupported(at, "record has no field '" + name + "'");
             return LoweredValue.unsupported();
         }
 
-        Int id = this.context.builder().ops().recordGet(receiver.valueId(), table.fieldIdAt(slot), this.context.span(member));
+        Int id = this.context.ops().recordGet(receiver.valueId(), table.fieldIdAt(slot), this.context.span(at));
         return LoweredValue(id, table.fieldKindAt(slot));
+    }
+
+    // `copy()` and `withX(value)` on a data class or record value (call -> [member, args]).
+    public LoweredValue memberCall(Node call, LoweredValue receiver) {
+        Node member = call.child(0);
+        String name = member.text();
+
+        if (name.toLowerCase() == "copy" && call.count() == 1) {
+            return receiver;
+        }
+
+        if (name.length() > 4 && name.substring(0, 4).toLowerCase() == "with" && call.count() == 2) {
+            return this.withField(call, receiver, name.substring(4, name.length()));
+        }
+
+        this.context.unsupported(call, "member '" + name + "' on a record needs class lowering (only copy() and withX() are generated)");
+        return LoweredValue.unsupported();
+    }
+
+    private LoweredValue withField(Node call, LoweredValue receiver, String fieldName) {
+        RecordTable table = this.context.records();
+        Int record = table.indexOf(RecordTable.nameOfKind(receiver.kind()));
+        Int slot = table.fieldSlot(record, fieldName);
+
+        if (slot < 0) {
+            this.context.unsupported(call, "record has no field '" + fieldName + "'");
+            return LoweredValue.unsupported();
+        }
+
+        LoweredValue value = this.matching(call, table, slot, ExpressionLowerer(this.context).lower(call.child(1)), 0);
+
+        if (!value.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.ops().recordWith(receiver.valueId(), table.fieldIdAt(slot), value.valueId(), this.context.span(call));
+        return LoweredValue(id, receiver.kind());
+    }
+
+    // `var { a, _ } = record`: fields are matched by position.
+    public Bool destructure(Node node, LoweredValue source) {
+        RecordTable table = this.context.records();
+
+        if (!RecordTable.isRecordKind(source.kind())) {
+            this.context.unsupported(node, "positional destructuring is only supported on records and data classes");
+            return false;
+        }
+
+        Int record = table.indexOf(RecordTable.nameOfKind(source.kind()));
+        Int position = 0;
+        Int bindings = 0;
+
+        while (position < node.count() - 1) {
+            Node target = node.child(position);
+
+            if (target.kind() == "binding" || target.kind() == "wildcard") {
+                bindings = this.bind(node, target, source, table, record, bindings);
+            }
+
+            position = position + 1;
+        }
+
+        return true;
+    }
+
+    private Int bind(Node node, Node target, LoweredValue source, RecordTable table, Int record, Int ordinal) {
+        if (ordinal >= table.visibleFieldCountAt(record)) {
+            this.context.unsupported(node, "destructuring has more names than the record has fields");
+            return ordinal + 1;
+        }
+
+        if (target.kind() == "wildcard") {
+            return ordinal + 1;
+        }
+
+        Int slot = table.firstFieldSlot(record) + ordinal;
+        Int id = this.context.ops().recordGet(source.valueId(), table.fieldIdAt(slot), this.context.span(target));
+        this.context.env().declare(target.text(), id, table.fieldKindAt(slot));
+        return ordinal + 1;
     }
 }

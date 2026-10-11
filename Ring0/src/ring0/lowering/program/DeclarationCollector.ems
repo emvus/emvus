@@ -1,0 +1,97 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// First pass over the file: registers records, classes, enums and top-level methods in the
+// context tables before any signature or body is lowered, so declarations can refer to each
+// other in any order.
+public class DeclarationCollector {
+    private LoweringContext context;
+
+    public DeclarationCollector(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void collect(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            this.collectDeclaration(file.child(index));
+            index = index + 1;
+        }
+    }
+
+    private Void collectDeclaration(Node node) {
+        String kind = node.kind();
+
+        if (kind == "package" || kind == "use") {
+            return;
+        }
+
+        if (GenericDecls.isGeneric(node) && (kind == "method" || kind == "class" || kind == "interface" || kind == "record" || kind == "data-class")) {
+            this.context.generics().add(node, kind != "method");
+            return;
+        }
+
+        if (kind == "record" || kind == "data-class" || kind == "exception") {
+            RecordLowerer(this.context).declare(node);
+            return;
+        }
+
+        if (kind == "class" || kind == "interface") {
+            ClassDeclarer(this.context).collect(node);
+            return;
+        }
+
+        if (kind == "enum") {
+            this.collectEnum(node);
+            return;
+        }
+
+        if (kind != "method") {
+            this.context.unsupported(node, "top-level '" + kind + "' needs backend support that is not available (see docs/lowering.md)");
+            return;
+        }
+
+        if (this.context.methods().indexOf(node.text()) >= 0) {
+            this.context.unsupported(node, "method '" + node.text() + "' is declared twice (names are case-insensitive)");
+            return;
+        }
+
+        this.context.methods().add(node);
+    }
+
+    public static Bool containsKind(Node node, String kind) {
+        if (node.kind() == kind) {
+            return true;
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (DeclarationCollector.containsKind(node.child(index), kind)) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    // Enums are Int ordinals; members beyond the entries (methods, properties) are not lowered.
+    private Void collectEnum(Node node) {
+        Node body = node.child(node.count() - 1);
+        Int index = 0;
+
+        while (index < body.count()) {
+            if (body.child(index).kind() != "enum-entry") {
+                this.context.unsupported(body.child(index), "enum '" + node.text() + "' has a member beyond its entries; enum members need class lowering with value identity (backend requirement: none, not implemented yet)");
+            }
+
+            index = index + 1;
+        }
+
+        this.context.enums().add(node);
+    }
+}

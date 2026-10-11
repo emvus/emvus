@@ -1,0 +1,100 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Emits the two kinds of functions a dispatch group needs: the aborting prototype stub (also the
+// entry of classes without an implementation) and the per-class wrapper that downcasts the
+// read-only `Ref<emvus.Object>` receiver to the exact class and calls that class's member.
+public class GroupPrototype {
+    private LoweringContext context;
+
+    public GroupPrototype(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Declares and emits the prototype; its signature is the receiver plus the member's parameters.
+    public Int declare(Int methodIndex, String signature) {
+        Node method = this.context.methods().declarationAt(methodIndex);
+        Int span = this.context.span(method);
+        String returned = DispatchBuilder.returnKindOf(this.context, methodIndex);
+        Int function = this.context.declareFunction("dispatch$" + signature, this.context.kinds().typeIdOfKind(returned), span);
+        this.addSignature(function, method, methodIndex);
+        this.context.enterFunction(function);
+        this.context.beginBlock();
+        this.context.ops().failWith(this.context.panicFailure(), span);
+        return function;
+    }
+
+    // A group that no call uses; it makes the root's tag field known for downcasts.
+    public Void anchor() {
+        Int span = this.context.builder().syntheticSpan("ring0:anchor");
+        Int rootRef = this.context.builder().refType(this.context.classes().typeIdAt(0));
+        Int function = this.context.declareFunction("emvus.tag$anchor", this.context.builder().intType(), span);
+        this.context.builder().module().functionAt(function).addParam("this", rootRef, "borrow_read", false);
+        this.context.enterFunction(function);
+        this.context.beginBlock();
+        this.context.ops().failWith(this.context.panicFailure(), span);
+        Int tagField = this.context.classes().fields().idAt(this.context.classes().fields().firstSlotAt(0));
+        Int group = this.context.builder().dispatchGroup("emvus.tag$anchor", this.context.classes().typeIdAt(0), tagField, function);
+        this.context.dispatch().add("emvus.tag$anchor", group, function);
+    }
+
+    // Returns the parameter value ids: the receiver first, then the member's parameters.
+    private List<Int> addSignature(Int function, Node method, Int member) {
+        List<Int> ids = List();
+        Int rootRef = this.context.builder().refType(this.context.classes().typeIdAt(0));
+        ids.add(this.context.builder().module().functionAt(function).addParam("this", rootRef, "borrow_read", false));
+        Node params = AstQuery.childOfKind(method, "params");
+        Int position = 0;
+
+        while (position < params.count()) {
+            String kind = this.context.methods().paramKindAt(member, position);
+            ids.add(this.context.builder().module().functionAt(function).addParam(this.context.retain(params.child(position).text()), this.context.kinds().typeIdOfKind(kind), GroupPrototype.modeOf(kind), false));
+            position = position + 1;
+        }
+
+        return ids;
+    }
+
+    public static String modeOf(String kind) {
+        if (kind == "String" || RefKinds.isReference(kind)) {
+            return "borrow_read";
+        }
+
+        return "value";
+    }
+
+    // Wrapper of `member` (an entry owned by `classIndex`) for the group with this signature.
+    public Int wrapper(Int classIndex, Int member, String signature) {
+        Node method = this.context.methods().declarationAt(member);
+        Int span = this.context.span(method);
+        String returned = DispatchBuilder.returnKindOf(this.context, member);
+        String name = "dispatch$" + this.context.classes().nameAt(classIndex) + "$" + signature;
+        Int function = this.context.declareFunction(name, this.context.kinds().typeIdOfKind(returned), span);
+        List<Int> ids = this.addSignature(function, method, member);
+        this.emitWrapper(ids, function, classIndex, member, method, span);
+        return function;
+    }
+
+    private Void emitWrapper(List<Int> ids, Int function, Int classIndex, Int member, Node method, Int span) {
+        this.context.enterFunction(function);
+        this.context.beginBlock();
+        Int view = this.context.ops().downcast(ids.get(0), this.context.classes().typeIdAt(classIndex), span);
+        List<Int> args = List();
+        List<String> modes = List();
+        args.add(view);
+        modes.add("borrow_read");
+        Node params = AstQuery.childOfKind(method, "params");
+        Int position = 0;
+
+        while (position < params.count()) {
+            args.add(ids.get(position + 1));
+            modes.add(GroupPrototype.modeOf(this.context.methods().paramKindAt(member, position)));
+            position = position + 1;
+        }
+
+        Int result = this.context.ops().callDirect(this.context.methods().functionIdAt(member), args, modes, span);
+        this.context.ops().returnValue(result, span);
+    }
+}

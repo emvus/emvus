@@ -7,11 +7,13 @@ public class VariableEnv {
     private List<String> names;
     private List<Int> values;
     private List<String> kinds;
+    private List<Int> borrowed;
 
     public VariableEnv() {
         this.names = List();
         this.values = List();
         this.kinds = List();
+        this.borrowed = List();
     }
 
     public Int size() {
@@ -22,6 +24,17 @@ public class VariableEnv {
         this.names.add(name.toLowerCase() + "");
         this.values.add(valueId);
         this.kinds.add(kind + "");
+        this.borrowed.add(0);
+    }
+
+    // An object reference that is a view: this, an object parameter, or an alias of one.
+    public Void declareBorrowed(String name, Int valueId, String kind) {
+        this.declare(name, valueId, kind);
+        this.borrowed.set(this.borrowed.length() - 1, 1);
+    }
+
+    public Bool isBorrowedAt(Int index) {
+        return this.borrowed.get(index) == 1;
     }
 
     public Int indexOf(String name) {
@@ -62,6 +75,7 @@ public class VariableEnv {
             this.names.removeAt(last);
             this.values.removeAt(last);
             this.kinds.removeAt(last);
+            this.borrowed.removeAt(last);
         }
     }
 }

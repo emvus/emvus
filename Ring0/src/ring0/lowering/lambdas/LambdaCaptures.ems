@@ -1,0 +1,108 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Free variables of a lambda: names the checker resolved to a local or parameter that the lambda
+// does not declare itself. They are copied into the closure when it is created.
+public class LambdaCaptures {
+    private LoweringContext context;
+
+    public LambdaCaptures(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Free variables: names the checker resolved to a local or parameter that the lambda does
+    // not declare itself. First use wins; order is the constructor parameter order.
+    public List<Node> of(Node lambda) {
+        List<String> declared = List();
+        LambdaCaptures.collectDeclared(lambda, declared);
+        List<Node> found = List();
+        List<String> seen = List();
+        this.collectFree(lambda, declared, found, seen);
+        return found;
+    }
+
+    private static Void collectDeclared(Node node, List<String> declared) {
+        String kind = node.kind();
+
+        if (kind == "param" || kind == "local" || kind == "binding" || kind == "foreach") {
+            declared.add(node.text().toLowerCase() + "");
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            LambdaCaptures.collectDeclared(node.child(index), declared);
+            index = index + 1;
+        }
+    }
+
+    private Void collectFree(Node node, List<String> declared, List<Node> found, List<String> seen) {
+        if (node.kind() == "name" && (node.symbolKind() == "local" || node.symbolKind() == "parameter")) {
+            String key = node.text().toLowerCase();
+
+            if (!LambdaCaptures.contains(declared, key) && !LambdaCaptures.contains(seen, key)) {
+                seen.add(key + "");
+                found.add(node);
+            }
+        }
+
+        if (node.kind() == "name" && node.text().toLowerCase() == "this") {
+            this.context.unsupported(node, "a lambda that uses 'this' would capture the enclosing object by reference: Sublang has no shared ownership of objects (backend requirement)");
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            this.collectFree(node.child(index), declared, found, seen);
+            index = index + 1;
+        }
+    }
+
+    private static Bool contains(List<String> names, String key) {
+        Int index = 0;
+
+        while (index < names.length()) {
+            if (names.get(index) == key) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public Bool allCapturable(List<Node> captured) {
+        Int index = 0;
+
+        while (index < captured.length()) {
+            String kind = this.context.kinds().kindOfTypeText(captured.get(index).type());
+
+            if (kind.isEmpty() || RefKinds.isReference(kind)) {
+                this.context.unsupported(captured.get(index), "lambda captures '" + captured.get(index).text() + "' of type " + captured.get(index).type() + ": captured objects and lists would need shared ownership; only Int, Bool, Float, String, records and enums are captured by value (backend requirement: shared references)");
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+
+    public static String namesOf(List<Node> captured) {
+        String names = "";
+        Int index = 0;
+
+        while (index < captured.length()) {
+            if (index > 0) {
+                names = names + ",";
+            }
+
+            names = names + captured.get(index).text();
+            index = index + 1;
+        }
+
+        return names;
+    }
+}

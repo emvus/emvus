@@ -1,0 +1,87 @@
+namespace ring0::lowering;
+
+// Type-parameter bindings of the declaration being declared or emitted. A frame is
+// "T=Int;U=Class:Foo": generic declarations are monomorphized, so while an instance is lowered
+// every type parameter name resolves to the kind it was instantiated with.
+public class TypeBindings {
+    private List<String> frames;
+
+    public TypeBindings() {
+        this.frames = List();
+    }
+
+    public Void push(String frame) {
+        this.frames.add(frame + "");
+    }
+
+    public Void pop() {
+        this.frames.removeAt(this.frames.length() - 1);
+    }
+
+    // The innermost frame ("" outside generic instances).
+    public String current() {
+        if (this.frames.length() == 0) {
+            return "";
+        }
+
+        return this.frames.get(this.frames.length() - 1) + "";
+    }
+
+    // Kind bound to `name` in the innermost frame, "" when it is not a type parameter.
+    public String lookup(String name) {
+        if (this.frames.length() == 0) {
+            return "";
+        }
+
+        String frame = this.frames.get(this.frames.length() - 1) + "";
+        Int start = 0;
+        Int index = 0;
+
+        while (index <= frame.length()) {
+            if (index == frame.length() || frame.charAt(index).toString() == ";") {
+                String entry = frame.substring(start, index) + "";
+                String found = TypeBindings.valueIfNamed(entry, name);
+
+                if (!found.isEmpty()) {
+                    return found;
+                }
+
+                start = index + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return "";
+    }
+
+    private static String valueIfNamed(String entry, String name) {
+        Int equals = 0;
+
+        while (equals < entry.length() && entry.charAt(equals).toString() != "=") {
+            equals = equals + 1;
+        }
+
+        if (equals >= entry.length() || entry.substring(0, equals) != name) {
+            return "";
+        }
+
+        return entry.substring(equals + 1, entry.length()) + "";
+    }
+
+    public static String frameOf(List<String> names, List<String> kinds) {
+        String frame = "";
+        Int index = 0;
+
+        while (index < names.length() && index < kinds.length()) {
+            if (index > 0) {
+                frame = frame + ";";
+            }
+
+            frame = frame + names.get(index) + "=" + kinds.get(index);
+            index = index + 1;
+        }
+
+        return frame;
+    }
+}

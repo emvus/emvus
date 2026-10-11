@@ -1,0 +1,138 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Function types `Function<A,B>`, `BiFunction<A,B,C>` and `Runnable`. A function value is an
+// object reference: every function type is a synthetic interface `Fn$<params>$to$<result>` with
+// one member `invoke`, and every lambda is a class that implements it (closed-world dispatch,
+// the pattern Sublang's closure fixtures use). Calling a function value is a virtual call.
+public class FunctionTypes {
+    public FunctionTypes() {
+    }
+
+    // Parameter kinds then the result kind spelled as texts: [A, B] for Function<A,B>,
+    // [A, B, C] for BiFunction<A,B,C>, [] + Void for Runnable. Empty when `text` is no function type.
+    public static List<String> signatureTexts(String text) {
+        List<String> texts = List();
+
+        if (text == "Runnable") {
+            texts.add("Void");
+            return texts;
+        }
+
+        Int arguments = 0;
+
+        if (text.length() > 10 && text.substring(0, 9) == "Function<") {
+            arguments = 2;
+        }
+
+        if (text.length() > 12 && text.substring(0, 11) == "BiFunction<") {
+            arguments = 3;
+        }
+
+        if (arguments == 0 || text.substring(text.length() - 1, text.length()) != ">") {
+            return texts;
+        }
+
+        Int open = 0;
+
+        while (text.charAt(open).toString() != "<") {
+            open = open + 1;
+        }
+
+        List<String> parts = GenericKinds.splitTopLevel(text.substring(open + 1, text.length() - 1) + "");
+
+        if (parts.length() != arguments) {
+            return texts;
+        }
+
+        return parts;
+    }
+
+    public static String interfaceName(List<String> paramKinds, String returnKind) {
+        String name = "Fn";
+        Int index = 0;
+
+        while (index < paramKinds.length()) {
+            name = name + "$" + paramKinds.get(index);
+            index = index + 1;
+        }
+
+        return name + "$to$" + returnKind;
+    }
+
+    public static Bool isFunctionInterface(String className) {
+        return className.length() > 3 && className.substring(0, 3).toLowerCase() == "fn$";
+    }
+
+    // Kind of a function type text: the interface class kind, "" when it is not a function type
+    // or its interface was not created.
+    public static String kindOfText(LoweringContext context, String text) {
+        List<String> texts = FunctionTypes.signatureTexts(text);
+
+        if (texts.length() == 0) {
+            return "";
+        }
+
+        List<String> kinds = FunctionTypes.kindsOf(context, texts);
+
+        if (kinds.length() == 0) {
+            return "";
+        }
+
+        String result = kinds.get(kinds.length() - 1) + "";
+        kinds.removeAt(kinds.length() - 1);
+        Int index = context.classes().indexOf(FunctionTypes.interfaceName(kinds, result));
+
+        if (index < 0) {
+            return "";
+        }
+
+        return ClassTable.kindFor(context.classes().nameAt(index));
+    }
+
+    // Resolved kinds of the signature texts; empty when one of them is not lowerable.
+    public static List<String> kindsOf(LoweringContext context, List<String> texts) {
+        List<String> kinds = List();
+        Int index = 0;
+
+        while (index < texts.length()) {
+            String kind = context.kinds().kindOfTypeText(texts.get(index));
+
+            if (kind.isEmpty()) {
+                return List();
+            }
+
+            kinds.add(kind + "");
+            index = index + 1;
+        }
+
+        return kinds;
+    }
+
+    // Creates the interface for a signature on first use. Returns its class index, -1 on failure.
+    public static Int ensureInterface(LoweringContext context, Node at, List<String> paramKinds, String returnKind) {
+        String name = FunctionTypes.interfaceName(paramKinds, returnKind);
+        Int existing = context.classes().indexOf(name);
+
+        if (existing >= 0) {
+            return existing;
+        }
+
+        Node declaration = Node("interface", name, at.line(), at.column());
+        Node body = Node("body", "", at.line(), at.column());
+        List<String> names = List();
+        Int index = 0;
+
+        while (index < paramKinds.length()) {
+            names.add("p" + index.toString());
+            index = index + 1;
+        }
+
+        body.add(SyntheticNodes.method(at, "invoke", names, paramKinds, returnKind, AstQuery.none()));
+        declaration.add(body);
+        ClassDeclarer(context).collectInstance(declaration, name, "");
+        return context.classes().indexOf(name);
+    }
+}

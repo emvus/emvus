@@ -1,5 +1,8 @@
 namespace ring0::lowering;
 
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
 // Declared value records by case-insensitive name, with their fields in declaration
 // order. Fields are stored in flat parallel lists; each record knows its first slot.
 public class RecordTable {
@@ -10,6 +13,9 @@ public class RecordTable {
     private List<String> fieldKeys;
     private List<Int> fieldIds;
     private List<String> fieldKinds;
+    private List<Node> fieldDefaults;
+    private List<Int> exceptionFlags;
+    private List<Int> hiddenCounts;
 
     public RecordTable() {
         this.keys = List();
@@ -19,6 +25,9 @@ public class RecordTable {
         this.fieldKeys = List();
         this.fieldIds = List();
         this.fieldKinds = List();
+        this.fieldDefaults = List();
+        this.exceptionFlags = List();
+        this.hiddenCounts = List();
     }
 
     public Int add(String name, Int typeId) {
@@ -26,6 +35,8 @@ public class RecordTable {
         this.typeIds.add(typeId);
         this.firstFields.add(this.fieldKeys.length());
         this.fieldCounts.add(0);
+        this.exceptionFlags.add(0);
+        this.hiddenCounts.add(0);
         return this.keys.length() - 1;
     }
 
@@ -34,7 +45,32 @@ public class RecordTable {
         this.fieldKeys.add(name.toLowerCase() + "");
         this.fieldIds.add(fieldId);
         this.fieldKinds.add(kind + "");
+        this.fieldDefaults.add(AstQuery.none());
         this.fieldCounts.set(record, this.fieldCounts.get(record) + 1);
+    }
+
+    // Exceptions are value records; a field-less exception gets one hidden Int field
+    // because Sublang records need at least one field.
+    public Void markException(Int record) {
+        this.exceptionFlags.set(record, 1);
+    }
+
+    public Bool isException(Int record) {
+        return this.exceptionFlags.get(record) == 1;
+    }
+
+    public Void addHiddenField(Int record, String name, Int fieldId, String kind) {
+        this.addField(record, name, fieldId, kind);
+        this.hiddenCounts.set(record, this.hiddenCounts.get(record) + 1);
+    }
+
+    // Fields a source-level constructor call has to supply.
+    public Int visibleFieldCountAt(Int record) {
+        return this.fieldCounts.get(record) - this.hiddenCounts.get(record);
+    }
+
+    public String nameAt(Int record) {
+        return this.keys.get(record) + "";
     }
 
     public Int indexOf(String name) {
@@ -85,6 +121,19 @@ public class RecordTable {
         return this.fieldIds.get(slot);
     }
 
+    public Void setDefaultAt(Int slot, Node expression) {
+        this.fieldDefaults.set(slot, expression);
+    }
+
+    // Default value expression of a field, or the none node.
+    public Node defaultAt(Int slot) {
+        return this.fieldDefaults.get(slot);
+    }
+
+    public String fieldKeyAt(Int slot) {
+        return this.fieldKeys.get(slot) + "";
+    }
+
     public String fieldKindAt(Int slot) {
         return this.fieldKinds.get(slot) + "";
     }
@@ -99,6 +148,6 @@ public class RecordTable {
     }
 
     public static String nameOfKind(String kind) {
-        return kind.substring(7, kind.length());
+        return kind.substring(7, kind.length()) + "";
     }
 }

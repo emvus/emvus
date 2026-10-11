@@ -1,14 +1,45 @@
 namespace ring0::lowering;
 
 // Result of lowering one expression: the SSA value id plus its Emvus kind.
-// Kinds: Int, Bool, Float, String, Record:<name>, Void, Unsupported. Value id 0 means "no value".
+// Kinds: Int, Bool, Float, String, Record:<name>, Class:<name>, Enum:<name>, Void, Unsupported.
+// Value id 0 means "no value". An object reference is `borrowed` when it is a view (this, a
+// parameter, a field or an upcast/downcast view): it cannot be moved, stored or returned owned.
+// A `fresh` reference is an owned temporary that no name refers to.
 public class LoweredValue {
     private Int valueIdentifier;
     private String kindName;
+    private Bool borrowedFlag;
+    private Bool freshFlag;
 
     public LoweredValue(Int valueId, String kind) {
         this.valueIdentifier = valueId;
-        this.kindName = kind;
+        this.kindName = kind + "";
+        this.borrowedFlag = false;
+        this.freshFlag = false;
+    }
+
+    public LoweredValue(Int valueId, String kind, Bool borrowed) {
+        this.valueIdentifier = valueId;
+        this.kindName = kind + "";
+        this.borrowedFlag = borrowed;
+        this.freshFlag = false;
+    }
+
+    // A temporary owned reference that no name refers to yet (a constructor or call result):
+    // it may be moved into a field, a base-typed value or a return.
+    public static LoweredValue fresh(Int valueId, String kind) {
+        return LoweredValue(valueId, kind, false, true);
+    }
+
+    public Bool isFresh() {
+        return this.freshFlag;
+    }
+
+    public LoweredValue(Int valueId, String kind, Bool borrowed, Bool fresh) {
+        this.valueIdentifier = valueId;
+        this.kindName = kind + "";
+        this.borrowedFlag = borrowed;
+        this.freshFlag = fresh;
     }
 
     public Int valueId() {
@@ -19,8 +50,12 @@ public class LoweredValue {
         return this.kindName + "";
     }
 
+    public Bool isBorrowed() {
+        return this.borrowedFlag;
+    }
+
     public Bool isUsable() {
-        if (RecordTable.isRecordKind(this.kindName)) {
+        if (RecordTable.isRecordKind(this.kindName) || ClassTable.isClassKind(this.kindName) || ListTable.isListKind(this.kindName) || EnumTable.isEnumKind(this.kindName)) {
             return true;
         }
 

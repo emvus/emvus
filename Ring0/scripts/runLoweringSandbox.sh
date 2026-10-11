@@ -9,9 +9,12 @@
 # Usage: scripts/runLoweringSandbox.sh [--run] [--dump] <file.ev>...   (paths relative to Ring0/)
 #   --run   execute the native program and print its result (the entry's Int)
 #   --dump  print the readable Sublang dump and verifier verdict instead of building
-# Environment: RING0_BASE_SRC (dir containing ring0/, default: committed HEAD snapshot of the
+# Environment: RING0_FLOW / RING0_OPTIMIND (default on/on, for bisecting backend problems), RING0_BASE_SRC (dir containing ring0/, default: committed HEAD snapshot of the
 #   frontend so concurrent edits cannot break a run), RING0_SUBLANG_CHECKOUT, RING0_LOWER_OUT.
 set -euo pipefail
+# One compiler or program run at a time: all sandbox scripts share this lock.
+exec 9>"${TMPDIR:-/tmp}/ring0-sandbox.lock"
+flock 9
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EMERALD_ROOT="${RING0_EMERALD_ROOT:-/run/media/syntaxjason/0A625B37625B272B/Code Space/Emerald/Emerald LLVM}"
 SUBLANG_CHECKOUT="${RING0_SUBLANG_CHECKOUT:-$ROOT/../../../Emerald/Sublang}"
@@ -85,7 +88,11 @@ for file in "${FILES[@]}"; do
         continue
     fi
     echo "=== $name: native"
-    BUILD_ARGS=("$OUT/$name.sublang-wire" -o "$OUT/$name" --flow=auto --optimind=on)
+    BUILD_ARGS=("$OUT/$name.sublang-wire" -o "$OUT/$name" --flow=${RING0_FLOW:-on} --optimind=${RING0_OPTIMIND:-on})
     if [[ $RUN = 1 ]]; then BUILD_ARGS+=(--run); fi
     bash "$SUBLANG_CHECKOUT/scripts/sublang-build.sh" "${BUILD_ARGS[@]}" || echo "exit=$?"
+    # The plan is the pipeline's own account of Flow and Optimind decisions.
+    if [[ $RUN = 1 && -f "$OUT/$name.plan" ]]; then
+        grep -E '^(optimind|effects|lowering):' "$OUT/$name.plan" | sed 's/^/plan: /' || true
+    fi
 done

@@ -5,6 +5,9 @@
 #  - every tests/types/*.ev prints the annotation listing of `--check --types` equal to tests/types/golden/<name>.types
 #    (create a golden by running: scripts/runSandbox.sh tests/types/<name>.ev --check --types)
 set -uo pipefail
+# One compiler or program run at a time: all sandbox scripts share this lock.
+exec 9>"${TMPDIR:-/tmp}/ring0-sandbox.lock"
+flock 9
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EMERALD_ROOT="${RING0_EMERALD_ROOT:-/run/media/syntaxjason/0A625B37625B272B/Code Space/Emerald/Emerald LLVM}"
 IMAGE="${RING0_SANDBOX_IMAGE:-emerald-selfhost-sandbox}"

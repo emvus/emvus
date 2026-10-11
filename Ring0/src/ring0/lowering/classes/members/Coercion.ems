@@ -1,0 +1,53 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Converts a value to the kind a context expects. Only reference upcasts exist: a class value
+// to a base class or to an interface it implements. A fresh owned temporary is moved
+// (`class.upcast` owned); a named value becomes a read-only view, because Sublang cannot
+// give a second owner or a mutable view of the same object.
+public class Coercion {
+    public Coercion() {
+    }
+
+    public static LoweredValue to(LoweringContext context, Node at, LoweredValue value, String targetKind) {
+        if (!value.isUsable() || value.kind() == targetKind) {
+            return value;
+        }
+
+        if (!ClassTable.isClassKind(value.kind()) || !ClassTable.isClassKind(targetKind)) {
+            return value;
+        }
+
+        ClassTable table = context.classes();
+        Int source = table.indexOf(ClassTable.nameOfKind(value.kind()));
+        Int target = table.indexOf(ClassTable.nameOfKind(targetKind));
+
+        if (source < 0 || target < 0 || !Coercion.converts(table, source, target)) {
+            return value;
+        }
+
+        return Coercion.upcast(context, at, value, target, targetKind);
+    }
+
+    public static Bool converts(ClassTable table, Int source, Int target) {
+        if (table.isInterfaceAt(target)) {
+            return table.implementsInterface(source, target);
+        }
+
+        return table.derivesFrom(source, target);
+    }
+
+    private static LoweredValue upcast(LoweringContext context, Node at, LoweredValue value, Int target, String targetKind) {
+        Int span = context.span(at);
+        Int targetType = context.classes().typeIdAt(target);
+
+        if (value.isFresh()) {
+            Int moved = context.ops().upcastOwned(value.valueId(), targetType, context.scopes().objectScope(), span);
+            return LoweredValue.fresh(moved, targetKind);
+        }
+
+        Int view = context.ops().upcastView(value.valueId(), targetType, span);
+        return LoweredValue(view, targetKind, true);
+    }
+}

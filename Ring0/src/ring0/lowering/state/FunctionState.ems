@@ -1,0 +1,39 @@
+namespace ring0::lowering;
+
+// Per-run state that follows the function being emitted: the generated text helpers (0 until
+// first use) and the return kind that `fail`, `success` and `?` are checked against.
+public class FunctionState {
+    private List<Int> helperIds;
+    private String currentReturnKind;
+    private TypeBindings typeBindings;
+
+    public FunctionState() {
+        this.helperIds = List();
+        this.currentReturnKind = "Void";
+        this.typeBindings = TypeBindings();
+        this.helperIds.add(0);
+        this.helperIds.add(0);
+        this.helperIds.add(0);
+    }
+
+    public Int helperId(Int slot) {
+        return this.helperIds.get(slot);
+    }
+
+    public Void setHelperId(Int slot, Int functionId) {
+        this.helperIds.set(slot, functionId);
+    }
+
+    public String returnKind() {
+        return this.currentReturnKind + "";
+    }
+
+    public Void setReturnKind(String kind) {
+        this.currentReturnKind = kind + "";
+    }
+
+    // Type-parameter bindings of the generic instance being declared or emitted.
+    public TypeBindings bindings() {
+        return this.typeBindings;
+    }
+}

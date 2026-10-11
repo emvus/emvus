@@ -1,0 +1,93 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// A lambda expression creates an instance of its synthesized class with the captured values
+// and is typed as the function-type interface it implements; applying a function value
+// `f(x)` is a virtual `invoke` call on that interface.
+public class LambdaLowerer {
+    private LoweringContext context;
+
+    public LambdaLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        String key = LambdaTable.keyOf(node.line(), node.column(), this.context.function().bindings().current());
+        Int entry = this.context.lambdas().indexOf(key);
+
+        if (entry < 0) {
+            this.context.unsupported(node, "lambda has no lowered class (its type " + node.type() + " is not a supported function type; see docs/lowering.md)");
+            return LoweredValue.unsupported();
+        }
+
+        List<LoweredValue> captured = this.capturedValues(node, this.context.lambdas().capturesAt(entry));
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int classIndex = this.context.lambdas().classAt(entry);
+        Int constructor = MemberResolver.findConstructor(this.context, classIndex, captured.length());
+        LoweredValue object = MemberInvoker(this.context).invoke(node, constructor, LoweredValue.nothing(), captured);
+
+        if (!object.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        return Coercion.to(this.context, node, object, this.context.kinds().annotatedKind(node));
+    }
+
+    private List<LoweredValue> capturedValues(Node at, String names) {
+        List<LoweredValue> values = List();
+        List<String> parts = GenericKinds.splitTopLevel(names);
+        Int index = 0;
+
+        while (index < parts.length()) {
+            Int slot = this.context.env().indexOf(parts.get(index));
+
+            if (slot < 0) {
+                this.context.unsupported(at, "captured variable '" + parts.get(index) + "' is not visible where the lambda is created");
+                return values;
+            }
+
+            values.add(LoweredValue(this.context.env().valueAt(slot), this.context.env().kindAt(slot), this.context.env().isBorrowedAt(slot)));
+            index = index + 1;
+        }
+
+        return values;
+    }
+
+    // True for a value whose kind is a function-type interface.
+    public static Bool isFunctionKind(LoweringContext context, String kind) {
+        return ClassTable.isClassKind(kind) && FunctionTypes.isFunctionInterface(ClassTable.nameOfKind(kind));
+    }
+
+    // `f(a, b)` where f is a local or parameter holding a function value.
+    public LoweredValue apply(Node call, Int slot) {
+        String kind = this.context.env().kindAt(slot);
+        Int classIndex = this.context.classes().indexOf(ClassTable.nameOfKind(kind));
+        Int arity = call.count() - 1;
+        Int member = MemberResolver.findMethod(this.context, classIndex, "invoke", arity);
+
+        if (member < 0) {
+            this.context.unsupported(call, "function value " + call.child(0).text() + " takes a different number of arguments");
+            return LoweredValue.unsupported();
+        }
+
+        List<LoweredValue> arguments = List();
+        Int position = 1;
+
+        while (position < call.count()) {
+            arguments.add(ExpressionLowerer(this.context).lower(call.child(position)));
+            position = position + 1;
+        }
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        LoweredValue receiver = LoweredValue(this.context.env().valueAt(slot), kind, true);
+        return MemberInvoker(this.context).invoke(call, member, receiver, arguments);
+    }
+}

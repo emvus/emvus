@@ -10,7 +10,14 @@ public class SourceTypes {
 
     // Returns Int, Bool, Float, String, Void or "" for an unsupported type.
     public static String kindOf(Node typeNode) {
-        String name = typeNode.text();
+        if (typeNode.count() > 0) {
+            return "";
+        }
+
+        return SourceTypes.kindOfName(typeNode.text());
+    }
+
+    public static String kindOfName(String name) {
 
         if (name == "Int") {
             return "Int";

@@ -1,0 +1,156 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Emvus String values. Every String is an owned List<Byte> allocated in the function's text
+// scope; parameters are borrowed, locals are cells whose bytes are replaced on assignment.
+// Memory of text temporaries is released when the function ends, not per statement.
+public class TextLowerer {
+    private LoweringContext context;
+
+    public TextLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Literal, with `${expression}` parts when the binder-checked tree has them.
+    public LoweredValue literal(Node node) {
+        Int span = this.context.span(node);
+
+        if (node.count() == 0) {
+            return LoweredValue(this.fromStatic(node.text(), span), "String");
+        }
+
+        return TextInterpolation(this.context).interpolate(node, this.fromStatic("", span), span);
+    }
+
+    // Allocates a fresh text holding `text`.
+    public Int fromStatic(String text, Int span) {
+        Int constant = this.context.ops().constString(this.context.retain(text), span);
+        return this.context.collections().textFrom(this.context.textListType(), constant, this.context.scopes().functionScope(), span);
+    }
+
+    // Appends the text form of `value` to the text `destination`: Strings by concatenation
+    // (returns the new accumulator), Int and Bool through in-place helpers.
+    public Int append(Node at, Int destination, LoweredValue value) {
+        Int span = this.context.span(at);
+
+        if (value.kind() == "String") {
+            return this.context.collections().textConcat(this.context.textListType(), destination, value.valueId(), this.context.scopes().functionScope(), span);
+        }
+
+        Int helper = this.helperFor(at, value);
+
+        if (helper == 0) {
+            return 0;
+        }
+
+        List<Int> args = List();
+        args.add(destination);
+        args.add(value.valueId());
+        List<String> modes = List();
+        modes.add("borrow_write");
+        modes.add("value");
+        this.context.ops().callDirect(helper, args, modes, span);
+        return destination;
+    }
+
+    private Int helperFor(Node at, LoweredValue value) {
+        if (value.kind() == "Int") {
+            return TextHelpers.appendIntFunction(this.context);
+        }
+
+        if (value.kind() == "Bool") {
+            return TextHelpers.appendBoolFunction(this.context);
+        }
+
+        this.context.unsupported(at, "conversion of " + value.kind() + " to text needs a formatting primitive that Sublang does not offer");
+        return 0;
+    }
+
+    // Fresh text holding the text form of a non-String value.
+    private LoweredValue textOf(Node at, LoweredValue value) {
+        if (value.kind() == "String") {
+            return value;
+        }
+
+        Int fresh = this.fromStatic("", this.context.span(at));
+        Int done = this.append(at, fresh, value);
+
+        if (done == 0) {
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue(fresh, "String");
+    }
+
+    // `left + right` where at least one side is a String.
+    public LoweredValue concatenate(Node node, LoweredValue left, LoweredValue right) {
+        LoweredValue leftText = this.textOf(node, left);
+        LoweredValue rightText = this.textOf(node, right);
+
+        if (!leftText.isUsable() || !rightText.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+        Int joined = this.context.collections().textConcat(this.context.textListType(), leftText.valueId(), rightText.valueId(), this.context.scopes().functionScope(), span);
+        return LoweredValue(joined, "String");
+    }
+
+    public LoweredValue equality(Node node, String operator, LoweredValue left, LoweredValue right) {
+        Int span = this.context.span(node);
+        Int equal = this.context.collections().textEqual(left.valueId(), right.valueId(), span);
+
+        if (operator == "==") {
+            return LoweredValue(equal, "Bool");
+        }
+
+        Int falseValue = this.context.ops().constBool(false, span);
+        Int different = this.context.ops().compare("eq", equal, falseValue, span);
+        return LoweredValue(different, "Bool");
+    }
+
+    // `receiver.length()` counts UTF-8 bytes (Emvus does not yet define character length).
+    public LoweredValue memberCall(Node node, LoweredValue receiver) {
+        Node member = node.child(0);
+
+        if (member.text() != "length" || node.count() != 1) {
+            this.context.unsupported(node, "String member '" + member.text() + "' needs backend text operations that are not available");
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.collections().length(receiver.valueId(), this.context.span(node));
+        return LoweredValue(id, "Int");
+    }
+
+    // Copies `source` into the text cell `cell` (value semantics for assignment).
+    public Void assign(Node node, Int cell, LoweredValue source) {
+        if (cell == source.valueId()) {
+            return;
+        }
+
+        List<Int> args = List();
+        args.add(cell);
+        args.add(source.valueId());
+        List<String> modes = List();
+        modes.add("borrow_write");
+        modes.add("borrow_read");
+        this.context.ops().callDirect(TextHelpers.assignFunction(this.context), args, modes, this.context.span(node));
+    }
+
+    // A value that no other variable can alias: literals, concatenations and call results
+    // already are; anything read from a variable is copied.
+    public LoweredValue independent(Node init, LoweredValue value) {
+        String kind = init.kind();
+
+        if (kind == "string" || kind == "binary" || kind == "call") {
+            return value;
+        }
+
+        Int span = this.context.span(init);
+        Int zero = this.context.ops().constInt(0, span);
+        Int length = this.context.collections().length(value.valueId(), span);
+        Int copy = this.context.collections().textSlice(this.context.textListType(), value.valueId(), zero, length, this.context.scopes().functionScope(), span);
+        return LoweredValue(copy, "String");
+    }
+}

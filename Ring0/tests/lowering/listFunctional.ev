@@ -1,0 +1,8 @@
+// map, filter and reduce are lowered as loops that call the function value.
+static method<Int> main {
+    List<Int> xs = [1, 2, 3, 4]
+    List<Int> doubled = xs.map((x) -> x * 2)
+    List<Int> even = xs.filter((x) -> x % 2 == 0)
+    Int total = xs.reduce(0, (a, b) -> a + b)
+    return doubled.get(3) * 1000 + even.size() * 100 + total
+}

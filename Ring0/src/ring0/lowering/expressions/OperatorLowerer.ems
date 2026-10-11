@@ -38,20 +38,20 @@ public class OperatorLowerer {
         Int span = this.context.span(node);
 
         if (node.text() == "-" && operand.kind() == "Int") {
-            Int negated = this.context.builder().ops().intNeg(operand.valueId(), "trap", this.context.integerFailure(), span);
+            Int negated = this.context.ops().intNeg(operand.valueId(), "trap", this.context.integerFailure(), span);
             return LoweredValue(negated, "Int");
         }
 
         if (node.text() == "-" && operand.kind() == "Float") {
             // Multiplying by -1.0 is exact and keeps the sign of zero and NaN payload rules.
-            Int minusOne = this.context.builder().ops().constFloatBits(-4616189618054758400, span);
-            Int product = this.context.builder().ops().floatBinary("float.mul", operand.valueId(), minusOne, "rne", span);
+            Int minusOne = this.context.ops().constFloatBits(-4616189618054758400, span);
+            Int product = this.context.ops().floatBinary("float.mul", operand.valueId(), minusOne, "rne", span);
             return LoweredValue(product, "Float");
         }
 
         if (node.text() == "!" && operand.kind() == "Bool") {
-            Int falseValue = this.context.builder().ops().constBool(false, span);
-            Int inverted = this.context.builder().ops().compare("eq", operand.valueId(), falseValue, span);
+            Int falseValue = this.context.ops().constBool(false, span);
+            Int inverted = this.context.ops().compare("eq", operand.valueId(), falseValue, span);
             return LoweredValue(inverted, "Bool");
         }
 
@@ -65,28 +65,53 @@ public class OperatorLowerer {
         String opcode = this.arithmeticOpcode(operator);
 
         if (!opcode.isEmpty() && left.kind() == "Int" && right.kind() == "Int") {
-            Int id = this.context.builder().ops().intBinary(opcode, left.valueId(), right.valueId(), "trap", this.context.integerFailure(), span);
+            Int id = this.context.ops().intBinary(opcode, left.valueId(), right.valueId(), "trap", this.context.integerFailure(), span);
             return LoweredValue(id, "Int");
         }
 
         if (!opcode.isEmpty() && left.kind() == "Float" && right.kind() == "Float" && operator != "%") {
-            Int id = this.context.builder().ops().floatBinary("float." + this.floatOpName(operator), left.valueId(), right.valueId(), "rne", span);
+            Int id = this.context.ops().floatBinary("float." + this.floatOpName(operator), left.valueId(), right.valueId(), "rne", span);
             return LoweredValue(id, "Float");
         }
 
-        if (left.kind() == "String" && right.kind() == "String" && (operator == "==" || operator == "!=")) {
-            return StringLowerer(this.context).lowerEquality(node, operator, left, right);
+        if (left.kind() == "String" || right.kind() == "String") {
+            return this.applyText(node, operator, left, right);
         }
 
         String predicate = this.comparePredicate(operator);
 
-        if (!predicate.isEmpty() && left.kind() == right.kind() && this.isPrimitive(left.kind())) {
-            Int id = this.context.builder().ops().compare(this.predicateFor(left.kind(), predicate), left.valueId(), right.valueId(), span);
+        if (!predicate.isEmpty() && left.kind() == right.kind() && (this.isPrimitive(left.kind()) || EnumTable.isEnumKind(left.kind()))) {
+            Int id = this.context.ops().compare(this.predicateFor(this.basisOf(left.kind()), predicate), left.valueId(), right.valueId(), span);
             return LoweredValue(id, "Bool");
         }
 
         this.context.unsupported(node, "operator '" + operator + "' on " + left.kind() + " and " + right.kind());
         return LoweredValue.unsupported();
+    }
+
+    // `+` concatenates (the other side is converted to text), `==` / `!=` compare bytes.
+    private LoweredValue applyText(Node node, String operator, LoweredValue left, LoweredValue right) {
+        TextLowerer text = TextLowerer(this.context);
+
+        if (operator == "+") {
+            return text.concatenate(node, left, right);
+        }
+
+        if ((operator == "==" || operator == "!=") && left.kind() == right.kind()) {
+            return text.equality(node, operator, left, right);
+        }
+
+        this.context.unsupported(node, "operator '" + operator + "' on " + left.kind() + " and " + right.kind());
+        return LoweredValue.unsupported();
+    }
+
+    // Enum values are Int ordinals.
+    private String basisOf(String kind) {
+        if (EnumTable.isEnumKind(kind)) {
+            return "Int";
+        }
+
+        return kind;
     }
 
     private Bool isPrimitive(String kind) {

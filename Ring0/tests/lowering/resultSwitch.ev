@@ -1,0 +1,26 @@
+// switch over a Result: success binds the payload, error binds the exception value.
+exception NegativeNumberException(Int value)
+
+method<Result<Int, NegativeNumberException>> scaled(Int n) {
+    if (n < 0) {
+        fail NegativeNumberException(n)
+    }
+
+    success n * 10
+}
+
+static method<Int> main {
+    Int total = 0
+
+    switch (scaled(5)) {
+        success(value) -> total = total + value
+        error(problem) -> total = total + 1000
+    }
+
+    switch (scaled(-1)) {
+        success(value) -> total = total + value
+        error(problem) -> total = total + problem.value
+    }
+
+    return total
+}

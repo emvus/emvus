@@ -1,0 +1,191 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Switch over a Result (success / error arms) or over Int, Bool and String literals with an
+// optional catch-all. Statement and expression switches share this emitter: arms are blocks,
+// statement switches join the variables their arms reassign, expression switches join the
+// arm value as a block parameter.
+public class SwitchEmitter {
+    private LoweringContext context;
+
+    public SwitchEmitter(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Statement form returns kind "Terminated" when no path continues; "Void" otherwise.
+    public LoweredValue emit(Node node, Bool asExpression, String expected) {
+        LoweredValue subject = ExpressionLowerer(this.context).lower(node.child(0));
+        Int span = this.context.span(node);
+
+        if (!subject.isUsable() || !this.supportedSubject(node, subject, asExpression, expected)) {
+            return LoweredValue.unsupported();
+        }
+
+        if (asExpression && !ResultTypes.isResultKind(subject.kind()) && node.symbolName() != "enum" && SwitchDispatch(this.context).findCase(node, 2) < 0) {
+            this.context.unsupported(node, "switch expression over " + subject.kind() + " needs a catch-all arm");
+            return LoweredValue.unsupported();
+        }
+
+        List<Node> bodies = this.bodiesOf(node);
+        List<Int> carried = this.carriedFor(asExpression, bodies);
+        List<Int> before = CarriedVariables.currentValues(this.context, carried);
+        Int join = this.context.newBlock();
+        List<Int> arms = List();
+        Int index = 1;
+
+        while (index < node.count()) {
+            arms.add(this.context.newBlock());
+            index = index + 1;
+        }
+
+        if (!SwitchDispatch(this.context).route(node, subject, arms, join, before)) {
+            return LoweredValue.unsupported();
+        }
+
+        Int reached = this.emitArms(node, subject, arms, join, carried, before, asExpression, expected);
+        return this.finish(node, join, carried, reached, asExpression, expected, span);
+    }
+
+    private Bool supportedSubject(Node node, LoweredValue subject, Bool asExpression, String expected) {
+        String kind = subject.kind();
+
+        if (!ResultTypes.isResultKind(kind) && kind != "Int" && kind != "Bool" && kind != "String" && !EnumTable.isEnumKind(kind)) {
+            this.context.unsupported(node, "switch over " + kind + " is not available (class values need backend support)");
+            return false;
+        }
+
+        if (asExpression && (expected.isEmpty() || expected == "String" || expected == "Void")) {
+            this.context.unsupported(node, "switch expression of type '" + node.type() + "' cannot join a value (reference results need aliasing support)");
+            return false;
+        }
+
+        return true;
+    }
+
+    // Statement arms join the variables they reassign; expression arms join the arm value.
+    private List<Int> carriedFor(Bool asExpression, List<Node> bodies) {
+        if (asExpression) {
+            List<Int> none = List();
+            return none;
+        }
+
+        return CarriedVariables.select(this.context, bodies);
+    }
+
+    private List<Node> bodiesOf(Node node) {
+        List<Node> bodies = List();
+        Int index = 1;
+
+        while (index < node.count()) {
+            bodies.add(SwitchPatterns.caseBody(node.child(index)));
+            index = index + 1;
+        }
+
+        return bodies;
+    }
+
+    // Emits every arm; returns how many paths reach the join block.
+    private Int emitArms(Node node, LoweredValue subject, List<Int> arms, Int join, List<Int> carried, List<Int> before, Bool asExpression, String expected) {
+        Int reached = 0;
+        Int index = 1;
+
+        while (index < node.count()) {
+            this.context.enterBlock(arms.get(index - 1));
+            Int mark = this.context.env().size();
+            SwitchBindings(this.context).bind(node.child(index), subject);
+            Bool arrives = this.emitArm(node.child(index), join, carried, asExpression, expected);
+
+            if (arrives) {
+                reached = reached + 1;
+            }
+
+            this.context.env().truncate(mark);
+            CarriedVariables.restore(this.context, carried, before);
+            index = index + 1;
+        }
+
+        return reached + this.directEdges(node, subject);
+    }
+
+    // The literal dispatch can jump straight to the join block (no catch-all).
+    private Int directEdges(Node node, LoweredValue subject) {
+        if (ResultTypes.isResultKind(subject.kind()) || node.symbolName() == "enum" || SwitchDispatch(this.context).findCase(node, 2) >= 0) {
+            return 0;
+        }
+
+        return 1;
+    }
+
+    private Bool emitArm(Node caseNode, Int join, List<Int> carried, Bool asExpression, String expected) {
+        Node body = SwitchPatterns.caseBody(caseNode);
+        Int span = this.context.span(body);
+
+        if (asExpression) {
+            LoweredValue value = this.armValue(body, expected);
+
+            if (!value.isUsable()) {
+                return false;
+            }
+
+            List<Int> args = List();
+            args.add(value.valueId());
+            this.context.ops().branchTo(join, args, span);
+            return true;
+        }
+
+        Bool terminated = false;
+
+        if (body.kind() == "block") {
+            terminated = StatementLowerer(this.context).lowerBlock(body);
+        }
+
+        if (body.kind() != "block") {
+            terminated = StatementLowerer(this.context).lowerStatement(body);
+        }
+
+        if (terminated) {
+            return false;
+        }
+
+        this.context.ops().branchTo(join, CarriedVariables.currentValues(this.context, carried), span);
+        return true;
+    }
+
+    // Value of an expression-switch arm: an expression, `success e` or `fail e`.
+    private LoweredValue armValue(Node body, String expected) {
+        if (body.kind() == "success") {
+            ResultLowerer results = ResultLowerer(this.context);
+            return results.success(body, expected, results.payloadOf(body));
+        }
+
+        if (body.kind() == "fail") {
+            return ResultLowerer(this.context).failure(body, expected, ExpressionLowerer(this.context).lower(body.child(0)));
+        }
+
+        LoweredValue value = ExpressionLowerer(this.context).lower(body);
+
+        if (value.isUsable() && value.kind() != expected) {
+            this.context.unsupported(body, "switch arm has kind " + value.kind() + ", expected " + expected);
+            return LoweredValue.unsupported();
+        }
+
+        return value;
+    }
+
+    private LoweredValue finish(Node node, Int join, List<Int> carried, Int reached, Bool asExpression, String expected, Int span) {
+        this.context.enterBlock(join);
+
+        if (reached == 0) {
+            this.context.ops().failWith(this.context.panicFailure(), span);
+            return LoweredValue(0, "Terminated");
+        }
+
+        if (asExpression) {
+            return LoweredValue(this.context.addBlockParam(this.context.kinds().typeIdOfKind(expected)), expected);
+        }
+
+        CarriedVariables.bindParameters(this.context, carried);
+        return LoweredValue.nothing();
+    }
+}

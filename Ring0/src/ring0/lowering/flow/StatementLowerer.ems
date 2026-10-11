@@ -4,7 +4,7 @@ use ring0::binding::AstQuery;
 use ring0::syntax::Node;
 
 // Lowers statements. Every method returns true when control cannot continue past the
-// statement (return, break, continue), so unreachable code is not emitted.
+// statement (return, break, continue, fail), so unreachable code is not emitted.
 public class StatementLowerer {
     private LoweringContext context;
 
@@ -14,6 +14,7 @@ public class StatementLowerer {
 
     public Bool lowerBlock(Node block) {
         Int mark = this.context.env().size();
+        Int scopeMark = this.context.scopes().count();
         Bool terminated = false;
         Int index = 0;
 
@@ -22,24 +23,52 @@ public class StatementLowerer {
             index = index + 1;
         }
 
+        this.endScopes(block, scopeMark, terminated);
         this.context.env().truncate(mark);
         return terminated;
+    }
+
+    // `scoped var` scopes opened in this block end with it, innermost first. A terminating
+    // statement already closed them on its own path.
+    private Void endScopes(Node block, Int scopeMark, Bool terminated) {
+        Int position = this.context.scopes().count() - 1;
+
+        while (!terminated && position >= scopeMark) {
+            this.context.ops().scopeEnd(this.context.scopes().at(position), this.context.span(block));
+            position = position - 1;
+        }
+
+        this.context.scopes().popTo(scopeMark);
     }
 
     public Bool lowerStatement(Node node) {
         String kind = node.kind();
 
         if (kind == "local") {
-            return this.lowerLocal(node);
+            return LocalLowerer(this.context).lower(node);
+        }
+
+        if (kind == "destructure") {
+            return this.lowerDestructure(node);
         }
 
         if (kind == "expr-stmt") {
             return this.lowerExpressionStatement(node.child(0));
         }
 
-        if (kind == "return") {
-            return this.lowerReturn(node);
+        if (kind == "return" || kind == "fail" || kind == "success") {
+            return ResultStatements(this.context).lower(node);
         }
+
+        if (kind == "switch") {
+            return SwitchEmitter(this.context).emit(node, false, "").kind() == "Terminated";
+        }
+
+        return this.lowerControl(node);
+    }
+
+    private Bool lowerControl(Node node) {
+        String kind = node.kind();
 
         if (kind == "if") {
             return BranchLowerer(this.context).lowerIf(node);
@@ -53,6 +82,10 @@ public class StatementLowerer {
             return LoopLowerer(this.context).lowerFor(node);
         }
 
+        if (kind == "foreach") {
+            return ForEachLowerer(this.context).lower(node);
+        }
+
         if (kind == "break" || kind == "continue") {
             return this.lowerJump(node);
         }
@@ -61,7 +94,7 @@ public class StatementLowerer {
             return this.lowerBlock(node);
         }
 
-        this.context.unsupported(node, "statement '" + kind + "' is not part of the prototype subset");
+        this.context.unsupported(node, "statement '" + kind + "' needs backend support that is not available (see docs/lowering.md)");
         return false;
     }
 
@@ -69,104 +102,29 @@ public class StatementLowerer {
         String kind = expression.kind();
 
         if (kind == "assign") {
-            this.lowerAssignment(expression);
+            AssignmentLowerer(this.context).lowerAssignment(expression);
             return false;
         }
 
         if (kind == "postfix") {
-            this.lowerStep(expression);
+            AssignmentLowerer(this.context).lowerStep(expression);
             return false;
         }
 
-        ExpressionLowerer(this.context).lower(expression);
+        LoweredValue value = ExpressionLowerer(this.context).lower(expression);
+        return value.kind() == "Terminated";
+    }
+
+    private Bool lowerDestructure(Node node) {
+        Node init = node.child(node.count() - 1);
+        LoweredValue source = ExpressionLowerer(this.context).lower(init.child(0));
+
+        if (!source.isUsable()) {
+            return false;
+        }
+
+        RecordLowerer(this.context).destructure(node, source);
         return false;
-    }
-
-    private Bool lowerLocal(Node node) {
-        Node init = AstQuery.childOfKind(node, "init");
-
-        if (AstQuery.isNone(init) || init.count() == 0) {
-            this.context.unsupported(node, "local '" + node.text() + "' needs an initializer");
-            return false;
-        }
-
-        LoweredValue value = ExpressionLowerer(this.context).lower(init.child(0));
-
-        if (!value.isUsable()) {
-            return false;
-        }
-
-        this.context.env().declare(node.text(), value.valueId(), value.kind());
-        return false;
-    }
-
-    private Void lowerAssignment(Node node) {
-        Node target = node.child(0);
-        Int slot = this.context.env().indexOf(target.text());
-
-        if (target.kind() != "name" || slot < 0) {
-            this.context.unsupported(node, "assignment target must be a local variable");
-            return;
-        }
-
-        LoweredValue assigned = this.combine(node, slot, ExpressionLowerer(this.context).lower(node.child(1)));
-
-        if (assigned.isUsable()) {
-            this.context.env().setValueAt(slot, assigned.valueId());
-        }
-    }
-
-    // `x op= y` folds into `x = x op y`; plain `=` passes the value through.
-    private LoweredValue combine(Node node, Int slot, LoweredValue value) {
-        if (node.text() == "=" || !value.isUsable()) {
-            return value;
-        }
-
-        LoweredValue current = LoweredValue(this.context.env().valueAt(slot), this.context.env().kindAt(slot));
-        String operator = node.text().substring(0, node.text().length() - 1);
-        return OperatorLowerer(this.context).apply(node, operator, current, value);
-    }
-
-    // `i++` and `i--` as statements: i = i +/- 1.
-    private Void lowerStep(Node node) {
-        Node target = node.child(0);
-        Int slot = this.context.env().indexOf(target.text());
-
-        if (target.kind() != "name" || slot < 0) {
-            this.context.unsupported(node, "'" + node.text() + "' needs a local variable");
-            return;
-        }
-
-        LoweredValue current = LoweredValue(this.context.env().valueAt(slot), this.context.env().kindAt(slot));
-        Int one = this.context.builder().ops().constInt(1, this.context.span(node));
-        String operator = "+";
-
-        if (node.text() == "--") {
-            operator = "-";
-        }
-
-        LoweredValue next = OperatorLowerer(this.context).apply(node, operator, current, LoweredValue(one, "Int"));
-
-        if (next.isUsable()) {
-            this.context.env().setValueAt(slot, next.valueId());
-        }
-    }
-
-    private Bool lowerReturn(Node node) {
-        Int value = 0;
-
-        if (node.count() > 0) {
-            LoweredValue result = ExpressionLowerer(this.context).lower(node.child(0));
-
-            if (!result.isUsable()) {
-                return true;
-            }
-
-            value = result.valueId();
-        }
-
-        this.context.builder().ops().returnValue(value, this.context.span(node));
-        return true;
     }
 
     private Bool lowerJump(Node node) {
@@ -184,8 +142,20 @@ public class StatementLowerer {
             target = frame.breakTarget();
         }
 
+        this.closeScopesDownTo(frame.scopeDepth(), this.context.span(node));
         List<Int> values = CarriedVariables.currentValues(this.context, frame.carriedIndices());
-        this.context.builder().ops().branchTo(target, values, this.context.span(node));
+        this.context.ops().branchTo(target, values, this.context.span(node));
         return true;
+    }
+
+    // Leaving a loop body early ends the scopes opened inside it (the stack itself is untouched:
+    // the fall-through path still owns them).
+    private Void closeScopesDownTo(Int depth, Int span) {
+        Int position = this.context.scopes().count() - 1;
+
+        while (position >= depth) {
+            this.context.ops().scopeEnd(this.context.scopes().at(position), span);
+            position = position - 1;
+        }
     }
 }

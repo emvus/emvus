@@ -1,0 +1,34 @@
+namespace ring0::lowering;
+
+// Targets of `continue` and `break` for one loop, plus the variable indices that
+// travel through its block parameters.
+public class LoopFrame {
+    private Int continueBlock;
+    private Int breakBlock;
+    private List<Int> carried;
+    private Int depth;
+
+    public LoopFrame(Int continueTarget, Int breakTarget, List<Int> carriedIndices, Int scopeDepth) {
+        this.continueBlock = continueTarget;
+        this.breakBlock = breakTarget;
+        this.carried = carriedIndices;
+        this.depth = scopeDepth;
+    }
+
+    // Number of scopes that were open when the loop began; deeper ones belong to its body.
+    public Int scopeDepth() {
+        return this.depth;
+    }
+
+    public Int continueTarget() {
+        return this.continueBlock;
+    }
+
+    public Int breakTarget() {
+        return this.breakBlock;
+    }
+
+    public List<Int> carriedIndices() {
+        return this.carried;
+    }
+}

@@ -1,0 +1,174 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Declared classes and interfaces by case-insensitive name. Index 0 is the synthetic root
+// `emvus.Object`: Sublang dispatch groups need one root class that carries the tag field, so
+// every Emvus class derives from it and interfaces are dispatched over that single hierarchy.
+// Fields are stored flat; a class lists its inherited fields first (Sublang's field prefix rule).
+public class ClassTable {
+    private List<String> keys;
+    private List<String> names;
+    private List<Node> nodes;
+    private List<Int> typeIds;
+    private List<Int> parents;
+    private List<Int> tags;
+    private List<Int> interfaceFlags;
+    private List<Int> abstractFlags;
+    private InterfaceLinks links;
+    private ClassFields fieldTable;
+    private List<String> bindings;
+
+    public ClassTable() {
+        this.keys = List();
+        this.names = List();
+        this.nodes = List();
+        this.typeIds = List();
+        this.parents = List();
+        this.tags = List();
+        this.interfaceFlags = List();
+        this.abstractFlags = List();
+        this.links = InterfaceLinks();
+        this.fieldTable = ClassFields();
+        this.bindings = List();
+    }
+
+    public static String kindFor(String name) {
+        return "Class:" + name;
+    }
+
+    public static Bool isClassKind(String kind) {
+        return kind.length() > 6 && kind.substring(0, 6) == "Class:";
+    }
+
+    public static String nameOfKind(String kind) {
+        return kind.substring(6, kind.length()) + "";
+    }
+
+    public Int add(String name, Node declaration) {
+        this.keys.add(name.toLowerCase() + "");
+        this.names.add(name + "");
+        this.nodes.add(declaration);
+        this.typeIds.add(0);
+        this.parents.add(-1);
+        this.tags.add(this.keys.length() - 1);
+        this.interfaceFlags.add(0);
+        this.abstractFlags.add(0);
+        this.fieldTable.registerClass();
+        this.bindings.add("");
+        return this.keys.length() - 1;
+    }
+
+    public Int count() {
+        return this.keys.length();
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public String nameAt(Int index) {
+        return this.names.get(index) + "";
+    }
+
+    public Node nodeAt(Int index) {
+        return this.nodes.get(index);
+    }
+
+    public Int typeIdAt(Int index) {
+        return this.typeIds.get(index);
+    }
+
+    public Void setTypeId(Int index, Int typeId) {
+        this.typeIds.set(index, typeId);
+    }
+
+    public Int parentAt(Int index) {
+        return this.parents.get(index);
+    }
+
+    public Void setParent(Int index, Int parent) {
+        this.parents.set(index, parent);
+    }
+
+    // The tag stored in the object's root field and registered with the dispatch table.
+    public Int tagAt(Int index) {
+        return this.tags.get(index);
+    }
+
+    public Bool isInterfaceAt(Int index) {
+        return this.interfaceFlags.get(index) == 1;
+    }
+
+    public Void markInterface(Int index) {
+        this.interfaceFlags.set(index, 1);
+    }
+
+    public Bool isAbstractAt(Int index) {
+        return this.abstractFlags.get(index) == 1;
+    }
+
+    public Void markAbstract(Int index) {
+        this.abstractFlags.set(index, 1);
+    }
+
+    public Void link(Int classIndex, Int interfaceIndex) {
+        this.links.add(classIndex, interfaceIndex);
+    }
+
+    // True when `descendant` is `ancestor` or has it somewhere up the base chain.
+    public Bool derivesFrom(Int descendant, Int ancestor) {
+        Int current = descendant;
+
+        while (current >= 0) {
+            if (current == ancestor) {
+                return true;
+            }
+
+            current = this.parents.get(current);
+        }
+
+        return false;
+    }
+
+    // True when the class (or a base) lists the interface, directly or through a based interface.
+    public Bool implementsInterface(Int classIndex, Int interfaceIndex) {
+        Int current = classIndex;
+
+        while (current >= 0) {
+            if (this.links.reaches(current, interfaceIndex)) {
+                return true;
+            }
+
+            current = this.parents.get(current);
+        }
+
+        return false;
+    }
+
+    // Type-parameter frame of a generic class instance ("" for ordinary classes).
+    public String bindingAt(Int index) {
+        return this.bindings.get(index) + "";
+    }
+
+    public Void setBinding(Int index, String frame) {
+        this.bindings.set(index, frame + "");
+    }
+
+    // Field slots of every class (inherited fields included).
+    public ClassFields fields() {
+        return this.fieldTable;
+    }
+}

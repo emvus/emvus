@@ -1,0 +1,41 @@
+namespace ring0::lowering;
+
+// `implements` and interface-`based` links as (owner, interface) pairs. An interface that a
+// class lists reaches the interfaces it is based on through further links of its own.
+public class InterfaceLinks {
+    private List<Int> owners;
+    private List<Int> interfaces;
+
+    public InterfaceLinks() {
+        this.owners = List();
+        this.interfaces = List();
+    }
+
+    public Void add(Int owner, Int interfaceIndex) {
+        this.owners.add(owner);
+        this.interfaces.add(interfaceIndex);
+    }
+
+    // True when `owner` lists `target` directly or through based interfaces.
+    public Bool reaches(Int owner, Int target) {
+        Int position = 0;
+
+        while (position < this.owners.length()) {
+            if (this.owners.get(position) == owner && this.interfaceReaches(this.interfaces.get(position), target)) {
+                return true;
+            }
+
+            position = position + 1;
+        }
+
+        return false;
+    }
+
+    private Bool interfaceReaches(Int from, Int target) {
+        if (from == target) {
+            return true;
+        }
+
+        return this.reaches(from, target);
+    }
+}

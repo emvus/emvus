@@ -1,0 +1,98 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+
+// Declares `record`, `data class` and `exception` types as Sublang value records. Fields are
+// primitive only; anything else is diagnosed as a backend requirement.
+public class RecordDeclarer {
+    private LoweringContext context;
+
+    public RecordDeclarer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void declare(Node record) {
+        this.declareNamed(record, record.text());
+    }
+
+    // An instance of a generic record or data class: `Pair<Int,Int>` with its type-parameter frame.
+    public Void declareInstance(Node record, String key, String frame) {
+        this.context.function().bindings().push(frame);
+        this.declareNamed(record, key);
+        this.context.function().bindings().pop();
+    }
+
+    private Void declareNamed(Node record, String name) {
+        SublangBuilder builder = this.context.builder();
+        Int span = this.context.span(record);
+        Int typeId = builder.recordType(this.context.retain(IrNames.sanitize(name)), span);
+        Int index = this.context.records().add(name, typeId);
+        Node params = AstQuery.childOfKind(record, "params");
+        Int position = 0;
+
+        if (record.kind() == "exception") {
+            this.context.records().markException(index);
+            this.checkExceptionBase(record);
+        }
+
+        if (record.kind() == "data-class") {
+            this.checkDataClassBody(record);
+        }
+
+        while (position < params.count()) {
+            this.declareField(index, typeId, params.child(position));
+            position = position + 1;
+        }
+
+        if (this.context.records().fieldCountAt(index) == 0) {
+            Int hidden = builder.recordField(typeId, "code", builder.intType(), span);
+            this.context.records().addHiddenField(index, "code", hidden, "Int");
+        }
+    }
+
+    private Void declareField(Int record, Int typeId, Node param) {
+        String kind = this.context.kinds().kindOfType(AstQuery.typeChild(param));
+
+        if (kind != "Int" && kind != "Bool" && kind != "Float") {
+            this.context.unsupported(param, "field '" + param.text() + "' must be Int, Bool or Float: Sublang records hold primitive fields only (backend requirement: text or reference fields in records)");
+            return;
+        }
+
+        SublangBuilder builder = this.context.builder();
+        Int fieldId = builder.recordField(typeId, this.context.retain(param.text()), SourceTypes.typeIdOf(builder, kind), this.context.span(param));
+        this.context.records().addField(record, param.text(), fieldId, kind);
+
+        if (AstQuery.hasDefaultValue(param)) {
+            Int slot = this.context.records().firstFieldSlot(record) + this.context.records().fieldCountAt(record) - 1;
+            this.context.records().setDefaultAt(slot, AstQuery.initChild(param));
+        }
+    }
+
+    // Exceptions may only extend built-in ones: inherited fields and typed catch of a
+    // base are not modelled by the value-record lowering.
+    private Void checkExceptionBase(Node exception) {
+        Node based = AstQuery.childOfKind(exception, "based");
+
+        if (AstQuery.isNone(based) || based.count() == 0) {
+            return;
+        }
+
+        String name = based.child(0).text().toLowerCase();
+
+        if (name == "exception" || name == "ioexception" || name == "unknowncaseexception") {
+            return;
+        }
+
+        this.context.unsupported(exception, "exception '" + exception.text() + "' extends '" + based.child(0).text() + "': exception inheritance needs class hierarchies (backend requirement: ext.oo for exception values)");
+    }
+
+    private Void checkDataClassBody(Node dataClass) {
+        Node body = AstQuery.childOfKind(dataClass, "body");
+
+        if (!AstQuery.isNone(body) && body.count() > 0) {
+            this.context.unsupported(dataClass, "data class '" + dataClass.text() + "' has members: methods and computed properties need class lowering");
+        }
+    }
+}

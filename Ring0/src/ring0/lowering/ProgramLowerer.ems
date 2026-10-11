@@ -5,8 +5,8 @@ use ring0::diagnostic::DiagnosticBag;
 use ring0::syntax::Node;
 use sublang::ir::SublangBuilder;
 
-// Lowers a checked Emvus file into a Sublang High IR builder (subset: top-level methods over
-// Int, Bool, Float and String). Problems are reported as diagnostics.
+// Lowers a checked Emvus file into a Sublang High IR builder. Problems are reported as
+// diagnostics that name the missing language feature or backend requirement.
 // Keep this object alive as long as the returned module is used: the module refers
 // to the names this object retains.
 public class ProgramLowerer {
@@ -22,72 +22,137 @@ public class ProgramLowerer {
     // referenced by the context would be released together with its module.
     public Void lower(Node file, SublangBuilder builder, String sourceName) {
         LoweringContext context = LoweringContext(builder, this.bag, this.pool, this.pool.keep(sourceName));
-        this.collectMethods(file, context);
+        this.declareBuiltinExceptions(context);
+        DeclarationCollector(context).collect(file);
+        InstanceDiscovery(context).run(file);
 
         if (this.bag.hasErrors()) {
             return;
         }
 
-        this.emitMethods(context);
+        if (!ClassDeclarer(context).declareAll() || this.bag.hasErrors()) {
+            return;
+        }
+
+        this.collectMembers(context);
+        MutationAnalysis(context).run();
+        this.createTextHelpers(context);
+
+        if (!this.declareAll(context) || !DispatchBuilder(context).build(DeclarationCollector.containsKind(file, "as"))) {
+            return;
+        }
+
+        this.emitAll(context);
+
+        if (!this.bag.hasErrors()) {
+            EntryPoint(context).install();
+        }
     }
 
-    private Void collectMethods(Node file, LoweringContext context) {
+    // Exceptions the language provides; they carry no fields of their own.
+    private Void declareBuiltinExceptions(LoweringContext context) {
+        RecordLowerer records = RecordLowerer(context);
+        records.declare(Node("exception", "Exception", 0, 0));
+        records.declare(Node("exception", "IOException", 0, 0));
+        records.declare(Node("exception", "UnknownCaseException", 0, 0));
+    }
+
+    // Parents before children, so a class can inherit the members its base already collected.
+    private Void collectMembers(LoweringContext context) {
+        ClassMemberCollector collector = ClassMemberCollector(context);
+        Int depth = 1;
+
+        while (depth < context.classes().count() + 1) {
+            Int index = 1;
+
+            while (index < context.classes().count()) {
+                if (collector.depthOf(index) == depth) {
+                    collector.collect(index);
+                }
+
+                index = index + 1;
+            }
+
+            depth = depth + 1;
+        }
+    }
+
+    // Text helpers are created before every user function so they are the lowest function
+    // ids: the backend failed to compile a module where helpers followed callers that also
+    // call an owned-text function (Sublang emit-llvm abort, reproducible without Ring0 via the
+    // wire files kept in docs/lowering.md).
+    private Void createTextHelpers(LoweringContext context) {
         Int index = 0;
 
-        while (index < file.count()) {
-            this.collectDeclaration(file.child(index), context);
+        while (index < context.methods().count()) {
+            if (TextUsage.isUsedIn(context.methods().declarationAt(index))) {
+                TextHelpers.assignFunction(context);
+                TextHelpers.appendIntFunction(context);
+                TextHelpers.appendBoolFunction(context);
+                return;
+            }
+
             index = index + 1;
         }
     }
 
-    private Void collectDeclaration(Node node, LoweringContext context) {
-        String kind = node.kind();
-
-        if (kind == "package" || kind == "use") {
-            return;
-        }
-
-        if (kind == "record") {
-            RecordLowerer(context).declare(node);
-            return;
-        }
-
-        if (kind != "method") {
-            context.unsupported(node, "top-level '" + kind + "' is not part of the prototype subset");
-            return;
-        }
-
-        if (context.methods().indexOf(node.text()) >= 0) {
-            context.unsupported(node, "method '" + node.text() + "' is declared twice (names are case-insensitive)");
-            return;
-        }
-
-        context.methods().add(node);
-    }
-
-    private Void emitMethods(LoweringContext context) {
-        CallGraph graph = CallGraph(context.methods());
-        List<Int> order = graph.emissionOrder();
-
-        if (graph.hasCycle()) {
-            context.unsupported(context.methods().declarationAt(0), "mutual recursion needs forward declarations, which Sublang High IR does not offer yet");
-            return;
-        }
-
+    // Signatures first, so calls can refer to methods declared later in the file.
+    private Bool declareAll(LoweringContext context) {
+        FunctionDeclarer declarer = FunctionDeclarer(context);
+        Bool ok = true;
         Int index = 0;
 
-        while (index < order.length()) {
-            this.emitMethod(order.get(index), context);
+        while (index < context.methods().count()) {
+            context.function().bindings().push(ProgramLowerer.frameOf(context, index));
+
+            if (!declarer.declare(index)) {
+                ok = false;
+            }
+
+            context.function().bindings().pop();
             index = index + 1;
         }
+
+        return ok;
     }
 
-    private Void emitMethod(Int methodIndex, LoweringContext context) {
-        Node method = context.methods().declarationAt(methodIndex);
-        Int functionId = FunctionLowerer(context).lower(methodIndex);
+    private Void emit(LoweringContext context, FunctionLowerer lowerer, Int index) {
+        if (context.methods().functionIdAt(index) == 0) {
+            return;
+        }
 
-        if (functionId != 0 && method.text().toLowerCase() == "main" && AstQuery.isStatic(method)) {
-            context.builder().module().setEntry(functionId);
+        context.function().bindings().push(ProgramLowerer.frameOf(context, index));
+
+        if (context.methods().declarationAt(index).kind() == "constructor") {
+            ConstructorLowerer(context).lower(index);
+        }
+
+        if (context.methods().declarationAt(index).kind() != "constructor") {
+            lowerer.lower(index);
+        }
+
+        context.function().bindings().pop();
+    }
+
+    // The type-parameter frame a method is declared and emitted under: its own instance
+    // bindings, else those of the generic class it belongs to.
+    public static String frameOf(LoweringContext context, Int methodIndex) {
+        String own = context.methods().bindingAt(methodIndex);
+
+        if (!own.isEmpty() || context.methods().ownerAt(methodIndex) < 0) {
+            return own;
+        }
+
+        return context.classes().bindingAt(context.methods().ownerAt(methodIndex));
+    }
+
+    private Void emitAll(LoweringContext context) {
+        FunctionLowerer lowerer = FunctionLowerer(context);
+        Int index = 0;
+
+        while (index < context.methods().count()) {
+            this.emit(context, lowerer, index);
+            index = index + 1;
         }
     }
 }

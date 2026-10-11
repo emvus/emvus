@@ -1,0 +1,145 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Declares the signature of every method before any body is emitted, so calls may refer to
+// methods that appear later (forward references, mutual recursion). Class members get a leading
+// receiver parameter; a constructor returns the new object as an owned reference.
+public class FunctionDeclarer {
+    private LoweringContext context;
+
+    public FunctionDeclarer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Returns false when the method is outside what the lowering can express.
+    public Bool declare(Int methodIndex) {
+        Node method = this.context.methods().declarationAt(methodIndex);
+        Int owner = this.context.methods().ownerAt(methodIndex);
+        Node params = AstQuery.childOfKind(method, "params");
+        Node block = AstQuery.childOfKind(method, "block");
+
+        if (method.kind() == "method" && AstQuery.isNone(block) && owner >= 0) {
+            return this.recordBodyless(methodIndex, method, params);
+        }
+
+        String returnKind = this.returnKindOf(method, owner);
+
+        if (returnKind.isEmpty() || returnKind == "Unsupported") {
+            this.context.unsupported(method, "method '" + method.text() + "' returns a type that is not lowerable: " + UnsupportedReasons.ofType(this.returnTypeText(method)));
+            return false;
+        }
+
+        if (AstQuery.isNone(block) && method.kind() != "constructor") {
+            this.context.unsupported(method, "method '" + method.text() + "' has no body");
+            return false;
+        }
+
+        Int functionId = this.context.declareFunction(this.context.methods().keyAt(methodIndex), this.context.kinds().typeIdOfKind(returnKind), this.context.span(method));
+        this.context.methods().record(methodIndex, functionId, returnKind);
+        this.declareReceiver(methodIndex, functionId, method, owner);
+        this.context.methods().beginParams(methodIndex);
+        return this.declareParams(methodIndex, functionId, params);
+    }
+
+    // Abstract and interface members have no function; their signature is still recorded because
+    // calls through a dispatch group are checked against it.
+    private Bool recordBodyless(Int methodIndex, Node method, Node params) {
+        this.context.methods().record(methodIndex, 0, this.returnKindOf(method, this.context.methods().ownerAt(methodIndex)));
+        this.context.methods().beginParams(methodIndex);
+        Int index = 0;
+
+        while (index < params.count()) {
+            this.context.methods().addParam(methodIndex, 0, this.context.kinds().kindOfType(AstQuery.typeChild(params.child(index))));
+            index = index + 1;
+        }
+
+        return true;
+    }
+
+    private String returnTypeText(Node method) {
+        Node returnType = AstQuery.childOfKind(method, "return-type");
+
+        if (AstQuery.isNone(returnType) || returnType.count() == 0) {
+            return "";
+        }
+
+        return SourceTypeText.of(returnType.child(0));
+    }
+
+    private String returnKindOf(Node method, Int owner) {
+        if (method.kind() == "constructor") {
+            return ClassTable.kindFor(this.context.classes().nameAt(owner));
+        }
+
+        Node returnType = AstQuery.childOfKind(method, "return-type");
+
+        if (AstQuery.isNone(returnType)) {
+            return "Void";
+        }
+
+        return this.context.kinds().kindOfType(returnType.child(0));
+    }
+
+    // The receiver is borrowed read-only unless the analysis found a write through it.
+    private Void declareReceiver(Int methodIndex, Int functionId, Node method, Int owner) {
+        if (owner < 0 || method.kind() == "constructor" || AstQuery.isStatic(method)) {
+            return;
+        }
+
+        String mode = "borrow_read";
+
+        if (this.context.methods().mutatesSelfAt(methodIndex)) {
+            mode = "borrow_write";
+        }
+
+        Int typeId = this.context.builder().refType(this.context.classes().typeIdAt(owner));
+        Int value = this.context.builder().module().functionAt(functionId).addParam("this", typeId, mode, false);
+        this.context.methods().setSelfId(methodIndex, value);
+    }
+
+    private Bool declareParams(Int methodIndex, Int functionId, Node params) {
+        Int index = 0;
+        Bool ok = true;
+
+        while (index < params.count()) {
+            Node param = params.child(index);
+            String kind = this.context.kinds().kindOfType(AstQuery.typeChild(param));
+
+            if (kind.isEmpty() || kind == "Void" || AstQuery.hasDefaultValue(param)) {
+                this.context.unsupported(param, "parameter '" + param.text() + "' has a type or default value that is not lowerable: " + UnsupportedReasons.ofType(SourceTypeText.of(AstQuery.typeChild(param))));
+                ok = false;
+            }
+
+            if (ok) {
+                this.addParam(methodIndex, functionId, param, index, kind);
+            }
+
+            index = index + 1;
+        }
+
+        return ok;
+    }
+
+    // Text and objects are borrowed (objects write-capable only when the body writes through them);
+    // everything else is passed by value.
+    private Void addParam(Int methodIndex, Int functionId, Node param, Int position, String kind) {
+        String mode = "value";
+
+        if (kind == "String") {
+            mode = "borrow_read";
+        }
+
+        if (RefKinds.isReference(kind)) {
+            mode = "borrow_read";
+
+            if (this.context.methods().mutatesParamAt(methodIndex, position)) {
+                mode = "borrow_write";
+            }
+        }
+
+        Int value = this.context.builder().module().functionAt(functionId).addParam(this.context.retain(param.text()), this.context.kinds().typeIdOfKind(kind), mode, false);
+        this.context.methods().addParam(methodIndex, value, kind);
+    }
+}

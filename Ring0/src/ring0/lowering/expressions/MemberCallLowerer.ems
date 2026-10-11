@@ -1,0 +1,95 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `receiver.name(args)`: the receiver's kind decides which family of members applies.
+public class MemberCallLowerer {
+    private LoweringContext context;
+
+    public MemberCallLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        Node member = node.child(0);
+
+        if (MemberAccessLowerer(this.context).namesType(member.child(0))) {
+            return this.lowerStatic(node, member);
+        }
+
+        LoweredValue receiver = ExpressionLowerer(this.context).lower(member.child(0));
+
+        if (!receiver.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (receiver.kind() == "String") {
+            return TextLowerer(this.context).memberCall(node, receiver);
+        }
+
+        if (receiver.kind() == "Int" || receiver.kind() == "Float" || receiver.kind() == "Bool") {
+            return PrimitiveMembers(this.context).call(node, receiver);
+        }
+
+        if (ListTable.isListKind(receiver.kind())) {
+            return ListMembers(this.context).call(node, receiver);
+        }
+
+        return this.lowerOnValue(node, receiver);
+    }
+
+    private LoweredValue lowerOnValue(Node node, LoweredValue receiver) {
+        Node member = node.child(0);
+
+        if (ResultTypes.isResultKind(receiver.kind())) {
+            return this.resultMember(node, receiver);
+        }
+
+        if (RecordTable.isRecordKind(receiver.kind())) {
+            return RecordLowerer(this.context).memberCall(node, receiver);
+        }
+
+        if (ClassTable.isClassKind(receiver.kind())) {
+            return ObjectMembers(this.context).memberCall(node, receiver, member.text());
+        }
+
+        this.context.unsupported(node, "member '" + member.text() + "' on " + receiver.kind() + " is not available");
+        return LoweredValue.unsupported();
+    }
+
+    // `Type.method(args)`.
+    private LoweredValue lowerStatic(Node node, Node member) {
+        Int classIndex = this.context.classes().indexOf(member.child(0).text());
+
+        if (classIndex < 0) {
+            this.context.unsupported(node, "'" + member.child(0).text() + "." + member.text() + "(...)' is not a static call this lowering knows");
+            return LoweredValue.unsupported();
+        }
+
+        return ObjectMembers(this.context).staticCall(node, classIndex, member.text());
+    }
+
+    // `isSuccess()`, `isError()` and `orElse(default)` on a Result value.
+    private LoweredValue resultMember(Node node, LoweredValue receiver) {
+        String name = node.child(0).text().toLowerCase();
+        ResultLowerer results = ResultLowerer(this.context);
+
+        if (name == "iserror" && node.count() == 1) {
+            return LoweredValue(results.isError(node, receiver), "Bool");
+        }
+
+        if (name == "issuccess" && node.count() == 1) {
+            Int span = this.context.span(node);
+            Int failed = results.isError(node, receiver);
+            Int negated = this.context.ops().compare("eq", failed, this.context.ops().constBool(false, span), span);
+            return LoweredValue(negated, "Bool");
+        }
+
+        if (name == "orelse" && node.count() == 2) {
+            return ResultFlow(this.context).orElse(node, receiver);
+        }
+
+        this.context.unsupported(node, "Result member '" + node.child(0).text() + "' (map, mapError) needs function values (closures)");
+        return LoweredValue.unsupported();
+    }
+}

@@ -1,0 +1,32 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Decides before a function body is emitted whether it needs the function-level text scope.
+// The scope must begin in the entry block so it dominates every later text allocation.
+public class TextUsage {
+    public TextUsage() {
+    }
+
+    public static Bool isUsedIn(Node node) {
+        if (node.kind() == "string" || node.type() == "String") {
+            return true;
+        }
+
+        if (node.kind() == "type" && node.text() == "String") {
+            return true;
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (TextUsage.isUsedIn(node.child(index))) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+}

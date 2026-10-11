@@ -5,6 +5,9 @@
 #   p*.ev  positive tests ("// expect-ok"): exit 0, no diagnostics.
 #   showcase.ev: exit 0; the AST is compared with tests/golden/showcase.ast (if present).
 set -euo pipefail
+# One compiler or program run at a time: all sandbox scripts share this lock.
+exec 9>"${TMPDIR:-/tmp}/ring0-sandbox.lock"
+flock 9
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EMERALD_ROOT="${RING0_EMERALD_ROOT:-/run/media/syntaxjason/0A625B37625B272B/Code Space/Emerald/Emerald LLVM}"
 IMAGE="${RING0_SANDBOX_IMAGE:-emerald-selfhost-sandbox}"

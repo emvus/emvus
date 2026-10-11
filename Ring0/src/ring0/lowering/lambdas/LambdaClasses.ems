@@ -1,0 +1,150 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Turns every lambda expression into a class before any declaration is lowered:
+//
+//   class Lambda$n implements Fn$... { <captured variable fields>; Lambda$n(captures) {...}; method invoke(params) { body } }
+//
+// Captures are copies taken when the lambda is created (Emvus captures by value). A captured
+// reference (object or list) would need shared ownership, which Sublang does not have, so it is
+// diagnosed. Lambdas that use `this` of the enclosing class are diagnosed for the same reason.
+public class LambdaClasses {
+    private LoweringContext context;
+
+    public LambdaClasses(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Registers the class of `lambda` scanned under `frame`; returns its declaration (so the
+    // caller can scan the body for nested lambdas and generic instances) or none.
+    public Node register(Node lambda, String frame) {
+        String key = LambdaTable.keyOf(lambda.line(), lambda.column(), frame);
+
+        if (this.context.lambdas().indexOf(key) >= 0) {
+            return AstQuery.none();
+        }
+
+        this.context.function().bindings().push(frame);
+        Node declaration = this.create(lambda, key, frame);
+        this.context.function().bindings().pop();
+        return declaration;
+    }
+
+    private Node create(Node lambda, String key, String frame) {
+        List<String> signature = FunctionTypes.signatureTexts(lambda.type());
+        List<String> kinds = FunctionTypes.kindsOf(this.context, signature);
+
+        if (kinds.length() == 0) {
+            this.context.unsupported(lambda, "lambda of type " + lambda.type() + " has parameter or result types that are not lowerable");
+            return AstQuery.none();
+        }
+
+        String resultKind = kinds.get(kinds.length() - 1) + "";
+        kinds.removeAt(kinds.length() - 1);
+        Node parameters = AstQuery.childOfKind(lambda, "params");
+
+        if (parameters.count() != kinds.length()) {
+            this.context.unsupported(lambda, "lambda has " + parameters.count().toString() + " parameters but its type " + lambda.type() + " takes " + kinds.length().toString());
+            return AstQuery.none();
+        }
+
+        Int function = FunctionTypes.ensureInterface(this.context, lambda, kinds, resultKind);
+        List<Node> captured = LambdaCaptures(this.context).of(lambda);
+
+        if (this.context.failed() || function < 0 || !LambdaCaptures(this.context).allCapturable(captured)) {
+            return AstQuery.none();
+        }
+
+        String name = "Lambda$" + this.context.lambdas().count().toString();
+        Node declaration = this.declaration(lambda, name, function, parameters, kinds, resultKind, captured);
+        ClassDeclarer(this.context).collectInstance(declaration, name, frame);
+        this.context.lambdas().add(key, this.context.classes().indexOf(name), LambdaCaptures.namesOf(captured));
+        return declaration;
+    }
+
+    private Node declaration(Node lambda, String name, Int function, Node parameters, List<String> kinds, String resultKind, List<Node> captured) {
+        Node declaration = Node("class", name, lambda.line(), lambda.column());
+        declaration.add(Node("modifiers", "", lambda.line(), lambda.column()));
+        Node implemented = Node("implements", "", lambda.line(), lambda.column());
+        implemented.add(SyntheticNodes.typeOf(lambda, this.context.classes().nameAt(function)));
+        declaration.add(implemented);
+        Node body = Node("body", "", lambda.line(), lambda.column());
+        this.addCaptureFields(body, lambda, captured);
+        body.add(this.constructor(lambda, name, captured));
+        List<String> names = List();
+        Int index = 0;
+
+        while (index < parameters.count()) {
+            names.add(parameters.child(index).text() + "");
+            index = index + 1;
+        }
+
+        body.add(SyntheticNodes.method(lambda, "invoke", names, kinds, resultKind, this.bodyOf(lambda, resultKind)));
+        declaration.add(body);
+        return declaration;
+    }
+
+    private Void addCaptureFields(Node body, Node lambda, List<Node> captured) {
+        Int index = 0;
+
+        while (index < captured.length()) {
+            Node field = Node("field", captured.get(index).text(), lambda.line(), lambda.column());
+            field.add(Node("modifiers", "", lambda.line(), lambda.column()));
+            field.add(SyntheticNodes.typeOf(lambda, captured.get(index).type()));
+            body.add(field);
+            index = index + 1;
+        }
+    }
+
+    // `Lambda$n(a, b) { this.a = a; this.b = b }`
+    private Node constructor(Node lambda, String name, List<Node> captured) {
+        Node constructor = Node("constructor", name, lambda.line(), lambda.column());
+        Node params = Node("params", "", lambda.line(), lambda.column());
+        Node block = Node("block", "", lambda.line(), lambda.column());
+        Int index = 0;
+
+        while (index < captured.length()) {
+            Node variable = captured.get(index);
+            Node param = Node("param", variable.text(), lambda.line(), lambda.column());
+            param.add(Node("modifiers", "", lambda.line(), lambda.column()));
+            param.add(SyntheticNodes.typeOf(lambda, variable.type()));
+            params.add(param);
+            Node target = Node("member", variable.text(), lambda.line(), lambda.column());
+            target.add(Node("name", "this", lambda.line(), lambda.column()));
+            Node assign = Node("assign", "=", lambda.line(), lambda.column());
+            assign.add(target);
+            assign.add(Node("name", variable.text(), lambda.line(), lambda.column()));
+            Node statement = Node("expr-stmt", "", lambda.line(), lambda.column());
+            statement.add(assign);
+            block.add(statement);
+            index = index + 1;
+        }
+
+        constructor.add(params);
+        constructor.add(block);
+        return constructor;
+    }
+
+    // An expression body becomes `return <expr>` (or the expression statement for Void).
+    private Node bodyOf(Node lambda, String resultKind) {
+        Node body = lambda.child(lambda.count() - 1);
+
+        if (body.kind() == "block") {
+            return body;
+        }
+
+        Node block = Node("block", "", lambda.line(), lambda.column());
+        String kind = "return";
+
+        if (resultKind == "Void") {
+            kind = "expr-stmt";
+        }
+
+        Node statement = Node(kind, "", lambda.line(), lambda.column());
+        statement.add(body);
+        block.add(statement);
+        return block;
+    }
+}

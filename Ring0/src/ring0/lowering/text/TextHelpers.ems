@@ -1,0 +1,176 @@
+namespace ring0::lowering;
+
+// Small IR functions the text operations need and Sublang has no single opcode for:
+// copying one text into an existing text cell, and Int / Bool to text. They are generated
+// into the module on first use. Emvus strings are values, so a String local is a cell
+// whose bytes are replaced on assignment (a reference block parameter would alias).
+public class TextHelpers {
+    public TextHelpers() {
+    }
+
+    // assign(dst: borrow_write, src: borrow_read): dst becomes a copy of src.
+    public static Int assignFunction(LoweringContext context) {
+        if (context.function().helperId(0) != 0) {
+            return context.function().helperId(0);
+        }
+
+        Int resume = TextHelpers.savedFunction(context);
+        Int block = TextHelpers.savedBlock(context);
+        Int span = context.builder().syntheticSpan("ring0:text.assign");
+        Int id = TextHelpers.declare(context, "emvus.text.assign", context.builder().voidType(), span);
+        context.function().setHelperId(0, id);
+        Int dst = context.cursor().currentFunction().addParam("dst", context.textRefType(), "borrow_write", false);
+        Int src = context.cursor().currentFunction().addParam("src", context.textRefType(), "borrow_read", false);
+        context.beginBlock();
+        Int zero = context.ops().constInt(0, span);
+        context.collections().clear(dst, span);
+        Int header = context.newBlock();
+        Int body = context.newBlock();
+        Int done = context.newBlock();
+        context.ops().branchTo(header, TextHelpers.one(zero), span);
+        context.enterBlock(header);
+        Int index = context.addBlockParam(context.builder().intType());
+        Int length = context.collections().length(src, span);
+        Int below = context.ops().compare("lt", index, length, span);
+        context.ops().condBranch(below, body, TextHelpers.none(), done, TextHelpers.none(), span);
+        context.enterBlock(body);
+        context.collections().push(dst, context.collections().get(src, index, span), span);
+        Int next = context.ops().intBinary("int.add", index, context.ops().constInt(1, span), "trap", context.integerFailure(), span);
+        context.ops().branchTo(header, TextHelpers.one(next), span);
+        context.enterBlock(done);
+        context.ops().returnValue(0, span);
+        TextHelpers.restore(context, resume, block);
+        return id;
+    }
+
+    // appendInt(dst: borrow_write, n): appends the decimal digits of n. Works on the
+    // non-positive magnitude so Int.MIN needs no overflowing negation; `int.rem` truncates
+    // toward zero, so remainders are <= 0. Appending in place avoids helpers that return
+    // owned text (the backend aborted on a module combining three of them with callers).
+    public static Int appendIntFunction(LoweringContext context) {
+        if (context.function().helperId(1) != 0) {
+            return context.function().helperId(1);
+        }
+
+        Int resume = TextHelpers.savedFunction(context);
+        Int block = TextHelpers.savedBlock(context);
+        Int span = context.builder().syntheticSpan("ring0:text.int");
+        Int id = TextHelpers.declare(context, "emvus.text.appendInt", context.builder().voidType(), span);
+        context.function().setHelperId(1, id);
+        Int destination = context.cursor().currentFunction().addParam("dst", context.textRefType(), "borrow_write", false);
+        Int number = context.cursor().currentFunction().addParam("n", context.builder().intType(), "value", false);
+        context.beginBlock();
+        Int scope = context.ops().scopeBegin(span);
+        Int digits = context.collections().listNew(context.textListType(), scope, span);
+        Int zero = context.ops().constInt(0, span);
+        Int negative = context.ops().compare("lt", number, zero, span);
+        Int loop = context.newBlock();
+        Int flip = context.newBlock();
+        context.ops().condBranch(negative, loop, TextHelpers.one(number), flip, TextHelpers.none(), span);
+        context.enterBlock(flip);
+        Int positive = context.ops().intNeg(number, "trap", context.integerFailure(), span);
+        context.ops().branchTo(loop, TextHelpers.one(positive), span);
+        TextHelpers.digitLoop(context, loop, digits, destination, negative, scope, span);
+        TextHelpers.restore(context, resume, block);
+        return id;
+    }
+
+    // Emits the digit-collecting loop, then copies the digits back to front into `dst`.
+    private static Void digitLoop(LoweringContext context, Int loop, Int digits, Int destination, Int negative, Int scope, Int span) {
+        Int after = context.newBlock();
+        context.enterBlock(loop);
+        Int magnitude = context.addBlockParam(context.builder().intType());
+        Int ten = context.ops().constInt(10, span);
+        Int zero = context.ops().constInt(0, span);
+        Int remainder = context.ops().intBinary("int.rem", magnitude, ten, "trap", context.integerFailure(), span);
+        Int digit = context.ops().intBinary("int.sub", zero, remainder, "trap", context.integerFailure(), span);
+        Int code = context.ops().intBinary("int.add", digit, context.ops().constInt(48, span), "trap", context.integerFailure(), span);
+        context.collections().push(digits, context.collections().byteFromInt(code, span), span);
+        Int quotient = context.ops().intBinary("int.div", magnitude, ten, "trap", context.integerFailure(), span);
+        Int more = context.ops().compare("ne", quotient, zero, span);
+        context.ops().condBranch(more, loop, TextHelpers.one(quotient), after, TextHelpers.none(), span);
+        context.enterBlock(after);
+        TextHelpers.copyDigits(context, digits, destination, negative, scope, span);
+    }
+
+    private static Void copyDigits(LoweringContext context, Int digits, Int destination, Int negative, Int scope, Int span) {
+        Int sign = context.newBlock();
+        Int header = context.newBlock();
+        Int body = context.newBlock();
+        Int finish = context.newBlock();
+        Int last = context.ops().intBinary("int.sub", context.collections().length(digits, span), context.ops().constInt(1, span), "trap", context.integerFailure(), span);
+        context.ops().condBranch(negative, sign, TextHelpers.none(), header, TextHelpers.one(last), span);
+        context.enterBlock(sign);
+        context.collections().textAppend(destination, context.ops().constString("-", span), span);
+        context.ops().branchTo(header, TextHelpers.one(last), span);
+        context.enterBlock(header);
+        Int position = context.addBlockParam(context.builder().intType());
+        Int inRange = context.ops().compare("ge", position, context.ops().constInt(0, span), span);
+        context.ops().condBranch(inRange, body, TextHelpers.none(), finish, TextHelpers.none(), span);
+        context.enterBlock(body);
+        context.collections().push(destination, context.collections().get(digits, position, span), span);
+        Int previous = context.ops().intBinary("int.sub", position, context.ops().constInt(1, span), "trap", context.integerFailure(), span);
+        context.ops().branchTo(header, TextHelpers.one(previous), span);
+        context.enterBlock(finish);
+        context.ops().scopeEnd(scope, span);
+        context.ops().returnValue(0, span);
+    }
+
+    // appendBool(dst: borrow_write, b): appends "true" or "false".
+    public static Int appendBoolFunction(LoweringContext context) {
+        if (context.function().helperId(2) != 0) {
+            return context.function().helperId(2);
+        }
+
+        Int resume = TextHelpers.savedFunction(context);
+        Int block = TextHelpers.savedBlock(context);
+        Int span = context.builder().syntheticSpan("ring0:text.bool");
+        Int id = TextHelpers.declare(context, "emvus.text.appendBool", context.builder().voidType(), span);
+        context.function().setHelperId(2, id);
+        Int destination = context.cursor().currentFunction().addParam("dst", context.textRefType(), "borrow_write", false);
+        Int flag = context.cursor().currentFunction().addParam("b", context.builder().boolType(), "value", false);
+        context.beginBlock();
+        Int yes = context.newBlock();
+        Int no = context.newBlock();
+        context.ops().condBranch(flag, yes, TextHelpers.none(), no, TextHelpers.none(), span);
+        context.enterBlock(yes);
+        context.collections().textAppend(destination, context.ops().constString("true", span), span);
+        context.ops().returnValue(0, span);
+        context.enterBlock(no);
+        context.collections().textAppend(destination, context.ops().constString("false", span), span);
+        context.ops().returnValue(0, span);
+        TextHelpers.restore(context, resume, block);
+        return id;
+    }
+
+    // Declares a helper and enters it; the caller restores the function being emitted.
+    private static Int declare(LoweringContext context, String name, Int returnType, Int span) {
+        Int id = context.declareFunction(name, returnType, span);
+        context.cursor().enterFunction(id);
+        return id;
+    }
+
+    private static Int savedFunction(LoweringContext context) {
+        return context.cursor().currentFunctionId();
+    }
+
+    private static Int savedBlock(LoweringContext context) {
+        return context.cursor().currentBlockId();
+    }
+
+    private static Void restore(LoweringContext context, Int functionId, Int blockId) {
+        context.cursor().enterFunction(functionId);
+        context.cursor().enterBlock(blockId);
+    }
+
+    private static List<Int> one(Int value) {
+        List<Int> values = List();
+        values.add(value);
+        return values;
+    }
+
+    private static List<Int> none() {
+        List<Int> values = List();
+        return values;
+    }
+}

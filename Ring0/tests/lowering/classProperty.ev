@@ -1,0 +1,24 @@
+// text and Int properties; get/set properties; `age++` on a property; String field read.
+class Person {
+    String name { get }
+    Int age { get, set }
+
+    Person(String name, Int age) {
+        this.name = name
+        this.age = age
+    }
+
+    method<Int> nameLength {
+        return name.length()
+    }
+
+    method birthday {
+        age++
+    }
+}
+
+static method<Int> main {
+    Person person = Person("Anna", 30)
+    person.birthday()
+    return person.nameLength() + person.age
+}

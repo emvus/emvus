@@ -1,0 +1,160 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// List values: literals, element reads and writes. A list is an owned `Ref<List<E>>` in the
+// function's owner scope; a name that aliases it shares the same object (Emvus lists are
+// references), so mutations are visible through every alias.
+//
+// Element access follows Sublang's contract: primitive and record elements are copied out by
+// value (`list.get`), class elements are read-only borrowed views (`list.borrow`) that expire
+// on the next mutation, and a class element is stored only from a fresh owned temporary.
+// Bounds failures abort like every other checked operation.
+public class ListLowerer {
+    private LoweringContext context;
+
+    public ListLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // `[a, b, c]` and `[]` with the element type from the binder's annotation.
+    public LoweredValue literal(Node node) {
+        String kind = this.context.kinds().annotatedKind(node);
+
+        if (!ListTable.isListKind(kind)) {
+            this.context.unsupported(node, "list literal needs a List<T> type with an element kind Sublang lists can hold: Int, Bool, Float, records and classes (dynamic Strings and nested lists are not list elements; backend requirement: Ref elements in lists)");
+            return LoweredValue.unsupported();
+        }
+
+        Int scope = this.context.scopes().objectScope();
+        Int span = this.context.span(node);
+        Int layout = this.context.lists().layoutOf(this.context, ListTable.elementKindOf(kind));
+        Int list = this.context.collections().listNew(layout, scope, span);
+        Int index = 0;
+
+        while (index < node.count()) {
+            LoweredValue element = ExpressionLowerer(this.context).lower(node.child(index));
+
+            if (!this.push(node.child(index), list, ListTable.elementKindOf(kind), element)) {
+                return LoweredValue.unsupported();
+            }
+
+            index = index + 1;
+        }
+
+        return LoweredValue.fresh(list, kind);
+    }
+
+    // Appends `element`; reports and returns false when its kind or ownership does not fit.
+    public Bool push(Node at, Int list, String elementKind, LoweredValue element) {
+        LoweredValue converted = Coercion.to(this.context, at, element, elementKind);
+
+        if (!converted.isUsable() || converted.kind() != elementKind) {
+            this.context.unsupported(at, "list element has kind " + element.kind() + " but the list holds " + elementKind);
+            return false;
+        }
+
+        if (ClassTable.isClassKind(elementKind) && !converted.isFresh()) {
+            this.context.unsupported(at, ListLowerer.sharedOwnership());
+            return false;
+        }
+
+        this.context.collections().push(list, converted.valueId(), this.context.span(at));
+        return true;
+    }
+
+    // `xs[i]` and `xs.get(i)`.
+    public LoweredValue read(Node at, LoweredValue list, LoweredValue position) {
+        String elementKind = ListTable.elementKindOf(list.kind());
+        Int span = this.context.span(at);
+
+        if (position.kind() != "Int") {
+            this.context.unsupported(at, "list index must be Int");
+            return LoweredValue.unsupported();
+        }
+
+        if (ClassTable.isClassKind(elementKind)) {
+            Int view = this.context.collections().borrow(list.valueId(), position.valueId(), span);
+            return LoweredValue(view, elementKind, true);
+        }
+
+        return LoweredValue(this.context.collections().get(list.valueId(), position.valueId(), span), elementKind);
+    }
+
+    // Replaces element `position`; a class element must arrive as a fresh owned temporary.
+    public Bool write(Node at, LoweredValue list, LoweredValue position, LoweredValue element) {
+        String elementKind = ListTable.elementKindOf(list.kind());
+        LoweredValue converted = Coercion.to(this.context, at, element, elementKind);
+        Int span = this.context.span(at);
+
+        if (position.kind() != "Int" || !converted.isUsable() || converted.kind() != elementKind) {
+            this.context.unsupported(at, "list element write needs an Int index and a " + elementKind + " value");
+            return false;
+        }
+
+        if (!ClassTable.isClassKind(elementKind)) {
+            this.context.collections().set(list.valueId(), position.valueId(), converted.valueId(), span);
+            return true;
+        }
+
+        if (!converted.isFresh()) {
+            this.context.unsupported(at, ListLowerer.sharedOwnership());
+            return false;
+        }
+
+        this.context.collections().replace(list.valueId(), position.valueId(), converted.valueId(), span);
+        return true;
+    }
+
+    // `xs[i] = v`, `xs[i] += v`.
+    public Void assignIndex(Node node, Node target) {
+        LoweredValue list = ExpressionLowerer(this.context).lower(target.child(0));
+        LoweredValue position = ExpressionLowerer(this.context).lower(target.child(1));
+        LoweredValue value = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (!list.isUsable() || !ListTable.isListKind(list.kind()) || !position.isUsable() || !value.isUsable()) {
+            this.context.unsupported(node, "index assignment needs a list target (tuples are immutable, dictionaries are not available)");
+            return;
+        }
+
+        if (node.text() != "=") {
+            String operator = node.text().substring(0, node.text().length() - 1);
+            LoweredValue current = this.read(node, list, position);
+            value = OperatorLowerer(this.context).apply(node, operator, current, value);
+
+            if (!value.isUsable()) {
+                return;
+            }
+        }
+
+        this.write(node, list, position, value);
+    }
+
+    // `xs[i]++` and `xs[i]--` as statements.
+    public Void stepIndex(Node node, Node target) {
+        LoweredValue list = ExpressionLowerer(this.context).lower(target.child(0));
+        LoweredValue position = ExpressionLowerer(this.context).lower(target.child(1));
+
+        if (!list.isUsable() || !ListTable.isListKind(list.kind()) || !position.isUsable()) {
+            this.context.unsupported(node, "'" + node.text() + "' on an index needs a list element");
+            return;
+        }
+
+        Int one = this.context.ops().constInt(1, this.context.span(node));
+        String operator = "+";
+
+        if (node.text() == "--") {
+            operator = "-";
+        }
+
+        LoweredValue next = OperatorLowerer(this.context).apply(node, operator, this.read(node, list, position), LoweredValue(one, "Int"));
+
+        if (next.isUsable()) {
+            this.write(node, list, position, next);
+        }
+    }
+
+    public static String sharedOwnership() {
+        return "storing an existing object reference in a list needs shared ownership: a Sublang list owns its class elements exclusively (backend requirement: shared references such as Bond for plain Emvus classes); only a fresh temporary such as Counter() can be added";
+    }
+}

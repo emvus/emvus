@@ -1,0 +1,12 @@
+// Dynamic text: a borrowed parameter, an owned return, interpolation of String, Int and Bool,
+// and length. The result is the byte length of "Hello, Emvus! 42 true".
+method<String> greet(String name) {
+    return "Hello, ${name}!"
+}
+
+static method<Int> main {
+    String s = greet("Emvus")
+    Int answer = 42
+    String t = "${s} ${answer} ${true}"
+    return t.length()
+}
