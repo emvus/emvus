@@ -45,6 +45,7 @@ public class CallChecker {
             String local = this.context.scope().typeOf(name);
 
             if (this.context.rules().isFunctionType(local) || local == TypeNames.dynamicType() || TypeText.isUnknown(local)) {
+                this.expressionChecker().typeOf(callee, "");
                 return this.callFunctionValue(node, local, name);
             }
         }
@@ -79,6 +80,7 @@ public class CallChecker {
         }
 
         if (this.context.scope().has(name)) {
+            this.expressionChecker().typeOf(callee, "");
             return this.callFunctionValue(node, this.context.scope().typeOf(name), name);
         }
 

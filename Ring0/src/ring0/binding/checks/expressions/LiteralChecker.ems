@@ -19,6 +19,10 @@ public class LiteralChecker {
             elementExpected = TypeText.args(expected).get(0) + "";
         }
 
+        if (TypeText.isTuple(expected) && TypeText.args(expected).length() == node.count()) {
+            return this.typeOfTupleLiteral(node, expected);
+        }
+
         List<String> types = this.elementTypes(node, elementExpected);
 
         if (listContext) {
@@ -34,6 +38,20 @@ public class LiteralChecker {
 
         if (this.isUniform(first, types)) {
             return TypeNames.listType() + "<" + first + ">";
+        }
+
+        return TypeText.tuple(types);
+    }
+
+    // A literal checked against an expected tuple is typed per position, so [1, 2] is [Int,Int] and not List<Int>.
+    private String typeOfTupleLiteral(Node node, String expected) {
+        List<String> wanted = TypeText.args(expected);
+        List<String> types = List();
+        Int index = 0;
+
+        while (index < node.count()) {
+            types.add(this.expressionChecker().typeOf(node.child(index), wanted.get(index) + "") + "");
+            index = index + 1;
         }
 
         return TypeText.tuple(types);

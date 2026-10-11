@@ -73,7 +73,10 @@ public class AccessFlow {
             this.member(callee, env, flow);
         }
 
-        if (callee.kind() != NodeKinds.memberAccess()) {
+        // A constructor call names a class, not a value: a property spelled like the class must not be read.
+        Bool constructorName = node.symbolKind() == SymbolKinds.constructor() && callee.kind() == NodeKinds.nameReference();
+
+        if (callee.kind() != NodeKinds.memberAccess() && !constructorName) {
             flow.eval(callee, env);
         }
 
