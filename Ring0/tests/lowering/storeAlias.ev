@@ -1,0 +1,22 @@
+// expect-error: shared ownership
+class Engine {
+    Int power { get }
+
+    Engine(Int power) {
+        this.power = power
+    }
+}
+
+class Car {
+    Engine engine { get, set }
+
+    Car(Engine engine) {
+        this.engine = engine
+    }
+}
+
+static method<Int> main {
+    Engine engine = Engine(90)
+    Car car = Car(engine)
+    return car.engine.power
+}

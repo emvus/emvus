@@ -1,0 +1,197 @@
+namespace ring0::binding;
+
+// kind: field | property | method | constructor | variable | macro | missing
+public class MemberSymbol {
+    private String nameValue;
+    private String kindValue;
+    private String typeValue;
+    private String ownerValue;
+    private Bool staticValue;
+    private Bool abstractValue;
+    private Bool asyncValue;
+    private Bool overrideValue;
+    private Bool bodyValue;
+    private Bool readOnlyValue;
+    private Bool finalValue;
+    private String accessValue;
+    private List<String> paramNameList;
+    private List<String> paramTypeList;
+    private List<Bool> paramDefaultList;
+    private List<String> typeParamList;
+    private List<String> typeBoundList;
+    private Int lineValue;
+    private Int columnValue;
+
+    public MemberSymbol(String name, String kind, String type, String owner) {
+        this.nameValue = name + "";
+        this.kindValue = kind + "";
+        this.typeValue = type + "";
+        this.ownerValue = owner + "";
+        this.staticValue = false;
+        this.abstractValue = false;
+        this.asyncValue = false;
+        this.overrideValue = false;
+        this.bodyValue = true;
+        this.readOnlyValue = false;
+        this.finalValue = false;
+        this.accessValue = SymbolKinds.publicAccess();
+        this.paramNameList = List();
+        this.paramTypeList = List();
+        this.paramDefaultList = List();
+        this.typeParamList = List();
+        this.typeBoundList = List();
+        this.lineValue = 0;
+        this.columnValue = 0;
+    }
+
+    public static MemberSymbol missing() {
+        return MemberSymbol("", SymbolKinds.missing(), TypeNames.unknownType(), "");
+    }
+
+    public Bool isMissing() {
+        return this.kindValue == SymbolKinds.missing();
+    }
+
+    public String name() {
+        return this.nameValue;
+    }
+
+    public String kind() {
+        return this.kindValue;
+    }
+
+    public String type() {
+        return this.typeValue;
+    }
+
+    public String owner() {
+        return this.ownerValue;
+    }
+
+    public Bool isStatic() {
+        return this.staticValue;
+    }
+
+    public Bool isAbstract() {
+        return this.abstractValue;
+    }
+
+    public Bool isAsync() {
+        return this.asyncValue;
+    }
+
+    public Bool isOverride() {
+        return this.overrideValue;
+    }
+
+    public Bool hasBody() {
+        return this.bodyValue;
+    }
+
+    public Bool isReadOnly() {
+        return this.readOnlyValue;
+    }
+
+    public Bool isFinal() {
+        return this.finalValue;
+    }
+
+    public String access() {
+        return this.accessValue;
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    public Void setType(String value) {
+        this.typeValue = value + "";
+    }
+
+    public Void setStatic(Bool value) {
+        this.staticValue = value;
+    }
+
+    public Void setAbstract(Bool value) {
+        this.abstractValue = value;
+    }
+
+    public Void setAsync(Bool value) {
+        this.asyncValue = value;
+    }
+
+    public Void setOverride(Bool value) {
+        this.overrideValue = value;
+    }
+
+    public Void setHasBody(Bool value) {
+        this.bodyValue = value;
+    }
+
+    public Void setReadOnly(Bool value) {
+        this.readOnlyValue = value;
+    }
+
+    public Void setFinal(Bool value) {
+        this.finalValue = value;
+    }
+
+    public Void setAccess(String value) {
+        this.accessValue = value + "";
+    }
+
+    public Void setPosition(Int line, Int column) {
+        this.lineValue = line;
+        this.columnValue = column;
+    }
+
+    public Void addParam(String name, String type, Bool hasDefault) {
+        this.paramNameList.add(name + "");
+        this.paramTypeList.add(type + "");
+        this.paramDefaultList.add(hasDefault);
+    }
+
+    public Void addTypeParam(String name, String bound) {
+        this.typeParamList.add(name + "");
+        this.typeBoundList.add(bound + "");
+    }
+
+    public Int paramCount() {
+        return this.paramNameList.length();
+    }
+
+    public Int requiredCount() {
+        Int count = 0;
+        Int index = 0;
+
+        while (index < this.paramDefaultList.length()) {
+            if (!this.paramDefaultList.get(index)) {
+                count = count + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return count;
+    }
+
+    public String paramName(Int index) {
+        return this.paramNameList.get(index);
+    }
+
+    public String paramType(Int index) {
+        return this.paramTypeList.get(index);
+    }
+
+    public List<String> typeParams() {
+        return this.typeParamList;
+    }
+
+    public List<String> typeBounds() {
+        return this.typeBoundList;
+    }
+}

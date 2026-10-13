@@ -1,0 +1,14 @@
+// Static strings: literals, length() and equality.
+method<Int> measure(String text) {
+    return text.length()
+}
+
+static method<Int> main {
+    String greeting = "hello"
+
+    if (greeting == "hello") {
+        return measure(greeting) + measure("Emvus!")
+    }
+
+    return 0
+}

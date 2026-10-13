@@ -1,0 +1,185 @@
+namespace ring0::syntax;
+
+use ring0::diagnostic::DiagnosticBag;
+
+public class ParserState {
+    private List<Token> tokenList;
+    private Int cursor;
+    private DiagnosticBag bag;
+    private Int speculationDepth;
+    private Bool speculationFailed;
+    // While > 0 a `..` after an operand belongs to the enclosing cascade, not to that operand.
+    private Int cascadeHold;
+
+    public ParserState(List<Token> tokens, DiagnosticBag diagnostics) {
+        this.tokenList = tokens;
+        this.cursor = 0;
+        this.bag = diagnostics;
+        this.speculationDepth = 0;
+        this.speculationFailed = false;
+        this.cascadeHold = 0;
+    }
+
+    public Token peek() {
+        return this.peekAt(0);
+    }
+
+    public Token peekAt(Int offset) {
+        Int index = this.cursor + offset;
+
+        if (index >= this.tokenList.length()) {
+            return this.tokenList.get(this.tokenList.length() - 1);
+        }
+
+        return this.tokenList.get(index);
+    }
+
+    public Bool isAtEnd() {
+        return this.peek().kindIs("eof");
+    }
+
+    public Token advance() {
+        Token token = this.peek();
+
+        if (!this.isAtEnd()) {
+            this.cursor = this.cursor + 1;
+        }
+
+        return token;
+    }
+
+    public Int position() {
+        return this.cursor;
+    }
+
+    public Void seek(Int position) {
+        this.cursor = position;
+    }
+
+    public Bool checkSymbol(String text) {
+        return this.peek().isSymbol(text);
+    }
+
+    public Bool checkKeyword(String text) {
+        return this.peek().isKeyword(text);
+    }
+
+    public Bool checkIdentifier(String text) {
+        return this.peek().isIdentifier(text);
+    }
+
+    public Bool matchSymbol(String text) {
+        if (this.checkSymbol(text)) {
+            this.advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    public Bool matchKeyword(String text) {
+        if (this.checkKeyword(text)) {
+            this.advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    public Bool matchIdentifier(String text) {
+        if (this.checkIdentifier(text)) {
+            this.advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    public Token consumeSymbol(String text, String message) {
+        if (this.checkSymbol(text)) {
+            return this.advance();
+        }
+
+        this.errorHere(message);
+        return this.peek();
+    }
+
+    public Token consumeKeyword(String text, String message) {
+        if (this.checkKeyword(text)) {
+            return this.advance();
+        }
+
+        this.errorHere(message);
+        return this.peek();
+    }
+
+    public Token consumeKind(String kind, String message) {
+        if (this.peek().kindIs(kind)) {
+            return this.advance();
+        }
+
+        this.errorHere(message);
+        return this.peek();
+    }
+
+    public Bool cascadesHeld() {
+        return this.cascadeHold > 0;
+    }
+
+    // Returns the previous hold so the caller can restore it with restoreCascades.
+    public Int holdCascades() {
+        Int saved = this.cascadeHold;
+        this.cascadeHold = 1;
+        return saved;
+    }
+
+    // Brackets and blocks start a fresh expression context where cascades are allowed again.
+    public Int clearCascades() {
+        Int saved = this.cascadeHold;
+        this.cascadeHold = 0;
+        return saved;
+    }
+
+    public Void restoreCascades(Int saved) {
+        this.cascadeHold = saved;
+    }
+
+    // Speculative parsing: errors are recorded instead of reported.
+    // Muster: Int start = state.position(); state.beginSpeculation(); ...parse...;
+    // Bool ok = state.endSpeculation(); if (!ok) { state.seek(start); }
+    public Void beginSpeculation() {
+        this.speculationDepth = this.speculationDepth + 1;
+        this.speculationFailed = false;
+    }
+
+    // true if no error occurred
+    public Bool endSpeculation() {
+        this.speculationDepth = this.speculationDepth - 1;
+        Bool ok = !this.speculationFailed;
+        this.speculationFailed = false;
+        return ok;
+    }
+
+    public Void errorHere(String message) {
+        if (this.speculationDepth > 0) {
+            this.speculationFailed = true;
+            return;
+        }
+
+        Token token = this.peek();
+        this.bag.error(message + " (found '" + token.text() + "')", token.line(), token.column());
+    }
+
+    public Node node(String kind, String text) {
+        Token token = this.peek();
+        return Node(kind, text, token.line(), token.column());
+    }
+
+    public Node nodeAt(Token token, String kind, String text) {
+        return Node(kind, text, token.line(), token.column());
+    }
+
+    public DiagnosticBag diagnostics() {
+        return this.bag;
+    }
+}

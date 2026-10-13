@@ -1,0 +1,11 @@
+3:5 local Count : Int @ local Count
+3:23 binary * : Int
+3:17 name Value : Int @ parameter Value
+3:25 int-literal 2 : Int @ literal int-literal
+4:5 local label : String @ local label
+4:23 string x : String @ literal string
+5:18 binary + : Int
+5:12 name count : Int @ local Count
+5:20 name VALUE : Int @ parameter Value
+
+check ok

@@ -1,0 +1,6 @@
+// expect-error: println is not available on the Sublang native target
+// Output primitives do not exist in Sublang yet; main's Int is the only observable result.
+static method<Int> main {
+    println(42)
+    return 0
+}

@@ -1,0 +1,36 @@
+6:19 assign = : T
+6:14 member item : T @ property item (Box)
+6:9 name this : Box<T> @ local this
+6:21 name item : T @ parameter item
+10:16 name item : T @ property item (Box)
+15:20 call : T @ method get (List|0|)
+15:12 name list : List<T> @ parameter list
+15:21 int-literal 0 : Int @ literal int-literal
+19:23 call : Int @ method length (String|0|)
+19:12 name text : String @ parameter text
+23:14 binary + : Int
+23:12 name a : Int @ parameter a
+23:16 name b : Int @ parameter b
+27:5 local numbers : List<Int> @ local numbers
+27:25 list-literal : List<Int> @ literal list-literal
+27:26 int-literal 1 : Int @ literal int-literal
+27:29 int-literal 2 : Int @ literal int-literal
+27:32 int-literal 3 : Int @ literal int-literal
+28:5 local head : Int @ local head
+28:21 call : Int @ method first (|0|Int)
+28:22 name numbers : List<Int> @ local numbers
+29:5 local total : Int @ local total
+29:21 call : Int @ method size (|1|)
+29:22 int-literal 1 : Int @ literal int-literal
+29:25 int-literal 2 : Int @ literal int-literal
+30:5 local chars : Int @ local chars
+30:21 call : Int @ method size (|0|)
+30:22 string abc : String @ literal string
+31:5 local box : Box<String> @ local box
+31:26 call : Box<String> @ constructor Box (Box|0|String)
+31:27 string hi : String @ literal string
+32:5 local got : String @ local got
+32:26 call : String @ method take (Box|0|)
+32:18 name box : Box<String> @ local box
+
+check ok

@@ -1,0 +1,196 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class LiteralChecker {
+    private CheckContext context;
+
+    public LiteralChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    // A list with equal element types is List<T>; mixed element types form a tuple.
+    public String typeOfList(Node node, String expected) {
+        String expectedBase = TypeText.base(expected);
+        Bool listContext = expectedBase == TypeNames.listType() || expectedBase == TypeNames.iListType();
+        String elementExpected = "";
+
+        if (listContext && TypeText.args(expected).length() == 1) {
+            elementExpected = TypeText.args(expected).get(0) + "";
+        }
+
+        if (TypeText.isTuple(expected) && TypeText.args(expected).length() == node.count()) {
+            return this.typeOfTupleLiteral(node, expected);
+        }
+
+        List<String> types = this.elementTypes(node, elementExpected);
+
+        if (listContext) {
+            this.requireElements(node, types, elementExpected);
+            return expected;
+        }
+
+        if (types.length() == 0) {
+            return TypeText.make(TypeNames.listType(), this.unknownArguments());
+        }
+
+        String first = this.firstKnown(types);
+
+        if (this.isUniform(first, types)) {
+            return TypeNames.listType() + "<" + first + ">";
+        }
+
+        return TypeText.tuple(types);
+    }
+
+    // A literal checked against an expected tuple is typed per position, so [1, 2] is [Int,Int] and not List<Int>.
+    private String typeOfTupleLiteral(Node node, String expected) {
+        List<String> wanted = TypeText.args(expected);
+        List<String> types = List();
+        Int index = 0;
+
+        while (index < node.count()) {
+            types.add(this.expressionChecker().typeOf(node.child(index), wanted.get(index) + "") + "");
+            index = index + 1;
+        }
+
+        return TypeText.tuple(types);
+    }
+
+    private List<String> unknownArguments() {
+        List<String> arguments = List();
+        arguments.add(TypeNames.unknownType());
+        return arguments;
+    }
+
+    private List<String> elementTypes(Node node, String elementExpected) {
+        List<String> types = List();
+        Int index = 0;
+
+        while (index < node.count()) {
+            types.add(this.expressionChecker().typeOf(node.child(index), elementExpected) + "");
+            index = index + 1;
+        }
+
+        return types;
+    }
+
+    private Void requireElements(Node node, List<String> types, String elementExpected) {
+        Int index = 0;
+
+        while (index < types.length()) {
+            this.context.requireAssignable(elementExpected, types.get(index) + "", node.child(index), "List element");
+            index = index + 1;
+        }
+    }
+
+    private String firstKnown(List<String> types) {
+        Int index = 0;
+
+        while (index < types.length()) {
+            String candidate = types.get(index) + "";
+
+            if (!TypeText.isUnknown(candidate) && candidate != TypeNames.dynamicType()) {
+                return candidate;
+            }
+
+            index = index + 1;
+        }
+
+        return TypeNames.unknownType();
+    }
+
+    private Bool isUniform(String first, List<String> types) {
+        Int index = 0;
+
+        while (index < types.length()) {
+            String candidate = types.get(index) + "";
+            index = index + 1;
+
+            if (candidate == TypeNames.nullType()) {
+                continue;
+            }
+
+            if (!this.context.rules().sameType(first, candidate)) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    public String typeOfDict(Node node, String expected) {
+        Bool dictContext = TypeText.base(expected) == TypeNames.dictionaryType() && TypeText.args(expected).length() == 2;
+        String valueExpected = "";
+
+        if (dictContext) {
+            valueExpected = TypeText.args(expected).get(1) + "";
+        }
+
+        List<String> valueTypes = List();
+        Int index = 0;
+
+        while (index < node.count()) {
+            Node entry = node.child(index);
+            this.expressionChecker().typeOf(entry.child(0), "");
+            String valueType = this.expressionChecker().typeOf(entry.child(1), valueExpected);
+            valueTypes.add(valueType + "");
+
+            if (dictContext && valueExpected != TypeNames.dynamicType()) {
+                this.context.requireAssignable(valueExpected, valueType, entry.child(1), "Dictionary value");
+            }
+
+            index = index + 1;
+        }
+
+        if (dictContext) {
+            return expected;
+        }
+
+        if (valueTypes.length() == 0) {
+            return "Dictionary<String,?>";
+        }
+
+        Bool uniform = true;
+        Int check = 1;
+
+        while (check < valueTypes.length()) {
+            if (!this.context.rules().sameType(valueTypes.get(0), valueTypes.get(check))) {
+                uniform = false;
+            }
+
+            check = check + 1;
+        }
+
+        if (uniform) {
+            return "Dictionary<String," + valueTypes.get(0) + ">";
+        }
+
+        return "Dictionary<String,dynamic>";
+    }
+
+    public String typeOfCascade(Node node, String expected) {
+        Node target = node.child(0);
+        String type = this.expressionChecker().typeOf(target, expected);
+        String saved = this.context.cascadeReceiver();
+        this.context.setCascadeReceiver(type);
+
+        if (TypeText.isTypeReference(type) || TypeText.isUnknown(type) || type == TypeNames.dynamicType()) {
+            this.context.setCascadeReceiver("");
+        }
+
+        Int index = 1;
+
+        while (index < node.count()) {
+            this.expressionChecker().typeOf(node.child(index), "");
+            index = index + 1;
+        }
+
+        this.context.setCascadeReceiver(saved);
+        return type;
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

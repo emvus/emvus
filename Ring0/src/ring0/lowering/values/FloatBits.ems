@@ -1,0 +1,100 @@
+namespace ring0::lowering;
+
+// Converts a decimal float literal to the IEEE-754 binary64 bit pattern that Sublang
+// expects for float constants, rounding to nearest even. Supported range: at most 18
+// significant digits and a magnitude between 1e-18 and about 9.2e18 (no subnormals).
+public class FloatBits {
+    public FloatBits() {
+    }
+
+    // Returns the bit pattern, or -1 when the literal is outside the supported range.
+    public static Int of(String text) {
+        DecimalParts parts = DecimalParts(text);
+
+        if (!parts.isExact()) {
+            return -1;
+        }
+
+        if (parts.digits() == 0) {
+            return 0;
+        }
+
+        Int whole = FloatBits.scaleUp(parts.digits(), parts.exponent());
+        Int divisor = FloatBits.scaleDivisor(parts.exponent());
+
+        if (whole < 0 || divisor < 0) {
+            return -1;
+        }
+
+        if (parts.exponent() >= 0) {
+            return FloatBits.encode(BinaryQuotient(whole, 0, 1));
+        }
+
+        return FloatBits.encode(BinaryQuotient(parts.digits() / divisor, parts.digits() % divisor, divisor));
+    }
+
+    // digits x 10^exponent for a non-negative exponent; -1 on overflow. For a negative
+    // exponent the caller divides instead, so the value only has to be non-negative.
+    private static Int scaleUp(Int digits, Int exponent) {
+        Int value = digits;
+        Int index = 0;
+
+        while (index < exponent) {
+            if (value > 922337203685477580) {
+                return -1;
+            }
+
+            value = value * 10;
+            index = index + 1;
+        }
+
+        return value;
+    }
+
+    // 10^-exponent for a negative exponent (at most 10^18), 1 otherwise; -1 when too small.
+    private static Int scaleDivisor(Int exponent) {
+        if (exponent >= 0) {
+            return 1;
+        }
+
+        if (exponent < -18) {
+            return -1;
+        }
+
+        Int divisor = 1;
+        Int index = 0;
+
+        while (index < 0 - exponent) {
+            divisor = divisor * 10;
+            index = index + 1;
+        }
+
+        return divisor;
+    }
+
+    private static Int encode(BinaryQuotient quotient) {
+        Int mantissa = quotient.bits() / 4;
+        Int guard = quotient.bits() / 2 % 2;
+        Bool rest = quotient.bits() % 2 == 1 || quotient.isSticky();
+        Int exponent = quotient.exponent2();
+
+        if (guard == 1 && (rest || mantissa % 2 == 1)) {
+            mantissa = mantissa + 1;
+        }
+
+        Int hidden = BinaryQuotient.powerOfTwo(52);
+
+        if (mantissa == hidden * 2) {
+            mantissa = hidden;
+            exponent = exponent + 1;
+        }
+
+        Int biased = exponent + 1023;
+
+        if (biased < 1 || biased > 2046) {
+            return -1;
+        }
+
+        return biased * hidden + (mantissa - hidden);
+    }
+}

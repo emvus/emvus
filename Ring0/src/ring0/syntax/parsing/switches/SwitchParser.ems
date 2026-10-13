@@ -1,0 +1,118 @@
+namespace ring0::syntax;
+
+// Expression-level switch. Statement switches have their own shape (StatementSwitchParser).
+//
+//   switch  [subject, case...]
+//   case    [patterns, body]   body: expression | block | success | fail | return | break | continue
+//   (patterns / pattern / binding: see SwitchPatternParser)
+public class SwitchParser {
+    private ParserState state;
+
+    public SwitchParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    // Starts at the 'switch' keyword.
+    public Node parse() {
+        Token start = this.state.advance();
+        Node node = this.state.nodeAt(start, AstKinds.switchNode(), "");
+        this.state.consumeSymbol("(", "Expected '(' after switch");
+        node.add(ExpressionParser(this.state).parse());
+        this.state.consumeSymbol(")", "Expected ')' after switch subject");
+        this.state.consumeSymbol("{", "Expected '{' to open switch");
+        Int saved = this.state.clearCascades();
+        this.parseCases(node);
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol("}", "Expected '}' to close switch");
+        return node;
+    }
+
+    private Void parseCases(Node node) {
+        while (!this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            Int before = this.state.position();
+            node.add(this.parseCase());
+
+            if (this.state.position() == before) {
+                this.state.advance();
+            }
+        }
+    }
+
+    private Node parseCase() {
+        Token first = this.state.peek();
+        Node node = this.state.nodeAt(first, AstKinds.caseNode(), "");
+        Node patterns = this.state.nodeAt(first, AstKinds.patterns(), "");
+        SwitchPatternParser patternParser = SwitchPatternParser(this.state);
+        Bool more = true;
+
+        while (more) {
+            Int before = this.state.position();
+            patterns.add(patternParser.parsePattern());
+            more = this.state.position() != before && this.state.matchSymbol(",");
+        }
+
+        this.state.consumeSymbol("->", "Expected '->' in switch case");
+        node.add(patterns);
+        node.add(this.parseCaseBody());
+        return node;
+    }
+
+    private Node parseCaseBody() {
+        Token token = this.state.peek();
+
+        if (token.isSymbol("{")) {
+            return StatementParser(this.state).parseBlock();
+        }
+
+        if (token.isWord("fail") || token.isWord("success")) {
+            return this.parseValueBranch(token);
+        }
+
+        if (token.isWord("break") || token.isWord("continue")) {
+            this.state.advance();
+            return this.state.nodeAt(token, this.branchKind(token), "");
+        }
+
+        if (token.isWord("return")) {
+            return this.parseReturnBranch(token);
+        }
+
+        return ExpressionParser(this.state).parse();
+    }
+
+    private Node parseValueBranch(Token keyword) {
+        this.state.advance();
+        Node node = this.state.nodeAt(keyword, this.branchKind(keyword), "");
+        node.add(ExpressionParser(this.state).parse());
+        return node;
+    }
+
+    // `return` as a branch has a value only when one follows on the same line.
+    private Node parseReturnBranch(Token keyword) {
+        this.state.advance();
+        Node node = this.state.nodeAt(keyword, AstKinds.returnStatement(), "");
+        Token next = this.state.peek();
+
+        if (next.line() == keyword.line() && !next.isSymbol("}") && !next.isEof()) {
+            node.add(ExpressionParser(this.state).parse());
+        }
+
+        return node;
+    }
+
+    private String branchKind(Token keyword) {
+        if (keyword.isWord("fail")) {
+            return AstKinds.failStatement();
+        }
+
+        if (keyword.isWord("success")) {
+            return AstKinds.successStatement();
+        }
+
+        if (keyword.isWord("break")) {
+            return AstKinds.breakStatement();
+        }
+
+        return AstKinds.continueStatement();
+    }
+}

@@ -1,0 +1,81 @@
+namespace ring0::lowering;
+
+// Maps local variable names to their current SSA value. Emvus locals are mutable but
+// Sublang values are SSA, so every assignment just rebinds the name; control-flow
+// joins turn rebinding into block parameters.
+public class VariableEnv {
+    private List<String> names;
+    private List<Int> values;
+    private List<String> kinds;
+    private List<Int> borrowed;
+
+    public VariableEnv() {
+        this.names = List();
+        this.values = List();
+        this.kinds = List();
+        this.borrowed = List();
+    }
+
+    public Int size() {
+        return this.names.length();
+    }
+
+    public Void declare(String name, Int valueId, String kind) {
+        this.names.add(name.toLowerCase() + "");
+        this.values.add(valueId);
+        this.kinds.add(kind + "");
+        this.borrowed.add(0);
+    }
+
+    // An object reference that is a view: this, an object parameter, or an alias of one.
+    public Void declareBorrowed(String name, Int valueId, String kind) {
+        this.declare(name, valueId, kind);
+        this.borrowed.set(this.borrowed.length() - 1, 1);
+    }
+
+    public Bool isBorrowedAt(Int index) {
+        return this.borrowed.get(index) == 1;
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = this.names.length() - 1;
+
+        while (index >= 0) {
+            if (this.names.get(index) == key) {
+                return index;
+            }
+
+            index = index - 1;
+        }
+
+        return -1;
+    }
+
+    public Int valueAt(Int index) {
+        return this.values.get(index);
+    }
+
+    public String kindAt(Int index) {
+        return this.kinds.get(index) + "";
+    }
+
+    public String nameAt(Int index) {
+        return this.names.get(index) + "";
+    }
+
+    public Void setValueAt(Int index, Int valueId) {
+        this.values.set(index, valueId);
+    }
+
+    // Drops variables declared inside a block that has ended.
+    public Void truncate(Int size) {
+        while (this.names.length() > size) {
+            Int last = this.names.length() - 1;
+            this.names.removeAt(last);
+            this.values.removeAt(last);
+            this.kinds.removeAt(last);
+            this.borrowed.removeAt(last);
+        }
+    }
+}

@@ -1,0 +1,4 @@
+// expect: without default value cannot follow
+package main
+
+data class Server(String host = "localhost", Int port)

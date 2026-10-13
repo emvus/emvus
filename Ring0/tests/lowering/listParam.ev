@@ -1,0 +1,30 @@
+// A list passed by reference is mutated by the callee; a fresh list is returned owned.
+method fill(List<Int> xs, Int n) {
+    Int i = 0
+
+    while (i < n) {
+        xs.add(i * i)
+        i++
+    }
+}
+
+method<List<Int>> make(Int n) {
+    List<Int> xs = []
+    fill(xs, n)
+    return xs
+}
+
+method<Int> sumOf(List<Int> xs) {
+    Int t = 0
+
+    for (Int x in xs) {
+        t = t + x
+    }
+
+    return t
+}
+
+static method<Int> main {
+    List<Int> xs = make(5)
+    return sumOf(xs) * 100 + xs.size()
+}

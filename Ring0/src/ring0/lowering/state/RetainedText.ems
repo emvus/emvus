@@ -1,0 +1,15 @@
+namespace ring0::lowering;
+
+// One heap object per kept string, so its address stays stable while the list that
+// tracks it grows. Sublang stores the strings it is handed without copying.
+public class RetainedText {
+    private String value;
+
+    public RetainedText(String text) {
+        this.value = text + "";
+    }
+
+    public String text() {
+        return this.value;
+    }
+}

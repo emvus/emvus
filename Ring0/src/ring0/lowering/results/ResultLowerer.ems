@@ -1,0 +1,133 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Construction and inspection of Result values (see ResultTypes for the layout).
+public class ResultLowerer {
+    private LoweringContext context;
+
+    public ResultLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Payload expression of a `success` node; nothing for a Void result.
+    public LoweredValue payloadOf(Node successNode) {
+        if (successNode.count() == 0) {
+            return LoweredValue.nothing();
+        }
+
+        return ExpressionLowerer(this.context).lower(successNode.child(0));
+    }
+
+    // `success value` as a Result of kind `resultKind`; `value` is nothing for Void.
+    public LoweredValue success(Node at, String resultKind, LoweredValue value) {
+        Int span = this.context.span(at);
+        Int valueId = value.valueId();
+
+        if (valueId == 0) {
+            valueId = this.context.ops().constInt(0, span);
+        }
+
+        List<Int> fields = List();
+        fields.add(this.context.ops().constInt(0, span));
+        fields.add(valueId);
+        this.addDefaults(fields, resultKind, 2, span);
+        return this.make(resultKind, fields, span);
+    }
+
+    // `fail exception`: the exception value is a record whose fields are copied.
+    public LoweredValue failure(Node at, String resultKind, LoweredValue exception) {
+        Int span = this.context.span(at);
+        RecordTable table = this.context.records();
+        Int exceptionRecord = table.indexOf(RecordTable.nameOfKind(exception.kind()));
+        List<Int> fields = List();
+        fields.add(this.context.ops().constInt(1, span));
+        Int resultRecord = table.indexOf(RecordTable.nameOfKind(resultKind));
+        fields.add(this.defaultOf(table.fieldKindAt(table.firstFieldSlot(resultRecord) + 1), span));
+        Int slot = table.firstFieldSlot(exceptionRecord);
+        Int end = slot + table.fieldCountAt(exceptionRecord);
+
+        while (slot < end) {
+            fields.add(this.context.ops().recordGet(exception.valueId(), table.fieldIdAt(slot), span));
+            slot = slot + 1;
+        }
+
+        return this.make(resultKind, fields, span);
+    }
+
+    private LoweredValue make(String resultKind, List<Int> fields, Int span) {
+        Int record = this.context.records().indexOf(RecordTable.nameOfKind(resultKind));
+        Int id = this.context.ops().recordMake(this.context.records().typeIdAt(record), fields, span);
+        return LoweredValue(id, resultKind);
+    }
+
+    // Placeholders for the fields a variant does not carry.
+    private Void addDefaults(List<Int> fields, String resultKind, Int from, Int span) {
+        RecordTable table = this.context.records();
+        Int record = table.indexOf(RecordTable.nameOfKind(resultKind));
+        Int slot = table.firstFieldSlot(record) + from;
+        Int end = table.firstFieldSlot(record) + table.fieldCountAt(record);
+
+        while (slot < end) {
+            fields.add(this.defaultOf(table.fieldKindAt(slot), span));
+            slot = slot + 1;
+        }
+    }
+
+    private Int defaultOf(String kind, Int span) {
+        if (kind == "Bool") {
+            return this.context.ops().constBool(false, span);
+        }
+
+        if (kind == "Float") {
+            return this.context.ops().constFloatBits(0, span);
+        }
+
+        return this.context.ops().constInt(0, span);
+    }
+
+    // Bool value: the Result is an error.
+    public Int isError(Node at, LoweredValue result) {
+        Int span = this.context.span(at);
+        RecordTable table = this.context.records();
+        Int record = table.indexOf(RecordTable.nameOfKind(result.kind()));
+        Int tag = this.context.ops().recordGet(result.valueId(), table.fieldIdAt(table.firstFieldSlot(record)), span);
+        return this.context.ops().compare("eq", tag, this.context.ops().constInt(1, span), span);
+    }
+
+    // The success payload (Int, Bool or Float; Void results have none).
+    public LoweredValue payload(Node at, LoweredValue result) {
+        RecordTable table = this.context.records();
+        Int record = table.indexOf(RecordTable.nameOfKind(result.kind()));
+        String kind = ResultTypes.valueKindOfName(RecordTable.nameOfKind(result.kind()));
+
+        if (kind == "Void") {
+            return LoweredValue.nothing();
+        }
+
+        Int slot = table.firstFieldSlot(record) + 1;
+        Int id = this.context.ops().recordGet(result.valueId(), table.fieldIdAt(slot), this.context.span(at));
+        return LoweredValue(id, kind);
+    }
+
+    // The error as the exception record it was built from.
+    public LoweredValue errorOf(Node at, LoweredValue result) {
+        Int span = this.context.span(at);
+        RecordTable table = this.context.records();
+        Int record = table.indexOf(RecordTable.nameOfKind(result.kind()));
+        String exceptionName = ResultTypes.errorNameOfName(RecordTable.nameOfKind(result.kind()));
+        Int exception = table.indexOf(exceptionName);
+        List<Int> fields = List();
+        Int count = table.fieldCountAt(exception);
+        Int position = 0;
+
+        while (position < count) {
+            Int slot = table.firstFieldSlot(record) + 2 + position;
+            fields.add(this.context.ops().recordGet(result.valueId(), table.fieldIdAt(slot), span));
+            position = position + 1;
+        }
+
+        Int id = this.context.ops().recordMake(table.typeIdAt(exception), fields, span);
+        return LoweredValue(id, RecordTable.kindFor(exceptionName));
+    }
+}

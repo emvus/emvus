@@ -1,0 +1,87 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::ExpressionParser;
+use ring0::syntax::Lexer;
+use ring0::syntax::Node;
+use ring0::syntax::ParserState;
+use ring0::syntax::Token;
+
+public class InterpolationChecker {
+    private CheckContext context;
+
+    public InterpolationChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void checkInterpolation(Node node) {
+        String text = node.text();
+        Int at = text.indexOf("${");
+
+        if (at < 0) {
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < text.length() - 1) {
+            if (text.substring(index, index + 2) == "${") {
+                Int depth = 1;
+                Int cursor = index + 2;
+
+                while (cursor < text.length() && depth > 0) {
+                    String piece = text.charAt(cursor).toString();
+
+                    if (piece == "{") {
+                        depth = depth + 1;
+                    }
+
+                    if (piece == "}") {
+                        depth = depth - 1;
+                    }
+
+                    cursor = cursor + 1;
+                }
+
+                if (depth == 0) {
+                    this.checkInterpolated(text.substring(index + 2, cursor - 1), node);
+                }
+
+                index = cursor;
+                continue;
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void checkInterpolated(String source, Node origin) {
+        DiagnosticBag scratch = DiagnosticBag();
+        Lexer lexer = Lexer(source, scratch);
+        List<Token> tokens = lexer.tokenize();
+
+        if (scratch.hasErrors()) {
+            return;
+        }
+
+        ParserState state = ParserState(tokens, scratch);
+        ExpressionParser parser = ExpressionParser(state);
+        Node expression = parser.parse();
+
+        if (scratch.hasErrors() || !state.isAtEnd()) {
+            return;
+        }
+
+        Int savedLine = this.context.overrideLine();
+        Int savedColumn = this.context.overrideColumn();
+        this.context.setOverrideLine(origin.line());
+        this.context.setOverrideColumn(origin.column());
+        this.expressionChecker().typeOf(expression, "");
+        this.context.setOverrideLine(savedLine);
+        this.context.setOverrideColumn(savedColumn);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

@@ -1,0 +1,15 @@
+// Byte-wise equality against a literal after an owned call and a Bool interpolation.
+method<String> greet(String name) {
+    return "Hello, ${name}!"
+}
+
+static method<Int> main {
+    String s = greet("Emvus")
+    String t = "${s} ${true}"
+
+    if (s == "Hello, Emvus!") {
+        return t.length()
+    }
+
+    return -1
+}

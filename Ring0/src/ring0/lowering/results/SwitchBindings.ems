@@ -1,0 +1,62 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Declares the variables of `success(v)` and `error(Type e)` patterns in the arm's scope.
+public class SwitchBindings {
+    private LoweringContext context;
+
+    public SwitchBindings(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Declares `success(v)` / `error(e)` pattern variables in the arm's scope.
+    public Void bind(Node caseNode, LoweredValue subject) {
+        if (!ResultTypes.isResultKind(subject.kind())) {
+            return;
+        }
+
+        Int position = 0;
+
+        while (position < SwitchPatterns.patternCount(caseNode)) {
+            this.bindResultPattern(SwitchPatterns.patternAt(caseNode, position), subject);
+            position = position + 1;
+        }
+    }
+
+    private Void bindResultPattern(Node pattern, LoweredValue subject) {
+        String name = SwitchPatterns.bindingName(pattern);
+        ResultLowerer results = ResultLowerer(this.context);
+
+        if (name.isEmpty()) {
+            return;
+        }
+
+        if (SwitchPatterns.isSuccess(pattern)) {
+            LoweredValue payload = results.payload(pattern, subject);
+
+            if (payload.isUsable()) {
+                this.context.env().declare(name, payload.valueId(), payload.kind());
+            }
+
+            return;
+        }
+
+        if (SwitchPatterns.isError(pattern)) {
+            this.bindError(pattern, subject, name, results);
+        }
+    }
+
+    private Void bindError(Node pattern, LoweredValue subject, String name, ResultLowerer results) {
+        String typed = SwitchPatterns.errorTypeName(pattern);
+        String declared = ResultTypes.errorNameOfName(RecordTable.nameOfKind(subject.kind()));
+
+        if (!typed.isEmpty() && typed.toLowerCase() != declared.toLowerCase()) {
+            this.context.unsupported(pattern, "error(" + typed + ") catches a subtype of '" + declared + "': typed catch over exception hierarchies needs class dispatch");
+            return;
+        }
+
+        LoweredValue error = results.errorOf(pattern, subject);
+        this.context.env().declare(name, error.valueId(), error.kind());
+    }
+}

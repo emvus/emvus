@@ -1,0 +1,17 @@
+// expect: is unreachable
+package main
+
+exception BaseFailure
+exception DetailFailure based BaseFailure
+
+method<Result<Int, BaseFailure>> read {
+    success 1
+}
+
+method run {
+    switch (read()) {
+        success(value) -> println(value)
+        error(BaseFailure e) -> println(e.message)
+        error(DetailFailure e) -> println(e.message)
+    }
+}

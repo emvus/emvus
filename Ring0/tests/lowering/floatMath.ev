@@ -1,0 +1,49 @@
+// Float arithmetic. Sublang has no float-to-int conversion, so results are observed
+// through comparisons that feed main's Int result.
+method<Float> average(Float a, Float b) {
+    return (a + b) / 2.0
+}
+
+method<Boolean> near(Float value, Float target) {
+    Float delta = value - target
+
+    if (delta < 0.0) {
+        delta = -delta
+    }
+
+    return delta < 0.000001
+}
+
+static method<Int> main {
+    Float mean = average(1.5, 4.25)
+    Int score = 0
+
+    if (near(mean, 2.875)) {
+        score += 1
+    }
+
+    if (near(mean * 2.0, 5.75)) {
+        score += 10
+    }
+
+    if (mean > 3.0) {
+        score += 100
+    }
+
+    Float total = 0.0
+
+    for (Int i = 0; i < 10; i++) {
+        total = total + 0.1
+    }
+
+    // Ten additions of 0.1 do not reach 1.0 exactly in IEEE-754 binary64.
+    if (total == 1.0) {
+        score += 1000
+    }
+
+    if (near(total, 1.0)) {
+        score += 10000
+    }
+
+    return score
+}

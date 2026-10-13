@@ -1,0 +1,28 @@
+// Guard clauses with early returns, no else.
+method<Int> clamp(Int value, Int low, Int high) {
+    if (value < low) {
+        return low
+    }
+
+    if (value > high) {
+        return high
+    }
+
+    return value
+}
+
+method<Boolean> inRange(Int value) {
+    if (value < 0 || value > 100) {
+        return false
+    }
+
+    return true
+}
+
+static method<Int> main {
+    if (!inRange(clamp(150, 0, 100))) {
+        return 1
+    }
+
+    return clamp(7, 0, 5)
+}

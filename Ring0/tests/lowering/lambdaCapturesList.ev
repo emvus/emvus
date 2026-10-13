@@ -1,0 +1,7 @@
+// expect-error: shared ownership
+// A captured list would need shared ownership of the list object.
+static method<Int> main {
+    List<Int> xs = [1, 2]
+    Function<Int, Int> at = (i) -> xs.get(i)
+    return at(1)
+}

@@ -1,0 +1,39 @@
+namespace ring0::diagnostic;
+
+public class Diagnostic {
+    private String severityValue;
+    private String messageValue;
+    private Int lineValue;
+    private Int columnValue;
+
+    public Diagnostic(String severity, String message, Int line, Int column) {
+        this.severityValue = severity;
+        this.messageValue = message;
+        this.lineValue = line;
+        this.columnValue = column;
+    }
+
+    public String severity() {
+        return this.severityValue;
+    }
+
+    public String message() {
+        return this.messageValue;
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    public Bool isError() {
+        return this.severityValue == "error";
+    }
+
+    public String format() {
+        return this.severityValue + " " + this.lineValue.toString() + ":" + this.columnValue.toString() + ": " + this.messageValue;
+    }
+}

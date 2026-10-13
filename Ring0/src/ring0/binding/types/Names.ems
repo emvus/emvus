@@ -1,0 +1,73 @@
+namespace ring0::binding;
+
+// Identifier helpers: Emvus resolves names case-insensitively.
+public class Names {
+    public Names() {
+    }
+
+    public static String lower(String value) {
+        String upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        String small = "abcdefghijklmnopqrstuvwxyz";
+        String result = "";
+        Int index = 0;
+
+        while (index < value.length()) {
+            String piece = value.charAt(index).toString();
+            Int at = upper.indexOf(piece);
+
+            if (at >= 0) {
+                result = result + small.substring(at, at + 1);
+            }
+
+            if (at < 0) {
+                result = result + piece;
+            }
+
+            index = index + 1;
+        }
+
+        return result;
+    }
+
+    public static Bool same(String left, String right) {
+        return Names.lower(left) == Names.lower(right);
+    }
+
+    public static String lastSegment(String dotted) {
+        String result = "";
+        Int index = 0;
+
+        while (index < dotted.length()) {
+            String piece = dotted.charAt(index).toString();
+
+            if (piece == ".") {
+                result = "";
+            }
+
+            if (piece != ".") {
+                result = result + piece;
+            }
+
+            index = index + 1;
+        }
+
+        return result;
+    }
+
+    public static String capitalize(String value) {
+        if (value.isEmpty()) {
+            return value;
+        }
+
+        String upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        String small = "abcdefghijklmnopqrstuvwxyz";
+        String first = value.substring(0, 1);
+        Int at = small.indexOf(first);
+
+        if (at < 0) {
+            return value;
+        }
+
+        return upper.substring(at, at + 1) + value.substring(1, value.length());
+    }
+}

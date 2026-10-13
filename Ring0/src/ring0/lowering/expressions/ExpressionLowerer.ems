@@ -1,0 +1,202 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Lowers an expression to Sublang values and cross-checks the result kind against the
+// binder's annotation (a mismatch means the lowering and the checker disagree).
+public class ExpressionLowerer {
+    private LoweringContext context;
+
+    public ExpressionLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        LoweredValue value = this.dispatch(node);
+
+        if (!value.isUsable()) {
+            return value;
+        }
+
+        String annotated = this.context.kinds().annotatedKind(node);
+
+        if (annotated.isEmpty() || annotated.toLowerCase() == value.kind().toLowerCase() || this.isSubtypeOf(value.kind(), annotated)) {
+            return value;
+        }
+
+        this.context.unsupported(node, "expression lowers to " + value.kind() + " but the checker typed it " + node.type());
+        return LoweredValue.unsupported();
+    }
+
+    // The checker types `this` of an inherited member (or of an inlined base constructor) as the
+    // declaring class; the lowering compiles it for the derived class. A value of a subtype is fine.
+    private Bool isSubtypeOf(String valueKind, String annotatedKind) {
+        if (!ClassTable.isClassKind(valueKind) || !ClassTable.isClassKind(annotatedKind)) {
+            return false;
+        }
+
+        Int source = this.context.classes().indexOf(ClassTable.nameOfKind(valueKind));
+        Int target = this.context.classes().indexOf(ClassTable.nameOfKind(annotatedKind));
+        return source >= 0 && target >= 0 && Coercion.converts(this.context.classes(), source, target);
+    }
+
+    private LoweredValue dispatch(Node node) {
+        String kind = node.kind();
+
+        if (kind == "int-literal" || kind == "float-literal" || kind == "bool-literal") {
+            return this.lowerLiteral(node);
+        }
+
+        if (kind == "string") {
+            return TextLowerer(this.context).literal(node);
+        }
+
+        if (kind == "name") {
+            return this.lowerName(node);
+        }
+
+        if (kind == "member") {
+            return MemberAccessLowerer(this.context).lower(node);
+        }
+
+        if (kind == "binary") {
+            return OperatorLowerer(this.context).lowerBinary(node);
+        }
+
+        if (kind == "unary") {
+            return OperatorLowerer(this.context).lowerUnary(node);
+        }
+
+        return this.dispatchStructured(node);
+    }
+
+    private LoweredValue dispatchStructured(Node node) {
+        String kind = node.kind();
+
+        if (kind == "call") {
+            return CallLowerer(this.context).lower(node);
+        }
+
+        if (kind == "propagate") {
+            return ResultFlow(this.context).propagate(node);
+        }
+
+        if (kind == "unwrap") {
+            return ResultFlow(this.context).unwrap(node);
+        }
+
+        if (kind == "switch") {
+            return SwitchEmitter(this.context).emit(node, true, this.context.kinds().annotatedKind(node));
+        }
+
+        if (kind == "cascade") {
+            return CascadeLowerer(this.context).lower(node);
+        }
+
+        return this.dispatchValues(node);
+    }
+
+    private LoweredValue dispatchValues(Node node) {
+        String kind = node.kind();
+
+        if (kind == "lambda") {
+            return LambdaLowerer(this.context).lower(node);
+        }
+
+        if (kind == "ternary") {
+            return TernaryLowerer(this.context).lower(node);
+        }
+
+        if (kind == "list-literal") {
+            return this.lowerLiteralCollection(node);
+        }
+
+        if (kind == "index") {
+            return this.lowerIndex(node);
+        }
+
+        if (kind == "is") {
+            return TypeTestLowerer(this.context).lowerIs(node);
+        }
+
+        if (kind == "as") {
+            return TypeTestLowerer(this.context).lowerAs(node);
+        }
+
+        this.context.unsupported(node, UnsupportedReasons.ofExpression(kind));
+        return LoweredValue.unsupported();
+    }
+
+    // `[...]` is a list or a tuple, as typed by the checker.
+    private LoweredValue lowerLiteralCollection(Node node) {
+        if (TupleTypes.isTupleText(node.type())) {
+            return TupleLowerer(this.context).literal(node);
+        }
+
+        return ListLowerer(this.context).literal(node);
+    }
+
+    private LoweredValue lowerIndex(Node node) {
+        LoweredValue receiver = this.lower(node.child(0));
+
+        if (!receiver.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (ListTable.isListKind(receiver.kind())) {
+            return ListLowerer(this.context).read(node, receiver, this.lower(node.child(1)));
+        }
+
+        if (TupleTypes.isTupleKind(receiver.kind())) {
+            return TupleLowerer(this.context).index(node, receiver);
+        }
+
+        this.context.unsupported(node, "indexing " + receiver.kind() + " needs backend support that is not available (dictionaries and strings are not indexable here; see docs/lowering.md)");
+        return LoweredValue.unsupported();
+    }
+
+    // A bare name inside a class body that is not a local: a field or property of `this`.
+    private LoweredValue lowerImplicitMember(Node node) {
+        Int thisSlot = this.context.env().indexOf("this");
+
+        if (thisSlot >= 0 && this.context.currentClass() >= 0 && this.context.classes().fields().slotOf(this.context.currentClass(), node.text()) >= 0) {
+            LoweredValue receiver = LoweredValue(this.context.env().valueAt(thisSlot), this.context.env().kindAt(thisSlot), true);
+            return ObjectMembers(this.context).readField(node, receiver, node.text());
+        }
+
+        this.context.unsupported(node, "unknown variable '" + node.text() + "' (top-level constants need backend support)");
+        return LoweredValue.unsupported();
+    }
+
+    private LoweredValue lowerLiteral(Node node) {
+        Int span = this.context.span(node);
+
+        if (node.kind() == "int-literal") {
+            return LoweredValue(this.context.ops().constInt(node.text().toInt(), span), "Int");
+        }
+
+        if (node.kind() == "bool-literal") {
+            return LoweredValue(this.context.ops().constBool(node.text() == "true", span), "Bool");
+        }
+
+        Int bits = FloatBits.of(node.text());
+
+        if (bits < 0) {
+            this.context.unsupported(node, "float literal '" + node.text() + "' is outside the supported range (18 digits, 1e-18 to 9e18)");
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue(this.context.ops().constFloatBits(bits, span), "Float");
+    }
+
+    private LoweredValue lowerName(Node node) {
+        VariableEnv env = this.context.env();
+        Int index = env.indexOf(node.text());
+
+        if (index < 0) {
+            return this.lowerImplicitMember(node);
+        }
+
+        return LoweredValue(env.valueAt(index), env.kindAt(index), env.isBorrowedAt(index));
+    }
+}

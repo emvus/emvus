@@ -1,0 +1,34 @@
+// constructor chaining with super(...), property initializers and inherited members.
+class Base {
+    Int base { get } = 100
+    Int extra { get }
+
+    Base(Int extra) {
+        this.extra = extra
+    }
+}
+
+class Middle based Base {
+    Int middle { get }
+
+    Middle(Int extra, Int middle) : super(extra) {
+        this.middle = middle
+    }
+}
+
+class Leaf based Middle {
+    Int leaf { get }
+
+    Leaf() : super(2, 30) {
+        this.leaf = 400
+    }
+
+    method<Int> sum {
+        return base + extra + middle + leaf
+    }
+}
+
+static method<Int> main {
+    Leaf leaf = Leaf()
+    return leaf.sum()
+}

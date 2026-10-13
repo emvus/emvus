@@ -1,0 +1,110 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Maps source type names and binder annotations to Emvus value kinds ("Int", "Class:<name>", ...)
+// and kinds to Sublang type ids. Stateless: the tables live in the context.
+public class KindResolver {
+    private LoweringContext context;
+
+    public KindResolver(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Kind of a source type name: primitives first, then declared records and
+    // Result instantiations; "" when unsupported.
+    public String kindOfType(Node typeNode) {
+        return this.kindOfTypeText(SourceTypeText.of(typeNode));
+    }
+
+    public String kindOfTypeText(String text) {
+        String bound = this.context.function().bindings().lookup(text);
+
+        if (!bound.isEmpty()) {
+            return bound;
+        }
+
+        String kind = SourceTypes.kindOfName(text);
+
+        if (!kind.isEmpty()) {
+            return kind;
+        }
+
+        if (this.context.records().indexOf(text) >= 0) {
+            return RecordTable.kindFor(text);
+        }
+
+        if (this.context.classes().indexOf(text) >= 0) {
+            return ClassTable.kindFor(this.context.classes().nameAt(this.context.classes().indexOf(text)));
+        }
+
+        if (this.context.enums().indexOf(text) >= 0) {
+            return EnumTable.kindFor(this.context.enums().nameAt(this.context.enums().indexOf(text)));
+        }
+
+        return this.kindOfComposite(text);
+    }
+
+    // Generic and structural spellings: Result, List, function types, tuples, generic instances.
+    private String kindOfComposite(String text) {
+        String result = ResultTypes.kindOf(this.context, text);
+
+        if (!result.isEmpty()) {
+            return result;
+        }
+
+        if (ListTable.isListText(text)) {
+            return ListTable.kindOfText(this.context, text);
+        }
+
+        String function = FunctionTypes.kindOfText(this.context, text);
+
+        if (!function.isEmpty()) {
+            return function;
+        }
+
+        String tuple = TupleTypes.kindOfText(this.context, text);
+
+        if (!tuple.isEmpty()) {
+            return tuple;
+        }
+
+        return GenericKinds.kindOfApplication(this.context, text);
+    }
+
+    // Kind from the binder annotation of an expression: "" when absent or unusable.
+    public String annotatedKind(Node node) {
+        String text = node.type();
+
+        if (text.isEmpty() || text == "?") {
+            return "";
+        }
+
+        return this.kindOfTypeText(text);
+    }
+
+    public Int typeIdOfKind(String kind) {
+        if (ListTable.isListKind(kind)) {
+            Int layout = this.context.lists().layoutOf(this.context, ListTable.elementKindOf(kind));
+            return this.context.builder().module().types().refTypeFor(layout);
+        }
+
+        if (kind == "String") {
+            return this.context.textRefType();
+        }
+
+        if (EnumTable.isEnumKind(kind)) {
+            return this.context.builder().intType();
+        }
+
+        if (ClassTable.isClassKind(kind)) {
+            return this.context.builder().refType(this.context.classes().typeIdAt(this.context.classes().indexOf(ClassTable.nameOfKind(kind))));
+        }
+
+        if (!RecordTable.isRecordKind(kind)) {
+            return SourceTypes.typeIdOf(this.context.builder(), kind);
+        }
+
+        return this.context.records().typeIdAt(this.context.records().indexOf(RecordTable.nameOfKind(kind)));
+    }
+}

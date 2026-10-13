@@ -1,0 +1,102 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Declaration-level facts the flow analysis needs before it walks any body.
+public class PropertyFacts {
+    public PropertyFacts() {
+    }
+
+    public static Bool isPrimitive(String typeName) {
+        String name = Names.lower(typeName);
+
+        if (name == "int" || name == "float" || name == "bool" || name == "boolean") {
+            return true;
+        }
+
+        return name == "void" || name == "long" || name == "double" || name == "byte" || name == "char";
+    }
+
+    public static Bool isPropertyOrField(Node member) {
+        return member.kind() == NodeKinds.propertyDeclaration() || member.kind() == NodeKinds.fieldDeclaration();
+    }
+
+    // The initializer is the child that is none of annotation, modifiers, type or accessors.
+    public static Node initializerOf(Node member) {
+        Int index = 0;
+
+        while (index < member.count()) {
+            Node child = member.child(index);
+            String kind = child.kind();
+            Bool structural = AstQuery.isTypeNode(child) || kind == NodeKinds.modifiers() || kind == NodeKinds.accessors() || kind == NodeKinds.annotation();
+
+            if (!structural) {
+                return child;
+            }
+
+            index = index + 1;
+        }
+
+        return AstQuery.none();
+    }
+
+    // Properties and fields explicitly initialized with null may legitimately hold null.
+    public static Void collectNullable(Node file, FlowContext context) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node body = AstQuery.childOfKind(file.child(index), NodeKinds.body());
+            PropertyFacts.collectFromBody(body, context);
+            index = index + 1;
+        }
+    }
+
+    private static Void collectFromBody(Node body, FlowContext context) {
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node member = body.child(index);
+
+            if (PropertyFacts.isPropertyOrField(member) && PropertyFacts.initializerOf(member).kind() == NodeKinds.nullLiteral()) {
+                context.addNullableProperty(member.text());
+            }
+
+            index = index + 1;
+        }
+    }
+
+    // Reference-typed members without initializer: they must be set by every constructor.
+    public static List<Node> uninitializedMembers(Node body) {
+        List<Node> result = List();
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node member = body.child(index);
+
+            if (PropertyFacts.needsInitialization(member)) {
+                result.add(member);
+            }
+
+            index = index + 1;
+        }
+
+        return result;
+    }
+
+    private static Bool needsInitialization(Node member) {
+        if (!PropertyFacts.isPropertyOrField(member)) {
+            return false;
+        }
+
+        if (AstQuery.isStatic(member) || AstQuery.isAbstract(member)) {
+            return false;
+        }
+
+        if (!AstQuery.isNone(PropertyFacts.initializerOf(member))) {
+            return false;
+        }
+
+        Node type = AstQuery.typeChild(member);
+        return !AstQuery.isNone(type) && !PropertyFacts.isPrimitive(type.text());
+    }
+}

@@ -1,0 +1,8 @@
+// expect: 'fail' value of type
+package main
+
+exception OtherFailure
+
+method<Result<Int, IOException>> read {
+    fail OtherFailure()
+}

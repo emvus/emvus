@@ -1,0 +1,13 @@
+// expect: may not be initialized on every path through this constructor
+package main
+
+class Account {
+    String owner { get }
+    Int balance { get }
+
+    Account(String name, Boolean named) {
+        if (named) {
+            this.owner = name
+        }
+    }
+}

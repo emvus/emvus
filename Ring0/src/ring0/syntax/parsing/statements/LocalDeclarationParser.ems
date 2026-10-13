@@ -1,0 +1,173 @@
+namespace ring0::syntax;
+
+// Local variables and destructuring.
+//
+//   local        text=name; [modifier* (final|scoped), type | var, init?]
+//                type = node from TypeParser; `var` = "var" node (inferred);
+//                `dynamic` = "type" node with text "dynamic"
+//   destructure  [modifier*, (binding | wildcard)+, init]   `var { a, _ } = e`
+//   binding      text=name; wildcard text=_
+//   init         see StatementExpressionParser
+public class LocalDeclarationParser {
+    private ParserState state;
+
+    public LocalDeclarationParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Bool atLocalStart() {
+        Token token = this.state.peek();
+
+        if (token.isWord("final") || token.isWord("scoped") || token.isWord("var")) {
+            return true;
+        }
+
+        if (token.isWord("dynamic") && this.state.peekAt(1).isPlainName()) {
+            return true;
+        }
+
+        if (!token.isPlainName() && !token.isSymbol("[")) {
+            return false;
+        }
+
+        // A type followed by a name is a declaration; try the type speculatively.
+        Int start = this.state.position();
+        this.state.beginSpeculation();
+        TypeParser(this.state).parse();
+        Bool parsed = this.state.endSpeculation();
+        Bool declaration = parsed && this.atDeclarationName();
+        this.state.seek(start);
+        return declaration;
+    }
+
+    // An identifier, or a keyword (e.g. `exception`) used as a name when it is followed by
+    // `=`, `;` or a line break. Control-flow keywords are never names.
+    private Bool atDeclarationName() {
+        Token token = this.state.peek();
+
+        if (token.isPlainName()) {
+            return true;
+        }
+
+        if (!this.isNameKeyword(token)) {
+            return false;
+        }
+
+        Token next = this.state.peekAt(1);
+        return next.isSymbol("=") || next.isSymbol(";") || next.line() != token.line() || next.isEof();
+    }
+
+    public Bool isNameKeyword(Token token) {
+        if (!token.kindIs("keyword")) {
+            return false;
+        }
+
+        String text = token.text();
+        return text == "exception" || text == "method" || text == "macro" || text == "record" || text == "class" || text == "interface" || text == "enum" || text == "package" || text == "use";
+    }
+
+    // Names may also be keywords (e.g. `exception` in `error(exception)`).
+    public Token consumeName(String message) {
+        if (this.state.peek().kindIs("keyword")) {
+            return this.state.advance();
+        }
+
+        return this.state.consumeKind("identifier", message);
+    }
+
+    public Node parseLocal() {
+        Token start = this.state.peek();
+        List<Node> modifiers = this.parseModifiers();
+
+        if (this.state.peek().isWord("var")) {
+            return this.parseVarLocal(start, modifiers);
+        }
+
+        if (this.state.peek().isWord("dynamic") && this.state.peekAt(1).isPlainName()) {
+            Token dynamicToken = this.state.advance();
+            return this.finishLocal(start, modifiers, this.state.nodeAt(dynamicToken, AstKinds.typeNode(), "dynamic"));
+        }
+
+        return this.finishLocal(start, modifiers, TypeParser(this.state).parse());
+    }
+
+    private List<Node> parseModifiers() {
+        List<Node> modifiers = List();
+
+        while (this.state.peek().isWord("final") || this.state.peek().isWord("scoped")) {
+            Token modifier = this.state.advance();
+            modifiers.add(this.state.nodeAt(modifier, AstKinds.modifier(), modifier.text()));
+        }
+
+        return modifiers;
+    }
+
+    private Node parseVarLocal(Token start, List<Node> modifiers) {
+        Token varToken = this.state.advance();
+
+        if (this.state.checkSymbol("{")) {
+            return this.parseDestructure(start, modifiers);
+        }
+
+        return this.finishLocal(start, modifiers, this.state.nodeAt(varToken, AstKinds.varType(), "var"));
+    }
+
+    private Node finishLocal(Token start, List<Node> modifiers, Node typeNode) {
+        Token nameToken = this.consumeName("Expected variable name");
+        Node local = this.state.nodeAt(start, AstKinds.local(), nameToken.text());
+        this.addAll(local, modifiers);
+        local.add(typeNode);
+
+        if (this.state.checkSymbol("=")) {
+            Token equals = this.state.advance();
+            local.add(StatementExpressionParser(this.state).parseInitializer(equals));
+        }
+
+        return local;
+    }
+
+    private Node parseDestructure(Token start, List<Node> modifiers) {
+        Node node = this.state.nodeAt(start, AstKinds.destructure(), "");
+        this.addAll(node, modifiers);
+        this.state.consumeSymbol("{", "Expected '{' in destructuring");
+        this.parseBindings(node);
+        this.state.consumeSymbol("}", "Expected '}' after destructuring names");
+        Token equals = this.state.consumeSymbol("=", "Expected '=' in destructuring");
+        node.add(StatementExpressionParser(this.state).parseInitializer(equals));
+        return node;
+    }
+
+    private Void parseBindings(Node node) {
+        while (!this.state.isAtEnd() && !this.state.checkSymbol("}")) {
+            Int before = this.state.position();
+            node.add(this.parseBinding());
+
+            if (!this.state.matchSymbol(",")) {
+                return;
+            }
+
+            if (this.state.position() == before) {
+                this.state.advance();
+            }
+        }
+    }
+
+    public Node parseBinding() {
+        Token token = this.consumeName("Expected a name");
+
+        if (token.text() == "_") {
+            return this.state.nodeAt(token, AstKinds.wildcard(), "_");
+        }
+
+        return this.state.nodeAt(token, AstKinds.binding(), token.text());
+    }
+
+    private Void addAll(Node owner, List<Node> children) {
+        Int index = 0;
+
+        while (index < children.length()) {
+            owner.add(children.get(index));
+            index = index + 1;
+        }
+    }
+}

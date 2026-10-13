@@ -1,0 +1,10 @@
+// A generic method with a function parameter instantiated for List<Int> and Function<Int,Int>.
+method<List<R>> mapAll(List<T> items, Function<T, R> f) where T, R {
+    return items.map(f)
+}
+
+static method<Int> main {
+    List<Int> xs = [1, 2, 3]
+    List<Int> ys = mapAll(xs, (v) -> v * 3)
+    return ys.get(2)
+}

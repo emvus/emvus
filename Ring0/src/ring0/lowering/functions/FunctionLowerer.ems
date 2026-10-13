@@ -1,0 +1,110 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Emits the body of one declared top-level method.
+public class FunctionLowerer {
+    private LoweringContext context;
+
+    public FunctionLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void lower(Int methodIndex) {
+        Node method = this.context.methods().declarationAt(methodIndex);
+        Node params = AstQuery.childOfKind(method, "params");
+        Node block = AstQuery.childOfKind(method, "block");
+        this.context.enterFunction(this.context.methods().functionIdAt(methodIndex));
+        this.context.function().setReturnKind(this.context.methods().returnKindAt(methodIndex));
+        this.context.setCurrentClass(this.context.methods().ownerAt(methodIndex));
+        this.context.beginBlock();
+
+        if (ScopeUsage.isNeeded(this.context, method)) {
+            this.context.scopes().setFunctionScope(this.context.ops().scopeBegin(this.context.span(method)));
+        }
+
+        this.bindReceiver(methodIndex);
+        this.bindParams(methodIndex, params, block);
+        Bool terminated = StatementLowerer(this.context).lowerBlock(block);
+        this.finishBody(method, this.context.methods().returnKindAt(methodIndex), terminated);
+        this.context.env().truncate(0);
+        this.context.setCurrentClass(-1);
+    }
+
+    // `this` is a borrowed view of the receiver.
+    private Void bindReceiver(Int methodIndex) {
+        Int owner = this.context.methods().ownerAt(methodIndex);
+
+        if (owner < 0 || this.context.methods().selfIdAt(methodIndex) == 0) {
+            return;
+        }
+
+        String kind = ClassTable.kindFor(this.context.classes().nameAt(owner));
+        this.context.env().declareBorrowed("this", this.context.methods().selfIdAt(methodIndex), kind);
+    }
+
+    // A String parameter is borrowed read-only: when the body assigns it, a local cell holds a
+    // copy so value semantics survive.
+    private Void bindParams(Int methodIndex, Node params, Node block) {
+        List<String> assigned = List();
+        AssignedNames.collect(block, assigned);
+        Int index = 0;
+
+        while (index < this.context.methods().paramCountAt(methodIndex)) {
+            Node param = params.child(index);
+            Int id = this.context.methods().paramIdAt(methodIndex, index);
+            String kind = this.context.methods().paramKindAt(methodIndex, index);
+
+            if (kind == "String" && FunctionLowerer.contains(assigned, param.text())) {
+                id = this.copyOfParam(param, id).valueId();
+            }
+
+            if (RefKinds.isReference(kind)) {
+                this.context.env().declareBorrowed(param.text(), id, kind);
+            }
+
+            if (!RefKinds.isReference(kind)) {
+                this.context.env().declare(param.text(), id, kind);
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private LoweredValue copyOfParam(Node param, Int source) {
+        Int span = this.context.span(param);
+        Int zero = this.context.ops().constInt(0, span);
+        Int length = this.context.collections().length(source, span);
+        Int copy = this.context.collections().textSlice(this.context.textListType(), source, zero, length, this.context.scopes().functionScope(), span);
+        return LoweredValue(copy, "String");
+    }
+
+    private static Bool contains(List<String> names, String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < names.length()) {
+            if (names.get(index).toLowerCase() == key) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private Void finishBody(Node method, String returnKind, Bool terminated) {
+        if (terminated) {
+            return;
+        }
+
+        if (returnKind != "Void") {
+            this.context.unsupported(method, "method '" + method.text() + "' can end without returning a value");
+            return;
+        }
+
+        ReturnEmitter.emit(this.context, method, LoweredValue.nothing());
+    }
+}

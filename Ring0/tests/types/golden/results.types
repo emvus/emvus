@@ -1,0 +1,20 @@
+5:11 binary < : Boolean
+5:9 name n : Int @ parameter n
+5:13 int-literal 0 : Int @ literal int-literal
+6:31 call : NegativeException @ constructor NegativeException (NegativeException|0|)
+6:32 name n : Int @ parameter n
+9:13 name n : Int @ parameter n
+13:5 switch @ switch result (Result<Int,NegativeException>)
+13:18 call : Result<Int,NegativeException> @ method check (|0|)
+13:19 name n : Int @ parameter n
+14:34 call : Void @ method println (|0|)
+14:35 name value : Int @ local value
+15:34 call : Void @ method println (|0|)
+15:43 member message : String @ property message (Exception)
+15:35 name problem : NegativeException @ local problem
+18:5 local forced : Int @ local forced
+18:26 unwrap : Int
+18:23 call : Result<Int,NegativeException> @ method check (|0|)
+18:24 name n : Int @ parameter n
+
+check ok

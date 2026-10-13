@@ -1,0 +1,20 @@
+// expect-backend-crash
+// Minimal repro of a Sublang emit-llvm abort ("Emerald Flow allocation failed"): an owned call
+// result, two in-place text helper calls and a branch on text equality in one function.
+// It aborts with Flow on, Flow off and Optimind off alike. Kept as a documented backend
+// requirement, not as a language limitation.
+method<String> greet(String name) {
+    return "Hello, ${name}!"
+}
+
+static method<Int> main {
+    String s = greet("Emvus")
+    Int answer = 42
+    String t = "${s} ${answer} ${answer}"
+
+    if (s == "Hello, Emvus!") {
+        return t.length()
+    }
+
+    return -1
+}

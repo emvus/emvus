@@ -1,0 +1,168 @@
+namespace ring0::binding;
+
+// Types are represented as text: "Int", "List<Int>", "[Int,String]" (tuple),
+// "Result<Int,IOException>", "dynamic", "Null", "Void" and "?" (unknown, compatible with everything).
+public class TypeText {
+    public TypeText() {
+    }
+
+    // "@Name" marks an expression that names the type itself (static access).
+    public static String typeReference(String name) {
+        return "@" + name;
+    }
+
+    public static Bool isTypeReference(String type) {
+        return type.startsWith("@");
+    }
+
+    public static String referencedType(String type) {
+        return type.substring(1, type.length());
+    }
+
+    public static Int parseInt(String digits) {
+        Int value = 0;
+        Int index = 0;
+
+        while (index < digits.length()) {
+            value = value * 10 + "0123456789".indexOf(digits.charAt(index).toString());
+            index = index + 1;
+        }
+
+        return value;
+    }
+
+    public static Bool isTuple(String type) {
+        return type.startsWith("[");
+    }
+
+    public static String base(String type) {
+        if (type.startsWith("[")) {
+            return "[]";
+        }
+
+        Int at = type.indexOf("<");
+
+        if (at < 0) {
+            return type;
+        }
+
+        return type.substring(0, at);
+    }
+
+    public static List<String> splitTop(String text) {
+        List<String> parts = List();
+        Int depth = 0;
+        Int start = 0;
+        Int index = 0;
+
+        if (text.isEmpty()) {
+            return parts;
+        }
+
+        while (index < text.length()) {
+            String piece = text.charAt(index).toString();
+
+            if (piece == "<" || piece == "[" || piece == "(") {
+                depth = depth + 1;
+            }
+
+            if (piece == ">" || piece == "]" || piece == ")") {
+                depth = depth - 1;
+            }
+
+            if (piece == "," && depth == 0) {
+                parts.add(text.substring(start, index));
+                start = index + 1;
+            }
+
+            index = index + 1;
+        }
+
+        parts.add(text.substring(start, text.length()));
+        return parts;
+    }
+
+    public static List<String> args(String type) {
+        if (type.startsWith("[")) {
+            return TypeText.splitTop(type.substring(1, type.length() - 1));
+        }
+
+        Int at = type.indexOf("<");
+
+        if (at < 0) {
+            List<String> none = List();
+            return none;
+        }
+
+        return TypeText.splitTop(type.substring(at + 1, type.length() - 1));
+    }
+
+    public static String join(List<String> parts) {
+        String text = "";
+        Int index = 0;
+
+        while (index < parts.length()) {
+            if (index > 0) {
+                text = text + ",";
+            }
+
+            text = text + parts.get(index);
+            index = index + 1;
+        }
+
+        return text;
+    }
+
+    public static String make(String name, List<String> arguments) {
+        if (arguments.length() == 0) {
+            return name;
+        }
+
+        return name + "<" + TypeText.join(arguments) + ">";
+    }
+
+    public static String result(String value, String error) {
+        return TypeNames.resultType() + "<" + value + "," + error + ">";
+    }
+
+    public static String tuple(List<String> elements) {
+        return "[" + TypeText.join(elements) + "]";
+    }
+
+    public static Bool isUnknown(String type) {
+        return type == TypeNames.unknownType() || type.isEmpty();
+    }
+
+    public static Bool isPrimitive(String type) {
+        return type == TypeNames.intType() || type == TypeNames.floatType() || type == TypeNames.booleanType() || type == TypeNames.stringType() || type == TypeNames.charType();
+    }
+
+    public static Bool isNumeric(String type) {
+        return type == TypeNames.intType() || type == TypeNames.floatType();
+    }
+
+    public static Bool isResult(String type) {
+        return TypeText.base(type) == TypeNames.resultType();
+    }
+
+    public static String resultValue(String type) {
+        List<String> list = TypeText.args(type);
+
+        if (list.length() < 1) {
+            return TypeNames.unknownType();
+        }
+
+        return list.get(0) + "";
+    }
+
+    public static String resultError(String type) {
+        List<String> list = TypeText.args(type);
+
+        if (list.length() < 2) {
+            return TypeNames.unknownType();
+        }
+
+        return list.get(1) + "";
+    }
+
+}

@@ -1,0 +1,10 @@
+// Checked arithmetic and a direct call between top-level methods.
+method<Int> add(Int a, Int b) {
+    return a + b
+}
+
+static method<Int> main {
+    Int x = 20
+    Int y = add(x, 22)
+    return y * 2 - 1
+}

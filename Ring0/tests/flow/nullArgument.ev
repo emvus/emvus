@@ -1,0 +1,10 @@
+// expect: it is passed to a non-null parameter
+package main
+
+method<Int> size(String text) {
+    return text.length()
+}
+
+method<Int> run() {
+    return size(null)
+}

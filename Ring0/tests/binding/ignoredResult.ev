@@ -1,0 +1,10 @@
+// expect: Result is ignored
+package main
+
+method<Result<Int, IOException>> read {
+    success 1
+}
+
+method run {
+    read()
+}

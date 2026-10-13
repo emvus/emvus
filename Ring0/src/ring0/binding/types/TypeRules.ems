@@ -1,0 +1,201 @@
+namespace ring0::binding;
+
+// Assignability of type texts.
+public class TypeRules {
+    private SymbolTable table;
+    private List<String> typeParamNames;
+
+    public TypeRules(SymbolTable symbols) {
+        this.table = symbols;
+        this.typeParamNames = List();
+    }
+
+    // Type parameters in scope; they are treated as "anything".
+    public Void setTypeParams(List<String> names) {
+        this.typeParamNames = names;
+    }
+
+    private Bool isTypeParam(String type) {
+        return this.typeParamNames.contains(type);
+    }
+
+    public Bool isFunctionType(String type) {
+        String base = TypeText.base(type);
+        return base == TypeNames.functionType() || base == TypeNames.biFunctionType() || base == TypeNames.runnableType();
+    }
+
+    // Return type of a function type (last type argument, Runnable returns Void).
+    public String functionReturn(String type) {
+        if (TypeText.base(type) == TypeNames.runnableType()) {
+            return TypeNames.voidType();
+        }
+
+        List<String> list = TypeText.args(type);
+
+        if (list.length() == 0) {
+            return TypeNames.unknownType();
+        }
+
+        return list.get(list.length() - 1) + "";
+    }
+
+    public Int functionArity(String type) {
+        if (TypeText.base(type) == TypeNames.runnableType()) {
+            return 0;
+        }
+
+        return TypeText.args(type).length() - 1;
+    }
+
+    public Bool sameType(String left, String right) {
+        if (TypeText.isUnknown(left) || TypeText.isUnknown(right)) {
+            return true;
+        }
+
+        if (left == TypeNames.dynamicType() || right == TypeNames.dynamicType()) {
+            return true;
+        }
+
+        if (this.isTypeParam(left) || this.isTypeParam(right)) {
+            return true;
+        }
+
+        if (TypeText.isTuple(left) != TypeText.isTuple(right)) {
+            return false;
+        }
+
+        String leftBase = TypeText.base(left);
+        String rightBase = TypeText.base(right);
+
+        if (!Names.same(leftBase, rightBase)) {
+            return false;
+        }
+
+        List<String> leftArgs = TypeText.args(left);
+        List<String> rightArgs = TypeText.args(right);
+
+        if (leftArgs.length() != rightArgs.length()) {
+            return leftArgs.length() == 0 || rightArgs.length() == 0;
+        }
+
+        Int index = 0;
+
+        while (index < leftArgs.length()) {
+            if (!this.sameType(leftArgs.get(index), rightArgs.get(index))) {
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+
+    // May a value of type `source` be assigned to a place of type `target`?
+    public Bool assignable(String target, String source) {
+        if (this.isLoose(target) || this.isLoose(source)) {
+            return true;
+        }
+
+        if (source == TypeNames.nullType()) {
+            return !TypeText.isNumeric(target) && target != TypeNames.booleanType() && target != TypeNames.charType() && target != TypeNames.voidType();
+        }
+
+        if (target == TypeNames.voidType() || source == TypeNames.voidType()) {
+            return target == source;
+        }
+
+        if (target == TypeNames.floatType() && source == TypeNames.intType()) {
+            return true;
+        }
+
+        if (TypeText.isTuple(target) || TypeText.isTuple(source)) {
+            return this.tupleAssignable(target, source);
+        }
+
+        return this.nominalAssignable(target, source);
+    }
+
+    private Bool isLoose(String type) {
+        return TypeText.isUnknown(type) || type == TypeNames.dynamicType() || this.isTypeParam(type);
+    }
+
+    private Bool tupleAssignable(String target, String source) {
+        if (!TypeText.isTuple(target) || !TypeText.isTuple(source)) {
+            return false;
+        }
+
+        List<String> targetElements = TypeText.args(target);
+        List<String> sourceElements = TypeText.args(source);
+
+        if (targetElements.length() != sourceElements.length()) {
+            return false;
+        }
+
+        Int index = 0;
+
+        while (index < targetElements.length()) {
+            if (!this.assignable(targetElements.get(index), sourceElements.get(index))) {
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+
+    // Unknown and imported types are not rejected because their hierarchy is missing.
+    private Bool nominalAssignable(String target, String source) {
+        String targetBase = TypeText.base(target);
+        String sourceBase = TypeText.base(source);
+
+        if (targetBase == TypeNames.anyType()) {
+            return true;
+        }
+
+        if (Names.same(targetBase, sourceBase)) {
+            return this.argumentsCompatible(target, source, targetBase);
+        }
+
+        TypeSymbol targetSymbol = this.table.findType(targetBase);
+        TypeSymbol sourceSymbol = this.table.findType(sourceBase);
+
+        if (targetSymbol.isMissing() || sourceSymbol.isMissing() || targetSymbol.isOpaque() || sourceSymbol.isOpaque()) {
+            return true;
+        }
+
+        if (this.isFunctionType(target) && this.isFunctionType(source)) {
+            return true;
+        }
+
+        return this.table.isSubtype(sourceBase, targetBase);
+    }
+
+    private Bool argumentsCompatible(String target, String source, String baseName) {
+        List<String> a = TypeText.args(target);
+        List<String> b = TypeText.args(source);
+
+        if (a.length() != b.length()) {
+            return true;
+        }
+
+        Int index = 0;
+
+        while (index < a.length()) {
+            Bool ok = this.sameType(a.get(index), b.get(index));
+
+            if (baseName == TypeNames.resultType() || baseName == TypeNames.fiberType() || baseName == TypeNames.threadType() || baseName == TypeNames.virtualThreadType()) {
+                ok = this.assignable(a.get(index), b.get(index));
+            }
+
+            if (!ok) {
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+}

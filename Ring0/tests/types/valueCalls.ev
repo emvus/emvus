@@ -1,0 +1,27 @@
+// Annotations for tuple literals as arguments, function-value calls and class-named properties.
+class Engine {
+    Int power { get }
+
+    Engine(Int power) {
+        this.power = power
+    }
+}
+
+class Car {
+    Engine engine { get }
+
+    Car(Int power) {
+        this.engine = Engine(power)
+    }
+}
+
+method<Int> apply(Int x) {
+    var twice = (Int n) -> n * 2
+    return twice(x)
+}
+
+method run {
+    List<[Int, Int]> pairs = []
+    pairs.add([1, 2])
+    Car car = Car(3)
+}

@@ -1,0 +1,114 @@
+namespace ring0::syntax;
+
+use ring0::syntax::LexerCursor;
+use ring0::syntax::LexerRules;
+use ring0::syntax::LexerTokenReader;
+use ring0::syntax::Token;
+
+use ring0::diagnostic::DiagnosticBag;
+
+public class Lexer {
+    private LexerCursor cursor;
+    private LexerRules rules;
+    private LexerTokenReader reader;
+    private DiagnosticBag diagnostics;
+
+    public Lexer(String text, DiagnosticBag bag) {
+        this.cursor = LexerCursor(text);
+        this.rules = LexerRules();
+        this.reader = LexerTokenReader(this.cursor, this.rules, bag);
+        this.diagnostics = bag;
+    }
+
+    public List<Token> tokenize() {
+        List<Token> tokens = List();
+
+        while (!this.cursor.isAtEnd()) {
+            this.scanToken(tokens);
+        }
+
+        tokens.add(Token("eof", "", this.cursor.line(), this.cursor.column()));
+        return tokens;
+    }
+
+    private Void scanToken(List<Token> tokens) {
+        String value = this.cursor.peekText();
+        String next = this.cursor.peekNextText();
+
+        if (this.skipTrivia(value, next)) {
+            return;
+        }
+
+        if (this.rules.isIdentifierStart(value)) {
+            tokens.add(this.reader.readIdentifier());
+            return;
+        }
+
+        if (this.rules.isDigit(value)) {
+            tokens.add(this.reader.readNumber());
+            return;
+        }
+
+        if (value == "\"") {
+            tokens.add(this.reader.readString());
+            return;
+        }
+
+        this.scanSymbol(tokens, value, next);
+    }
+
+    // Whitespace and comments produce no token. Returns true when something was skipped.
+    private Bool skipTrivia(String value, String next) {
+        if (this.rules.isWhitespace(value)) {
+            this.cursor.advanceText();
+            return true;
+        }
+
+        if (value == "/" && next == "/") {
+            this.reader.skipLineComment();
+            return true;
+        }
+
+        if (value == "/" && next == "*") {
+            this.reader.skipBlockComment();
+            return true;
+        }
+
+        return false;
+    }
+
+    // Longest match first: `...`, then two-character symbols, then single characters.
+    private Void scanSymbol(List<Token> tokens, String value, String next) {
+        Int line = this.cursor.line();
+        Int column = this.cursor.column();
+        String third = this.cursor.peekAt(2);
+
+        if (this.rules.isThreeCharacterSymbol(value, next, third)) {
+            this.addSymbol(tokens, value + next + third, line, column);
+            return;
+        }
+
+        if (this.rules.isTwoCharacterSymbol(value, next)) {
+            this.addSymbol(tokens, value + next, line, column);
+            return;
+        }
+
+        if (this.rules.isSymbol(value)) {
+            this.addSymbol(tokens, value, line, column);
+            return;
+        }
+
+        this.diagnostics.error("Unexpected character '" + value + "'", line, column);
+        this.cursor.advanceText();
+    }
+
+    private Void addSymbol(List<Token> tokens, String text, Int line, Int column) {
+        tokens.add(Token("symbol", text, line, column));
+        Int remaining = text.length();
+
+        while (remaining > 0) {
+            this.cursor.advanceText();
+            remaining = remaining - 1;
+        }
+    }
+}

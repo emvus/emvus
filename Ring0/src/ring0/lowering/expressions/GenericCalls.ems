@@ -1,0 +1,57 @@
+namespace ring0::lowering;
+
+use ring0::binding::CallTarget;
+use ring0::syntax::Node;
+
+// Calls that resolve through generic declarations: construction of a generic class or record
+// and calls of generic methods go to the instance the checker's type arguments name.
+public class GenericCalls {
+    private LoweringContext context;
+
+    public GenericCalls(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // `Box(5)` / `Box<Int>(5)` / `Pair(1, 2)`: the instance is the checker's type of the call.
+    public LoweredValue construct(Node node, List<LoweredValue> arguments) {
+        String kind = this.context.kinds().kindOfTypeText(node.type());
+
+        if (ClassTable.isClassKind(kind)) {
+            return CallLowerer(this.context).construct(node, this.context.classes().indexOf(ClassTable.nameOfKind(kind)), arguments);
+        }
+
+        if (RecordTable.isRecordKind(kind)) {
+            return RecordLowerer(this.context).construct(node, this.context.records().indexOf(RecordTable.nameOfKind(kind)), arguments);
+        }
+
+        this.context.unsupported(node, "cannot determine the instantiation of generic type '" + node.child(0).text() + "' (type " + node.type() + ")");
+        return LoweredValue.unsupported();
+    }
+
+    // A generic method call goes to the instance created for the checker's type arguments.
+    public LoweredValue call(Node node, String name, List<LoweredValue> arguments) {
+        Node declaration = this.context.generics().nodeAt(this.context.generics().indexOf(name, false));
+        List<String> texts = GenericKinds.splitTopLevel(CallTarget.typeArgs(node.symbolDetail()));
+        List<String> kinds = List();
+        Int position = 0;
+
+        while (position < texts.length()) {
+            kinds.add(this.context.kinds().kindOfTypeText(texts.get(position)) + "");
+            position = position + 1;
+        }
+
+        Int index = this.context.methods().indexOf(GenericKinds.keyOf(declaration.text(), kinds));
+
+        if (index < 0) {
+            this.context.unsupported(node, "generic method '" + name + "' has no instance for these type arguments");
+            return LoweredValue.unsupported();
+        }
+
+        if (arguments.length() != this.context.methods().paramCountAt(index)) {
+            this.context.unsupported(node, "method '" + name + "' expects " + this.context.methods().paramCountAt(index).toString() + " arguments");
+            return LoweredValue.unsupported();
+        }
+
+        return CallLowerer(this.context).emitCall(node, index, arguments);
+    }
+}

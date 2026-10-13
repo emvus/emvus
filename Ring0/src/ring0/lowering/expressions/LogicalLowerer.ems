@@ -1,0 +1,51 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Short-circuit `&&` and `||`: the right operand only runs on its own block and the
+// result joins through a Bool block parameter.
+public class LogicalLowerer {
+    private LoweringContext context;
+
+    public LogicalLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        Int span = this.context.span(node);
+        LoweredValue left = ExpressionLowerer(this.context).lower(node.child(0));
+
+        if (left.kind() != "Bool") {
+            this.context.unsupported(node, "'" + node.text() + "' needs Bool operands");
+            return LoweredValue.unsupported();
+        }
+
+        Int rightBlock = this.context.newBlock();
+        Int joinBlock = this.context.newBlock();
+        List<Int> none = List();
+        List<Int> shortValue = List();
+        shortValue.add(left.valueId());
+
+        if (node.text() == "&&") {
+            this.context.ops().condBranch(left.valueId(), rightBlock, none, joinBlock, shortValue, span);
+        }
+
+        if (node.text() == "||") {
+            this.context.ops().condBranch(left.valueId(), joinBlock, shortValue, rightBlock, none, span);
+        }
+
+        this.context.enterBlock(rightBlock);
+        LoweredValue right = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (right.kind() != "Bool") {
+            this.context.unsupported(node, "'" + node.text() + "' needs Bool operands");
+            return LoweredValue.unsupported();
+        }
+
+        List<Int> rightValue = List();
+        rightValue.add(right.valueId());
+        this.context.ops().branchTo(joinBlock, rightValue, span);
+        this.context.enterBlock(joinBlock);
+        return LoweredValue(this.context.addBlockParam(this.context.builder().boolType()), "Bool");
+    }
+}

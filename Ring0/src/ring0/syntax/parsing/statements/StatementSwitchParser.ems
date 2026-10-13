@@ -1,0 +1,107 @@
+namespace ring0::syntax;
+
+// Statement-level switch.
+//
+//   switch           [subject-expr, case*]
+//   case             [pattern+, body]   body = last child (statement or block)
+//   pattern-success  [binding | wildcard]?         `success` or `success(x)`
+//   pattern-error    [type?, binding | wildcard]?  `error`, `error(e)`, `error(Type e)`
+//   pattern-name     text=name                     free name, e.g. `unknown` or an enum constant
+//   pattern-value    [expr]                        literal / qualified expression
+public class StatementSwitchParser {
+    private ParserState state;
+
+    public StatementSwitchParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    // Starts at the 'switch' keyword.
+    public Node parse() {
+        Token start = this.state.advance();
+        Node node = this.state.nodeAt(start, AstKinds.switchNode(), "");
+        node.add(ControlFlowParser(this.state).parseCondition());
+        this.state.consumeSymbol("{", "Expected '{' after switch subject");
+        this.parseCases(node);
+        this.state.consumeSymbol("}", "Expected '}' after switch cases");
+        return node;
+    }
+
+    private Void parseCases(Node node) {
+        while (!this.state.isAtEnd() && !this.state.checkSymbol("}")) {
+            Int before = this.state.position();
+            node.add(this.parseCase());
+
+            if (this.state.checkSymbol(",") || this.state.checkSymbol(";")) {
+                this.state.advance();
+            }
+
+            if (this.state.position() == before) {
+                this.state.advance();
+            }
+        }
+    }
+
+    private Node parseCase() {
+        Token start = this.state.peek();
+        Node node = this.state.nodeAt(start, AstKinds.caseNode(), "");
+        node.add(this.parsePattern());
+
+        while (this.state.checkSymbol(",")) {
+            this.state.advance();
+            node.add(this.parsePattern());
+        }
+
+        this.state.consumeSymbol("->", "Expected '->' after switch pattern");
+        node.add(StatementParser(this.state).parseSimpleStatement());
+        return node;
+    }
+
+    private Node parsePattern() {
+        Token token = this.state.peek();
+
+        if (token.isWord("success")) {
+            return this.parseSuccessPattern(token);
+        }
+
+        if (token.isWord("error")) {
+            return this.parseErrorPattern(token);
+        }
+
+        if (token.isPlainName() && (this.state.peekAt(1).isSymbol("->") || this.state.peekAt(1).isSymbol(","))) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.patternName(), token.text());
+        }
+
+        Node value = this.state.nodeAt(token, AstKinds.patternValue(), "");
+        value.add(ExpressionParser(this.state).parse());
+        return value;
+    }
+
+    private Node parseSuccessPattern(Token keyword) {
+        this.state.advance();
+        Node success = this.state.nodeAt(keyword, AstKinds.patternSuccess(), "");
+
+        if (this.state.matchSymbol("(")) {
+            success.add(LocalDeclarationParser(this.state).parseBinding());
+            this.state.consumeSymbol(")", "Expected ')' after success binding");
+        }
+
+        return success;
+    }
+
+    private Node parseErrorPattern(Token keyword) {
+        this.state.advance();
+        Node error = this.state.nodeAt(keyword, AstKinds.patternError(), "");
+
+        if (this.state.matchSymbol("(")) {
+            if (!this.state.peekAt(1).isSymbol(")")) {
+                error.add(TypeParser(this.state).parse());
+            }
+
+            error.add(LocalDeclarationParser(this.state).parseBinding());
+            this.state.consumeSymbol(")", "Expected ')' after error binding");
+        }
+
+        return error;
+    }
+}

@@ -1,0 +1,6 @@
+// expect-error: list literal needs a List<T>
+// Dynamic text is a Ref<List<Byte>>, which Sublang lists cannot hold as an element.
+static method<Int> main {
+    List<String> names = ["a", "b"]
+    return names.size()
+}

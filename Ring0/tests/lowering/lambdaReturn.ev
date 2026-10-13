@@ -1,0 +1,10 @@
+// A closure outlives the call that created it: the captured n is part of the closure object.
+method<Function<Int, Int>> adder(Int n) {
+    return (x) -> x + n
+}
+
+static method<Int> main {
+    Function<Int, Int> plusFive = adder(5)
+    Function<Int, Int> plusTen = adder(10)
+    return plusFive(1) * 100 + plusTen(2)
+}

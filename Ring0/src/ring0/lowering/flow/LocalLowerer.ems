@@ -1,0 +1,117 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// `Type name = init`, `var name = init`, `final var ...` and `scoped var ...`. A `scoped var`
+// owns its object in a scope that ends with the enclosing block (and on every early exit).
+// Text locals are cells; object locals stay views when they alias another name.
+public class LocalLowerer {
+    private LoweringContext context;
+
+    public LocalLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Bool lower(Node node) {
+        Node init = AstQuery.childOfKind(node, "init");
+
+        if (node.type().toLowerCase() == "dynamic") {
+            this.context.unsupported(node, "local '" + node.text() + "' is dynamic: " + UnsupportedReasons.ofType("dynamic"));
+            return false;
+        }
+
+        if (AstQuery.isNone(init) || init.count() == 0) {
+            this.context.unsupported(node, "local '" + node.text() + "' needs an initializer");
+            return false;
+        }
+
+        this.openScoped(node);
+        LoweredValue value = ExpressionLowerer(this.context).lower(init.child(0));
+        this.context.scopes().overrideObjectScope(0);
+
+        if (!value.isUsable()) {
+            return false;
+        }
+
+        LoweredValue converted = Coercion.to(this.context, node, value, this.context.kinds().annotatedKind(node));
+
+        if (!this.matchesAnnotation(node, converted)) {
+            return false;
+        }
+
+        this.bind(node, init.child(0), converted);
+        return false;
+    }
+
+    // A `scoped var` owns its object in a scope that ends with the enclosing block.
+    private Int openScoped(Node node) {
+        if (!this.isScoped(node)) {
+            return 0;
+        }
+
+        Int scope = this.context.ops().scopeBegin(this.context.span(node));
+        this.context.scopes().push(scope);
+        this.context.scopes().overrideObjectScope(scope);
+        return scope;
+    }
+
+    private Bool isScoped(Node node) {
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (node.child(index).kind() == "modifier" && node.child(index).text() == "scoped") {
+                return true;
+            }
+
+            if (node.child(index).kind() == "modifiers" && AstQuery.hasModifier(node, "scoped")) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private Void bind(Node node, Node init, LoweredValue value) {
+        if (RefKinds.isReference(value.kind())) {
+            this.bindObject(node, value);
+            return;
+        }
+
+        LoweredValue stored = this.stored(init, value);
+        this.context.env().declare(node.text(), stored.valueId(), stored.kind());
+    }
+
+    // A named object stays a view when it aliases something else: only a fresh result owns.
+    private Void bindObject(Node node, LoweredValue value) {
+        if (value.isBorrowed()) {
+            this.context.env().declareBorrowed(node.text(), value.valueId(), value.kind());
+            return;
+        }
+
+        this.context.env().declare(node.text(), value.valueId(), value.kind());
+    }
+
+    // A String local is a cell no other variable aliases.
+    private LoweredValue stored(Node init, LoweredValue value) {
+        if (value.kind() != "String") {
+            return value;
+        }
+
+        return TextLowerer(this.context).independent(init, value);
+    }
+
+    // The binder's declared or inferred type must agree with the lowered value kind.
+    private Bool matchesAnnotation(Node node, LoweredValue value) {
+        String annotated = this.context.kinds().annotatedKind(node);
+
+        if (annotated.isEmpty() || annotated == value.kind()) {
+            return true;
+        }
+
+        this.context.unsupported(node, "local '" + node.text() + "' is declared " + node.type() + " but lowers to " + value.kind());
+        return false;
+    }
+}

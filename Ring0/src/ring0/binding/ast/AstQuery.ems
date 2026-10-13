@@ -1,0 +1,177 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Small queries on the uniform AST.
+public class AstQuery {
+    public AstQuery() {
+    }
+
+    public static Node none() {
+        return Node("none", "", 0, 0);
+    }
+
+    public static Bool isNone(Node node) {
+        return node.kind() == NodeKinds.none();
+    }
+
+    public static Node childOfKind(Node node, String kind) {
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (node.child(index).kind() == kind) {
+                return node.child(index);
+            }
+
+            index = index + 1;
+        }
+
+        return AstQuery.none();
+    }
+
+    public static Bool hasChild(Node node, String kind) {
+        return !AstQuery.isNone(AstQuery.childOfKind(node, kind));
+    }
+
+    public static Bool hasModifier(Node node, String modifier) {
+        Node modifiers = AstQuery.childOfKind(node, NodeKinds.modifiers());
+        Int index = 0;
+
+        while (index < modifiers.count()) {
+            if (modifiers.child(index).text() == modifier) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public static Bool isStatic(Node node) {
+        return AstQuery.hasModifier(node, "static");
+    }
+
+    public static Bool isAbstract(Node node) {
+        return AstQuery.hasModifier(node, "abstract");
+    }
+
+    public static Bool isOverride(Node node) {
+        return AstQuery.hasModifier(node, "override");
+    }
+
+    public static Bool isFinal(Node node) {
+        return AstQuery.hasModifier(node, "final");
+    }
+
+    public static Bool hasAnnotation(Node node, String name) {
+        Int index = 0;
+
+        while (index < node.count()) {
+            Node child = node.child(index);
+
+            if (child.kind() == NodeKinds.annotation() && Names.same(child.text(), name)) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public static Bool isTypeNode(Node node) {
+        return node.kind() == NodeKinds.typeNode() || node.kind() == NodeKinds.tupleType() || node.kind() == NodeKinds.varType();
+    }
+
+    // First type node among the direct children (parameters, fields, locals).
+    public static Node typeChild(Node node) {
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (AstQuery.isTypeNode(node.child(index))) {
+                return node.child(index);
+            }
+
+            index = index + 1;
+        }
+
+        return AstQuery.none();
+    }
+
+    // True if a child other than annotation, modifiers and type follows the type (the default value).
+    public static Bool hasDefaultValue(Node param) {
+        Int index = 0;
+        Bool seenType = false;
+
+        while (index < param.count()) {
+            Node child = param.child(index);
+
+            if (AstQuery.isTypeNode(child)) {
+                seenType = true;
+            }
+
+            if (seenType && !AstQuery.isTypeNode(child) && child.kind() != NodeKinds.modifiers() && child.kind() != NodeKinds.annotation()) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    // Initializer of variable/field/property/param: the first child after annotations, modifiers, type and accessors.
+    public static Node initChild(Node node) {
+        Int index = 0;
+
+        while (index < node.count()) {
+            Node child = node.child(index);
+            String kind = child.kind();
+
+            if (kind != NodeKinds.annotation() && kind != NodeKinds.modifiers() && kind != NodeKinds.modifier() && kind != NodeKinds.accessors() && !AstQuery.isTypeNode(child)) {
+                return child;
+            }
+
+            index = index + 1;
+        }
+
+        return AstQuery.none();
+    }
+
+    public static String targetKind(String declKind) {
+        if (declKind == NodeKinds.classDeclaration() || declKind == NodeKinds.dataClass() || declKind == NodeKinds.recordDeclaration() || declKind == NodeKinds.exceptionDeclaration()) {
+            return SymbolKinds.classTarget();
+        }
+
+        if (declKind == NodeKinds.interfaceDeclaration()) {
+            return "Interface";
+        }
+
+        if (declKind == NodeKinds.enumDeclaration()) {
+            return "Enum";
+        }
+
+        if (declKind == NodeKinds.methodDeclaration()) {
+            return SymbolKinds.methodTarget();
+        }
+
+        if (declKind == NodeKinds.constructorDeclaration()) {
+            return "Constructor";
+        }
+
+        if (declKind == NodeKinds.propertyDeclaration() || declKind == NodeKinds.fieldDeclaration()) {
+            return "Property";
+        }
+
+        if (declKind == NodeKinds.param()) {
+            return SymbolKinds.parameterTarget();
+        }
+
+        if (declKind == NodeKinds.variableDeclaration() || declKind == NodeKinds.local()) {
+            return "Variable";
+        }
+
+        return SymbolKinds.anyTarget();
+    }
+}

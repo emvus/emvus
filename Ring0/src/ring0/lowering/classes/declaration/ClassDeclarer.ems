@@ -1,0 +1,200 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Declares Sublang class types for Emvus classes. Every class derives from the synthetic root
+// `emvus.Object` whose only field is the dispatch tag; derived classes repeat the inherited fields
+// first because Sublang requires the base's fields as a prefix. Interfaces have no class of their
+// own: a value of interface type is a reference to the root (see DispatchBuilder).
+public class ClassDeclarer {
+    private LoweringContext context;
+
+    public ClassDeclarer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Phase 1: names, so that field and parameter types may mention classes declared later.
+    public Void collect(Node declaration) {
+        ClassTable table = this.context.classes();
+
+        if (table.count() == 0) {
+            table.add("emvus.Object", AstQuery.none());
+        }
+
+        if (table.indexOf(declaration.text()) >= 0) {
+            this.context.unsupported(declaration, "type '" + declaration.text() + "' is declared twice (names are case-insensitive)");
+            return;
+        }
+
+        Int index = table.add(declaration.text(), declaration);
+
+        if (declaration.kind() == "interface") {
+            table.markInterface(index);
+        }
+
+        if (AstQuery.isAbstract(declaration)) {
+            table.markAbstract(index);
+        }
+    }
+
+    // An instance of a generic class: registered like a class under the key `Box<Int>`, with the
+    // type-parameter frame its members are declared and emitted under.
+    public Void collectInstance(Node declaration, String key, String frame) {
+        ClassTable table = this.context.classes();
+
+        if (table.count() == 0) {
+            table.add("emvus.Object", AstQuery.none());
+        }
+
+        Int index = table.add(key, declaration);
+        table.setBinding(index, frame);
+
+        if (declaration.kind() == "interface") {
+            table.markInterface(index);
+        }
+
+        if (AstQuery.isAbstract(declaration)) {
+            table.markAbstract(index);
+        }
+    }
+
+    // Phase 2: bases, interface links, class types, tags and fields.
+    public Bool declareAll() {
+        ClassTable table = this.context.classes();
+
+        if (table.count() == 0) {
+            return true;
+        }
+
+        this.declareRoot();
+        Int index = 1;
+
+        while (index < table.count()) {
+            this.resolveHierarchy(index);
+            index = index + 1;
+        }
+
+        if (this.context.failed()) {
+            return false;
+        }
+
+        this.createTypes();
+        ClassFieldDeclarer(this.context).declare();
+        return !this.context.failed();
+    }
+
+    private Void declareRoot() {
+        ClassTable table = this.context.classes();
+        Int span = this.context.builder().syntheticSpan("ring0:object");
+        Int root = this.context.builder().classType("emvus.Object", span);
+        table.setTypeId(0, root);
+        this.context.builder().registerClass(root, 0);
+    }
+
+    // `based` names the base class (or the base interfaces of an interface); `implements` lists interfaces.
+    private Void resolveHierarchy(Int index) {
+        ClassTable table = this.context.classes();
+        Node declaration = table.nodeAt(index);
+        Node based = AstQuery.childOfKind(declaration, "based");
+        Node implemented = AstQuery.childOfKind(declaration, "implements");
+        table.setParent(index, 0);
+
+        if (table.isInterfaceAt(index)) {
+            this.linkAll(index, based, declaration);
+            return;
+        }
+
+        if (based.count() > 0) {
+            this.setBase(index, based.child(0), declaration);
+        }
+
+        this.linkAll(index, implemented, declaration);
+    }
+
+    private Void setBase(Int index, Node baseType, Node declaration) {
+        ClassTable table = this.context.classes();
+        Int base = table.indexOf(baseType.text());
+
+        if (base < 0) {
+            this.context.function().bindings().push(table.bindingAt(index));
+            String baseKind = this.context.kinds().kindOfType(baseType);
+            this.context.function().bindings().pop();
+
+            if (ClassTable.isClassKind(baseKind)) {
+                base = table.indexOf(ClassTable.nameOfKind(baseKind));
+            }
+        }
+
+        if (base < 0 || table.isInterfaceAt(base)) {
+            this.context.unsupported(declaration, "base type '" + baseType.text() + "' of '" + declaration.text() + "' is not a class that this lowering knows");
+            return;
+        }
+
+        table.setParent(index, base);
+    }
+
+    private Void linkAll(Int index, Node list, Node declaration) {
+        ClassTable table = this.context.classes();
+        Int position = 0;
+
+        while (position < list.count()) {
+            Int target = table.indexOf(list.child(position).text());
+
+            if (target < 0 || !table.isInterfaceAt(target)) {
+                this.context.unsupported(declaration, "'" + list.child(position).text() + "' is not an interface that this lowering knows");
+            }
+
+            if (target >= 0 && table.isInterfaceAt(target)) {
+                table.link(index, target);
+            }
+
+            position = position + 1;
+        }
+    }
+
+    // Bases are created before derived classes; cycles are rejected by the checker, so a
+    // bounded number of passes always terminates.
+    private Void createTypes() {
+        ClassTable table = this.context.classes();
+        Int span = this.context.builder().syntheticSpan("ring0:class");
+        Int pass = 0;
+
+        while (pass < table.count()) {
+            Int index = 1;
+
+            while (index < table.count()) {
+                this.createType(index, span);
+                index = index + 1;
+            }
+
+            pass = pass + 1;
+        }
+    }
+
+    private Void createType(Int index, Int span) {
+        ClassTable table = this.context.classes();
+
+        if (table.typeIdAt(index) != 0) {
+            return;
+        }
+
+        if (table.isInterfaceAt(index)) {
+            table.setTypeId(index, table.typeIdAt(0));
+            return;
+        }
+
+        Int base = table.parentAt(index);
+
+        if (table.typeIdAt(base) == 0) {
+            return;
+        }
+
+        Int typeId = this.context.builder().classTypeExtending(this.context.retain(IrNames.sanitize(table.nameAt(index))), table.typeIdAt(base), span);
+        table.setTypeId(index, typeId);
+
+        if (!table.isInterfaceAt(index)) {
+            this.context.builder().registerClass(typeId, table.tagAt(index));
+        }
+    }
+}

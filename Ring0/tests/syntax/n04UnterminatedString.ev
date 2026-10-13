@@ -1,0 +1,4 @@
+// expect: Unterminated string literal@3
+method f {
+    String s = "abc
+}

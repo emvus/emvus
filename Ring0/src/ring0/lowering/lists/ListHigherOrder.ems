@@ -1,0 +1,168 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `map`, `filter`, `reduce` and `forEach` on a list, lowered as the equivalent counted loop
+// over synthetic locals (`$src`, `$fn`, `$res`, `$acc`, element `$e`). The function argument
+// is evaluated once; each call is a virtual `invoke` on the function value.
+public class ListHigherOrder {
+    private LoweringContext context;
+
+    public ListHigherOrder(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public static Bool handles(String name, Int arguments) {
+        String key = name.toLowerCase();
+        return (key == "map" || key == "filter" || key == "foreach") && arguments == 1 || key == "reduce" && arguments == 2;
+    }
+
+    public LoweredValue call(Node call, LoweredValue list) {
+        String name = call.child(0).text().toLowerCase();
+        Int mark = this.context.env().size();
+        this.context.env().declare("$src", list.valueId(), list.kind());
+        Node function = call.child(call.count() - 1);
+        LoweredValue functionValue = ExpressionLowerer(this.context).lower(function);
+
+        if (!LambdaLowerer.isFunctionKind(this.context, functionValue.kind())) {
+            this.context.unsupported(call, "'" + call.child(0).text() + "' needs a function value (a lambda or a Function variable)");
+            this.context.env().truncate(mark);
+            return LoweredValue.unsupported();
+        }
+
+        this.context.env().declare("$fn", functionValue.valueId(), functionValue.kind());
+        Bool collects = name == "map" || name == "filter";
+
+        if (collects && !this.declareResult(call)) {
+            this.context.env().truncate(mark);
+            return LoweredValue.unsupported();
+        }
+
+        if (name == "reduce" && !this.declareAccumulator(call)) {
+            this.context.env().truncate(mark);
+            return LoweredValue.unsupported();
+        }
+
+        ForEachLowerer(this.context).lower(this.loopOf(call, name));
+        LoweredValue result = this.resultOf(name);
+        this.context.env().truncate(mark);
+        return result;
+    }
+
+    private Bool declareResult(Node call) {
+        Node literal = Node("list-literal", "", call.line(), call.column());
+        literal.setType(call.type());
+        LoweredValue created = ListLowerer(this.context).literal(literal);
+
+        if (!created.isUsable()) {
+            return false;
+        }
+
+        this.context.env().declare("$res", created.valueId(), created.kind());
+        return true;
+    }
+
+    private Bool declareAccumulator(Node call) {
+        LoweredValue initial = ExpressionLowerer(this.context).lower(call.child(1));
+
+        if (!initial.isUsable()) {
+            return false;
+        }
+
+        this.context.env().declare("$acc", initial.valueId(), initial.kind());
+        return true;
+    }
+
+    private LoweredValue resultOf(String name) {
+        if (name == "foreach") {
+            return LoweredValue.nothing();
+        }
+
+        String key = "$res";
+
+        if (name == "reduce") {
+            key = "$acc";
+        }
+
+        Int slot = this.context.env().indexOf(key);
+
+        if (name == "reduce") {
+            return LoweredValue(this.context.env().valueAt(slot), this.context.env().kindAt(slot));
+        }
+
+        return LoweredValue.fresh(this.context.env().valueAt(slot), this.context.env().kindAt(slot));
+    }
+
+    // foreach $e in $src { <step> }
+    private Node loopOf(Node call, String name) {
+        Node loop = Node("foreach", "$e", call.line(), call.column());
+        loop.add(Node("var", "var", call.line(), call.column()));
+        loop.add(this.nameOf(call, "$src"));
+        Node body = Node("block", "", call.line(), call.column());
+        body.add(this.step(call, name));
+        loop.add(body);
+        return loop;
+    }
+
+    private Node step(Node at, String name) {
+        Node applied = this.applyOf(at, name);
+
+        if (name == "map") {
+            return this.statement(at, this.addTo(at, applied));
+        }
+
+        if (name == "filter") {
+            Node test = Node("if", "", at.line(), at.column());
+            test.add(applied);
+            Node then = Node("block", "", at.line(), at.column());
+            then.add(this.statement(at, this.addTo(at, this.nameOf(at, "$e"))));
+            test.add(then);
+            return test;
+        }
+
+        if (name == "reduce") {
+            Node assign = Node("assign", "=", at.line(), at.column());
+            assign.add(this.nameOf(at, "$acc"));
+            assign.add(applied);
+            return this.statement(at, assign);
+        }
+
+        return this.statement(at, applied);
+    }
+
+    // `$fn($e)` or, for reduce, `$fn($acc, $e)`.
+    private Node applyOf(Node at, String name) {
+        Node applied = Node("call", "", at.line(), at.column());
+        applied.add(this.nameOf(at, "$fn"));
+
+        if (name == "reduce") {
+            applied.add(this.nameOf(at, "$acc"));
+        }
+
+        applied.add(this.nameOf(at, "$e"));
+        return applied;
+    }
+
+    private Node addTo(Node at, Node value) {
+        Node call = Node("call", "", at.line(), at.column());
+        Node access = Node("member", "add", at.line(), at.column());
+        access.add(this.nameOf(at, "$res"));
+        call.add(access);
+        call.add(value);
+        return call;
+    }
+
+    private Node statement(Node at, Node expression) {
+        if (expression.kind() == "if") {
+            return expression;
+        }
+
+        Node statement = Node("expr-stmt", "", at.line(), at.column());
+        statement.add(expression);
+        return statement;
+    }
+
+    private Node nameOf(Node at, String name) {
+        return Node("name", name, at.line(), at.column());
+    }
+}

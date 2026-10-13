@@ -1,0 +1,42 @@
+namespace ring0::diagnostic;
+
+use ring0::diagnostic::Diagnostic;
+
+public class DiagnosticBag {
+    private List<Diagnostic> itemList;
+
+    public DiagnosticBag() {
+        this.itemList = List();
+    }
+
+    public Void error(String message, Int line, Int column) {
+        this.itemList.add(Diagnostic("error", message, line, column));
+    }
+
+    public List<Diagnostic> items() {
+        return this.itemList;
+    }
+
+    public Bool hasErrors() {
+        Int index = 0;
+
+        while (index < this.itemList.length()) {
+            if (this.itemList.get(index).isError()) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public Void printAll() {
+        Int index = 0;
+
+        while (index < this.itemList.length()) {
+            println(this.itemList.get(index).format());
+            index = index + 1;
+        }
+    }
+}

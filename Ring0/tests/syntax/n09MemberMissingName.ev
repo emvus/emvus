@@ -1,0 +1,4 @@
+// expect: Expected@3
+method f(Person p) {
+    Int x = p.
+}

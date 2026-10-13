@@ -1,0 +1,200 @@
+namespace ring0::binding;
+
+// Registers the built-in types and signatures (replaces parsing the stdlib).
+// The data lines live in BuiltinTypes and BuiltinMembers.
+public class Builtins {
+    public Builtins() {
+    }
+
+    public static Void register(SymbolTable table) {
+        List<String> typeLines = BuiltinTypes.all();
+        Int index = 0;
+
+        while (index < typeLines.length()) {
+            Builtins.addType(table, typeLines.get(index) + "");
+            index = index + 1;
+        }
+
+        List<String> memberLines = BuiltinMembers.all();
+        index = 0;
+
+        while (index < memberLines.length()) {
+            Builtins.addMember(table, memberLines.get(index) + "");
+            index = index + 1;
+        }
+    }
+
+    private static Void addType(SymbolTable table, String line) {
+        String text = line;
+        String kind = SymbolKinds.builtin();
+        Bool variadic = false;
+
+        if (text.startsWith("interface ")) {
+            kind = NodeKinds.interfaceDeclaration();
+            text = text.substring(10, text.length());
+        }
+
+        if (text.startsWith("exception ")) {
+            kind = NodeKinds.exceptionDeclaration();
+            text = text.substring(10, text.length());
+        }
+
+        if (text.startsWith("variadic ")) {
+            variadic = true;
+            text = text.substring(9, text.length());
+        }
+
+        if (text.startsWith("opaque ")) {
+            kind = SymbolKinds.opaque();
+            text = text.substring(7, text.length());
+        }
+
+        Int colon = text.indexOf(" : ");
+        String header = text;
+
+        if (colon >= 0) {
+            header = text.substring(0, colon);
+        }
+
+        TypeSymbol symbol = TypeSymbol(TypeText.base(header), kind);
+        Builtins.addTypeParams(symbol, TypeText.args(header));
+        symbol.setVariadic(variadic);
+
+        if (colon >= 0) {
+            symbol.addBase(text.substring(colon + 3, text.length()));
+        }
+
+        table.addType(symbol);
+    }
+
+    private static Void addTypeParams(TypeSymbol symbol, List<String> params) {
+        Int index = 0;
+
+        while (index < params.length()) {
+            symbol.addTypeParam(params.get(index) + "", "");
+            index = index + 1;
+        }
+    }
+
+    private static Void addMember(SymbolTable table, String line) {
+        if (line.startsWith("fn ")) {
+            Builtins.addFunction(table, line.substring(3, line.length()));
+            return;
+        }
+
+        Bool isStatic = line.startsWith("static ");
+        String text = line;
+
+        if (isStatic) {
+            text = line.substring(7, line.length());
+        }
+
+        Int dot = Builtins.ownerEnd(text);
+        String owner = TypeText.base(text.substring(0, dot));
+        TypeSymbol symbol = table.findType(owner);
+
+        if (symbol.isMissing()) {
+            return;
+        }
+
+        symbol.addMember(Builtins.parseMember(text.substring(dot + 1, text.length()), owner, isStatic));
+    }
+
+    private static Void addFunction(SymbolTable table, String text) {
+        Int open = text.indexOf("(");
+        Int close = text.lastIndexOf(")");
+        MemberSymbol function = MemberSymbol(text.substring(0, open), SymbolKinds.method(), text.substring(close + 2, text.length()), "");
+        Builtins.addParams(function, text.substring(open + 1, close));
+        function.setStatic(true);
+        table.addTopLevel(function);
+    }
+
+    // `name[<R>](P1,P2):Ret` or `name:Type`
+    private static MemberSymbol parseMember(String rest, String owner, Bool isStatic) {
+        Int stop = Builtins.nameEnd(rest);
+        String name = rest.substring(0, stop);
+        String tail = rest.substring(stop, rest.length());
+
+        if (tail.startsWith(":")) {
+            MemberSymbol property = MemberSymbol(name, SymbolKinds.property(), tail.substring(1, tail.length()), owner);
+            property.setReadOnly(true);
+            return property;
+        }
+
+        String typeParamText = "";
+
+        if (tail.startsWith("<")) {
+            Int closeAngle = tail.indexOf(">(");
+            typeParamText = tail.substring(1, closeAngle);
+            tail = tail.substring(closeAngle + 1, tail.length());
+        }
+
+        Int closeParen = tail.lastIndexOf(")");
+        MemberSymbol method = MemberSymbol(name, SymbolKinds.method(), tail.substring(closeParen + 2, tail.length()), owner);
+        method.setStatic(isStatic);
+        Builtins.addParams(method, tail.substring(1, closeParen));
+        Builtins.addMethodTypeParams(method, TypeText.splitTop(typeParamText));
+        return method;
+    }
+
+    private static Void addMethodTypeParams(MemberSymbol method, List<String> names) {
+        Int index = 0;
+
+        while (index < names.length()) {
+            method.addTypeParam(names.get(index) + "", "");
+            index = index + 1;
+        }
+    }
+
+    private static Int nameEnd(String rest) {
+        Int stop = 0;
+
+        while (stop < rest.length()) {
+            String piece = rest.charAt(stop).toString();
+
+            if (piece == "(" || piece == "<" || piece == ":") {
+                return stop;
+            }
+
+            stop = stop + 1;
+        }
+
+        return stop;
+    }
+
+    // The first dot outside of <...> separates owner and member.
+    private static Int ownerEnd(String text) {
+        Int depth = 0;
+        Int index = 0;
+
+        while (index < text.length()) {
+            String piece = text.charAt(index).toString();
+
+            if (piece == "<") {
+                depth = depth + 1;
+            }
+
+            if (piece == ">") {
+                depth = depth - 1;
+            }
+
+            if (piece == "." && depth == 0) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return text.length() - 1;
+    }
+
+    private static Void addParams(MemberSymbol member, String list) {
+        List<String> parts = TypeText.splitTop(list);
+        Int index = 0;
+
+        while (index < parts.length()) {
+            member.addParam("p" + index.toString(), parts.get(index) + "", false);
+            index = index + 1;
+        }
+    }
+}

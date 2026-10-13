@@ -1,0 +1,8 @@
+// expect: Duplicate declaration of 'person'
+package main
+
+class Person {
+}
+
+class person {
+}

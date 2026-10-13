@@ -1,0 +1,143 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Single switch patterns: bind names and record their coverage in SwitchInfo.
+public class PatternChecker {
+    private CheckContext context;
+
+    public PatternChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void applyPattern(Node pattern, String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        String kind = pattern.kind();
+
+        if (kind == NodeKinds.patternSuccess()) {
+            this.resultPatternChecker().applySuccess(pattern, subject, info);
+            return;
+        }
+
+        if (kind == NodeKinds.patternError()) {
+            this.resultPatternChecker().applyError(pattern, subject, info);
+            return;
+        }
+
+        if (kind == NodeKinds.patternName()) {
+            this.applyName(pattern, pattern.text(), subject, enumSymbol, info);
+            return;
+        }
+
+        if (kind == NodeKinds.pattern()) {
+            this.applyNamedPattern(pattern, subject, enumSymbol, info);
+            return;
+        }
+
+        if (kind == NodeKinds.patternValue() || kind == NodeKinds.patternLiteral()) {
+            this.applyValue(pattern, subject, enumSymbol, info);
+        }
+    }
+
+    // Expression switch: `success`/`error` arrive as plain name patterns here.
+    private Void applyNamedPattern(Node pattern, String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        Bool onResult = TypeText.isResult(subject);
+
+        if (onResult && Names.same(pattern.text(), "success")) {
+            this.resultPatternChecker().applySuccess(pattern, subject, info);
+            return;
+        }
+
+        if (onResult && Names.same(pattern.text(), "error")) {
+            this.resultPatternChecker().applyError(pattern, subject, info);
+            return;
+        }
+
+        if (pattern.text() == "true") {
+            info.markTrue();
+            return;
+        }
+
+        if (pattern.text() == "false") {
+            info.markFalse();
+            return;
+        }
+
+        this.applyName(pattern, Names.lastSegment(pattern.text()), subject, enumSymbol, info);
+    }
+
+    private Void applyName(Node pattern, String name, String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        if (info.catchAll()) {
+            this.context.report(pattern, "Pattern '" + name + "' is unreachable after a catch-all");
+        }
+
+        if (enumSymbol.kind() == NodeKinds.enumDeclaration() && this.coverEnumEntry(pattern, name, enumSymbol, info)) {
+            return;
+        }
+
+        info.markCatchAll();
+        this.context.scope().declare(name, subject, false);
+    }
+
+    // True if `name` is an entry of the enum.
+    private Bool coverEnumEntry(Node pattern, String name, TypeSymbol enumSymbol, SwitchInfo info) {
+        Int index = 0;
+
+        while (index < enumSymbol.entries().length()) {
+            if (Names.same(enumSymbol.entries().get(index), name)) {
+                this.recordEntry(pattern, name, info);
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private Void recordEntry(Node pattern, String name, SwitchInfo info) {
+        if (info.entries().contains(Names.lower(name))) {
+            this.context.report(pattern, "Duplicate case '" + name + "'");
+        }
+
+        info.entries().add(Names.lower(name));
+    }
+
+    private Void applyValue(Node pattern, String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        if (pattern.count() == 0) {
+            return;
+        }
+
+        Node value = pattern.child(0);
+        String type = this.expressionChecker().typeOf(value, subject);
+
+        if (!this.context.isLoose(subject) && !this.context.rules().assignable(subject, type)) {
+            this.context.report(value, "Pattern of type '" + type + "' cannot match a subject of type '" + subject + "'");
+        }
+
+        if (value.kind() == NodeKinds.boolLiteral()) {
+            this.markBoolean(value, info);
+        }
+
+        if (value.kind() == NodeKinds.memberAccess() && enumSymbol.kind() == NodeKinds.enumDeclaration()) {
+            info.entries().add(Names.lower(value.text()));
+        }
+    }
+
+    private Void markBoolean(Node value, SwitchInfo info) {
+        if (value.text() == "true") {
+            info.markTrue();
+        }
+
+        if (value.text() == "false") {
+            info.markFalse();
+        }
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private ResultPatternChecker resultPatternChecker() {
+        return ResultPatternChecker(this.context);
+    }
+}

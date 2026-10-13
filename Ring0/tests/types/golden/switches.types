@@ -1,0 +1,15 @@
+8:12 switch : String @ switch enum (Rank)
+8:20 name rank : Rank @ parameter rank
+9:19 string m : String @ literal string
+10:18 string a : String @ literal string
+15:12 switch : Int @ switch boolean (Boolean)
+15:20 name on : Boolean @ parameter on
+16:17 int-literal 1 : Int @ literal int-literal
+17:18 int-literal 0 : Int @ literal int-literal
+22:12 switch : Int @ switch catch-all (String)
+22:20 name text : String @ parameter text
+23:9 string one : String @ literal string
+23:18 int-literal 1 : Int @ literal int-literal
+24:20 int-literal 0 : Int @ literal int-literal
+
+check ok

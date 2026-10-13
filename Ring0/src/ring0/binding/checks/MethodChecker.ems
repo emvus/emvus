@@ -1,0 +1,123 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class MethodChecker {
+    private CheckContext context;
+
+    public MethodChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    private MemberSymbol memberSymbol(Node decl, String ownerName, String kind) {
+        Int index = 0;
+
+        if (ownerName == "") {
+            while (index < this.context.table().topLevel().length()) {
+                MemberSymbol candidate = this.context.table().topLevel().get(index);
+
+                if (candidate.kind() == kind && candidate.line() == decl.line() && candidate.column() == decl.column()) {
+                    return candidate;
+                }
+
+                index = index + 1;
+            }
+
+            return MemberSymbol.missing();
+        }
+
+        TypeSymbol owner = this.context.table().findType(ownerName);
+
+        while (index < owner.members().length()) {
+            MemberSymbol candidate = owner.members().get(index);
+
+            if (candidate.kind() == kind && candidate.line() == decl.line() && candidate.column() == decl.column()) {
+                return candidate;
+            }
+
+            index = index + 1;
+        }
+
+        return MemberSymbol.missing();
+    }
+
+    private Void declareParams(MemberSymbol method) {
+        Int index = 0;
+
+        while (index < method.paramCount()) {
+            this.context.scope().declareKind(method.paramName(index), method.paramType(index), false, SymbolKinds.parameter());
+            index = index + 1;
+        }
+    }
+
+    public Void checkMethod(Node decl, String ownerName) {
+        Node block = AstQuery.childOfKind(decl, NodeKinds.block());
+
+        if (AstQuery.isNone(block)) {
+            return;
+        }
+
+        MemberSymbol method = this.memberSymbol(decl, ownerName, SymbolKinds.method());
+
+        if (method.isMissing()) {
+            return;
+        }
+
+        Int pushed = this.context.pushTypeParams(method.typeParams(), method.typeBounds());
+        this.context.scope().push();
+        this.declareParams(method);
+        this.context.setReturnType(method.type());
+        this.context.setCollecting(false);
+        this.context.setLoopDepth(0);
+        this.context.setInConstructor(false);
+        this.statementChecker().checkBlock(block);
+
+        if (method.type() != TypeNames.voidType() && !TypeText.isUnknown(method.type()) && !this.returnAnalysis().terminates(block)) {
+            this.context.report(decl, "Method '" + decl.text() + "' must return a value on all code paths");
+        }
+
+        this.context.scope().pop();
+        this.context.setReturnType("");
+        this.context.popTypeParams(pushed);
+    }
+
+    public Void checkConstructor(Node decl, TypeSymbol owner) {
+        Node block = AstQuery.childOfKind(decl, NodeKinds.block());
+        MemberSymbol constructor = this.memberSymbol(decl, owner.name(), SymbolKinds.constructor());
+
+        if (AstQuery.isNone(block) || constructor.isMissing()) {
+            return;
+        }
+
+        this.context.scope().push();
+        this.declareParams(constructor);
+        this.context.setReturnType(TypeNames.voidType());
+        this.context.setCollecting(false);
+        this.context.setLoopDepth(0);
+        this.context.setInConstructor(true);
+        Node superCall = AstQuery.childOfKind(decl, NodeKinds.superCall());
+        Int index = 0;
+
+        while (index < superCall.count()) {
+            this.expressionChecker().typeOf(superCall.child(index), "");
+            index = index + 1;
+        }
+
+        this.statementChecker().checkBlock(block);
+        this.context.setInConstructor(false);
+        this.context.scope().pop();
+        this.context.setReturnType("");
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private ReturnAnalysis returnAnalysis() {
+        return ReturnAnalysis(this.context);
+    }
+
+    private StatementChecker statementChecker() {
+        return StatementChecker(this.context);
+    }
+}

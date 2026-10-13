@@ -1,0 +1,10 @@
+// expect: expects 2 argument(s), found 1
+package main
+
+method<Int> add(Int a, Int b) {
+    return a + b
+}
+
+method run {
+    Int total = add(1)
+}

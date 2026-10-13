@@ -1,0 +1,143 @@
+namespace ring0::lowering;
+
+// Naming and parsing for monomorphized instances. An instance of `Box` with Int is registered
+// as `Box<Int>` (kinds joined by commas), which is also how the checker prints the type.
+public class GenericKinds {
+    public GenericKinds() {
+    }
+
+    // `A,B<C,D>,E` -> [A, B<C,D>, E]
+    public static List<String> splitTopLevel(String text) {
+        List<String> parts = List();
+        Int depth = 0;
+        Int start = 0;
+        Int index = 0;
+
+        while (index <= text.length()) {
+            String c = "";
+
+            if (index < text.length()) {
+                c = text.charAt(index).toString();
+            }
+
+            if (c == "<" || c == "[") {
+                depth = depth + 1;
+            }
+
+            if (c == ">" || c == "]") {
+                depth = depth - 1;
+            }
+
+            if ((c == "," && depth == 0) || index == text.length()) {
+                String part = text.substring(start, index) + "";
+
+                if (!part.isEmpty()) {
+                    parts.add(part + "");
+                }
+
+                start = index + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return parts;
+    }
+
+    public static String keyOf(String base, List<String> kinds) {
+        String key = base + "<";
+        Int index = 0;
+
+        while (index < kinds.length()) {
+            if (index > 0) {
+                key = key + ",";
+            }
+
+            key = key + kinds.get(index);
+            index = index + 1;
+        }
+
+        return key + ">";
+    }
+
+    // Kind of `Box<Int>` (an already registered instance of a generic class or record), "" when
+    // the text is not an application of a generic type or the instance does not exist.
+    public static String kindOfApplication(LoweringContext context, String text) {
+        Int open = 0;
+
+        while (open < text.length() && text.charAt(open).toString() != "<") {
+            open = open + 1;
+        }
+
+        if (open == 0 || open >= text.length() || text.substring(text.length() - 1, text.length()) != ">") {
+            return "";
+        }
+
+        String base = text.substring(0, open) + "";
+
+        if (context.generics().indexOf(base, true) < 0) {
+            return "";
+        }
+
+        List<String> arguments = GenericKinds.splitTopLevel(text.substring(open + 1, text.length() - 1) + "");
+        List<String> kinds = List();
+        Int index = 0;
+
+        while (index < arguments.length()) {
+            String kind = context.kinds().kindOfTypeText(arguments.get(index));
+
+            if (kind.isEmpty()) {
+                return "";
+            }
+
+            kinds.add(kind + "");
+            index = index + 1;
+        }
+
+        return GenericKinds.kindOfKey(context, GenericKinds.keyOf(base, kinds));
+    }
+
+    public static String kindOfKey(LoweringContext context, String key) {
+        Int classIndex = context.classes().indexOf(key);
+
+        if (classIndex >= 0) {
+            return ClassTable.kindFor(context.classes().nameAt(classIndex));
+        }
+
+        if (context.records().indexOf(key) >= 0) {
+            return RecordTable.kindFor(key);
+        }
+
+        return "";
+    }
+
+    // Position of the '>' that closes the '<' at `open`, -1 when unbalanced.
+    public static Int matching(String text, Int open) {
+        Int depth = 0;
+        Int index = open;
+
+        while (index < text.length()) {
+            String c = text.charAt(index).toString();
+
+            if (c == "<") {
+                depth = depth + 1;
+            }
+
+            if (c == ">") {
+                depth = depth - 1;
+
+                if (depth == 0) {
+                    return index;
+                }
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public static Bool isNameChar(String c) {
+        return c == "_" || c.charAt(0).isLetter() || c.charAt(0).isDigit();
+    }
+}

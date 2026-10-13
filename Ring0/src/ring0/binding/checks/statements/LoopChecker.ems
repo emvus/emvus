@@ -1,0 +1,95 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class LoopChecker {
+    private CheckContext context;
+
+    public LoopChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void checkFor(Node stmt) {
+        this.context.scope().push();
+        Node init = stmt.child(0);
+        Int index = 0;
+
+        while (index < init.count()) {
+            this.statementChecker().checkStatement(init.child(index));
+            index = index + 1;
+        }
+
+        Node condition = stmt.child(1);
+
+        if (condition.count() > 0) {
+            this.expressionChecker().requireBoolean(condition.child(0), "Condition of 'for'");
+        }
+
+        Node update = stmt.child(2);
+        index = 0;
+
+        while (index < update.count()) {
+            this.expressionChecker().typeOf(update.child(index), "");
+            index = index + 1;
+        }
+
+        this.context.setLoopDepth(this.context.loopDepth() + 1);
+        this.statementChecker().checkBody(stmt.child(3));
+        this.context.setLoopDepth(this.context.loopDepth() - 1);
+        this.context.scope().pop();
+    }
+
+    public Void checkForeach(Node stmt) {
+        Node typeNode = stmt.child(0);
+        String iterable = this.expressionChecker().typeOf(stmt.child(1), "");
+        String element = this.elementTypeOf(iterable);
+
+        if (TypeText.isNumeric(iterable) || iterable == TypeNames.booleanType()) {
+            this.context.report(stmt.child(1), "Cannot iterate over a value of type '" + iterable + "'");
+        }
+
+        String variableType = element;
+
+        if (typeNode.kind() != NodeKinds.varType()) {
+            variableType = this.context.resolver().resolve(typeNode, this.context.typeParamNames());
+            this.context.requireAssignable(variableType, element, stmt.child(1), "Loop variable '" + stmt.text() + "'");
+        }
+
+        this.context.scope().push();
+        this.context.scope().declare(stmt.text(), variableType, false);
+        this.context.setLoopDepth(this.context.loopDepth() + 1);
+        this.statementChecker().checkBody(stmt.child(2));
+        this.context.setLoopDepth(this.context.loopDepth() - 1);
+        this.context.scope().pop();
+    }
+
+    // Lists yield their elements, dictionaries their keys, strings their characters.
+    private String elementTypeOf(String iterable) {
+        if (iterable == TypeNames.stringType()) {
+            return TypeNames.charType();
+        }
+
+        String base = TypeText.base(iterable);
+        Bool sequence = base == TypeNames.listType() || base == TypeNames.iListType() || base == TypeNames.iIterableType() || base == TypeNames.iIteratorType();
+
+        if (!sequence && base != TypeNames.dictionaryType()) {
+            return TypeNames.unknownType();
+        }
+
+        List<String> args = TypeText.args(iterable);
+
+        if (args.length() == 0) {
+            return TypeNames.unknownType();
+        }
+
+        return args.get(0) + "";
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private StatementChecker statementChecker() {
+        return StatementChecker(this.context);
+    }
+}

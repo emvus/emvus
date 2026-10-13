@@ -1,0 +1,65 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Finds function types named in a type text (`Function<Int,Int>`, `BiFunction<..>`, `Runnable`)
+// and creates the interface each one needs, under the type-parameter frame of the text.
+public class FunctionTypeDiscovery {
+    private LoweringContext context;
+
+    public FunctionTypeDiscovery(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Function types named in a type text (`Function<Int,Int>`, `Runnable`) need their interface.
+    public Void register(Node at, String text, String frame) {
+        Int index = 0;
+
+        while (index < text.length()) {
+            this.registerAt(at, text, index, frame);
+            index = index + 1;
+        }
+    }
+
+    private Void registerAt(Node at, String text, Int index, String frame) {
+        Int length = text.length();
+        Bool atWordStart = index == 0 || !GenericKinds.isNameChar(text.charAt(index - 1).toString());
+
+        if (!atWordStart) {
+            return;
+        }
+
+        Int end = -1;
+
+        if (index + 9 <= length && text.substring(index, index + 9) == "Function<") {
+            end = GenericKinds.matching(text, index + 8);
+        }
+
+        if (index + 11 <= length && text.substring(index, index + 11) == "BiFunction<") {
+            end = GenericKinds.matching(text, index + 10);
+        }
+
+        if (end > 0) {
+            this.ensure(at, text.substring(index, end + 1) + "", frame);
+        }
+
+        if (index + 8 <= length && text.substring(index, index + 8) == "Runnable" && (index + 8 == length || !GenericKinds.isNameChar(text.charAt(index + 8).toString()))) {
+            this.ensure(at, "Runnable", frame);
+        }
+    }
+
+    private Void ensure(Node at, String text, String frame) {
+        this.context.function().bindings().push(frame);
+        List<String> texts = FunctionTypes.signatureTexts(text);
+        List<String> kinds = FunctionTypes.kindsOf(this.context, texts);
+        this.context.function().bindings().pop();
+
+        if (kinds.length() == 0) {
+            return;
+        }
+
+        String result = kinds.get(kinds.length() - 1) + "";
+        kinds.removeAt(kinds.length() - 1);
+        FunctionTypes.ensureInterface(this.context, at, kinds, result);
+    }
+}

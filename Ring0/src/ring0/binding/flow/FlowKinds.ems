@@ -1,0 +1,20 @@
+namespace ring0::binding;
+
+// Node kinds only the flow analysis needs; the shared kinds stay in NodeKinds.
+public class FlowKinds {
+    public FlowKinds() {
+    }
+
+    public static String interpolation() {
+        return "interpolation";
+    }
+
+    public static String elseBranch() {
+        return "else";
+    }
+
+    // Prefix of the synthetic environment keys that track constructor initialization.
+    public static String fieldKeyPrefix() {
+        return "this.";
+    }
+}

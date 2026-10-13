@@ -1,0 +1,163 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class ArgumentChecker {
+    private CheckContext context;
+
+    public ArgumentChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public MemberSymbol pickByArity(List<MemberSymbol> candidates, Int argCount) {
+        Int at = this.pickIndex(candidates, argCount);
+
+        if (at < 0) {
+            return MemberSymbol.missing();
+        }
+
+        return candidates.get(at);
+    }
+
+    // Position of the first candidate accepting argCount arguments, -1 if none does.
+    public Int pickIndex(List<MemberSymbol> candidates, Int argCount) {
+        Int index = 0;
+
+        while (index < candidates.length()) {
+            MemberSymbol candidate = candidates.get(index);
+
+            if ((candidate.kind() == NodeKinds.methodDeclaration() || candidate.kind() == NodeKinds.constructorDeclaration()) && argCount >= candidate.requiredCount() && argCount <= candidate.paramCount()) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    // Overload number among the candidates of the same owner (declaration order).
+    public Int overloadNumber(List<MemberSymbol> candidates, Int at) {
+        String owner = candidates.get(at).owner();
+        Int number = 0;
+        Int index = 0;
+
+        while (index < at) {
+            if (Names.same(candidates.get(index).owner(), owner)) {
+                number = number + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return number;
+    }
+
+    public String arityText(MemberSymbol member) {
+        if (member.requiredCount() == member.paramCount()) {
+            return member.paramCount().toString();
+        }
+
+        return member.requiredCount().toString() + " to " + member.paramCount().toString();
+    }
+
+    // Checks arguments against parameters and binds generic parameters in `names`/`values`.
+    public Void checkArguments(MemberSymbol chosen, Node node, String displayName, List<String> ownerNames, List<String> ownerValues, List<String> names, List<String> values) {
+        Int count = node.count() - 1;
+        Int pass = 0;
+
+        while (pass < 2) {
+            Int index = 0;
+
+            while (index < count && index < chosen.paramCount()) {
+                Node arg = node.child(index + 1);
+                Bool isLambda = arg.kind() == NodeKinds.lambda();
+
+                if ((pass == 0 && !isLambda) || (pass == 1 && isLambda)) {
+                    String raw = TypeSubstitution.substitute(chosen.paramType(index), ownerNames, ownerValues);
+                    String wanted = TypeSubstitution.substitute(raw, names, values);
+                    String actual = this.expressionChecker().typeOf(arg, wanted);
+                    this.typeUnifier().unify(raw, actual, names, values);
+                    String refined = TypeSubstitution.substitute(raw, names, values);
+
+                    if (!this.context.rules().assignable(refined, actual)) {
+                        this.context.report(arg, "Argument " + (index + 1).toString() + " of '" + displayName + "': expected '" + refined + "', found '" + actual + "'");
+                    }
+                }
+
+                index = index + 1;
+            }
+
+            pass = pass + 1;
+        }
+
+        Int extra = chosen.paramCount();
+
+        while (extra < count) {
+            this.expressionChecker().typeOf(node.child(extra + 1), "");
+            extra = extra + 1;
+        }
+    }
+
+    public String callMethod(List<MemberSymbol> candidates, Node node, String name, String receiver, String expected) {
+        Int argCount = node.count() - 1;
+        Int at = this.pickIndex(candidates, argCount);
+        MemberSymbol chosen = this.pickByArity(candidates, argCount);
+
+        if (chosen.isMissing()) {
+            MemberSymbol first = candidates.get(0);
+            this.context.report(node, "'" + name + "' expects " + this.arityText(first) + " argument(s), found " + argCount.toString());
+            this.callChecker().evaluateArguments(node);
+            return TypeNames.unknownType();
+        }
+
+        if (!this.memberLookup().accessAllowed(chosen)) {
+            this.context.report(node, "Method '" + name + "' of '" + chosen.owner() + "' is " + chosen.access());
+        }
+
+        List<String> ownerNames = List();
+        List<String> ownerValues = List();
+        this.memberLookup().ownerSubstitution(chosen, receiver, ownerNames, ownerValues);
+        List<String> names = List();
+        List<String> values = List();
+        Int index = 0;
+
+        while (index < chosen.typeParams().length()) {
+            names.add(chosen.typeParams().get(index) + "");
+            values.add(TypeNames.unknownType());
+            index = index + 1;
+        }
+
+        String rawReturn = TypeSubstitution.substitute(chosen.type(), ownerNames, ownerValues);
+
+        if (!expected.isEmpty()) {
+            this.typeUnifier().unify(rawReturn, expected, names, values);
+        }
+
+        this.checkArguments(chosen, node, name, ownerNames, ownerValues, names, values);
+        node.bind(SymbolKinds.method(), chosen.name(), CallTarget.make(chosen.owner(), this.overloadNumber(candidates, at), values));
+        String result = TypeSubstitution.substitute(rawReturn, names, values);
+
+        if (chosen.isAsync()) {
+            return "Fiber<" + result + ">";
+        }
+
+        return result;
+    }
+
+    private CallChecker callChecker() {
+        return CallChecker(this.context);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private MemberLookup memberLookup() {
+        return MemberLookup(this.context);
+    }
+
+    private TypeUnifier typeUnifier() {
+        return TypeUnifier();
+    }
+}

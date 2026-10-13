@@ -1,0 +1,12 @@
+// A list literal, add, for-in and size.
+static method<Int> main {
+    List<Int> xs = [1, 2, 3]
+    xs.add(4)
+    Int total = 0
+
+    for (Int n in xs) {
+        total = total + n
+    }
+
+    return total * 10 + xs.size()
+}

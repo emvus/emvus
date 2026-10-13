@@ -1,0 +1,116 @@
+namespace ring0::lowering;
+
+// Long division of whole + remainder / divisor into exactly 55 significant bits plus a
+// sticky flag, using only 64-bit integer arithmetic. The remainder stays below the
+// divisor (at most 10^18), so doubling it never overflows.
+public class BinaryQuotient {
+    private Int divisor;
+    private Int remainder;
+    private Int accumulator;
+    private Int length;
+    private Int exponent;
+    private Bool sticky;
+
+    public BinaryQuotient(Int whole, Int rest, Int divisorValue) {
+        this.divisor = divisorValue;
+        this.remainder = rest;
+        this.accumulator = 0;
+        this.length = 0;
+        this.exponent = 0;
+        this.sticky = false;
+        this.start(whole);
+        this.fillTo55Bits();
+    }
+
+    public Int bits() {
+        return this.accumulator;
+    }
+
+    public Int exponent2() {
+        return this.exponent;
+    }
+
+    public Bool isSticky() {
+        return this.sticky || this.remainder != 0;
+    }
+
+    private Void start(Int whole) {
+        if (whole > 0) {
+            this.accumulator = whole;
+            this.length = BinaryQuotient.bitLength(whole);
+            this.exponent = this.length - 1;
+            this.dropExcessBits();
+            return;
+        }
+
+        Int zeros = 0;
+
+        while (this.accumulator == 0) {
+            this.shiftRemainder();
+
+            if (this.accumulator == 0) {
+                zeros = zeros + 1;
+            }
+        }
+
+        this.length = 1;
+        this.exponent = 0 - (zeros + 1);
+    }
+
+    // Shifts one fractional bit out of the remainder; it becomes the accumulator's
+    // lowest bit once the accumulator holds a leading one already.
+    private Void shiftRemainder() {
+        this.remainder = this.remainder * 2;
+        Int bit = 0;
+
+        if (this.remainder >= this.divisor) {
+            this.remainder = this.remainder - this.divisor;
+            bit = 1;
+        }
+
+        this.accumulator = this.accumulator * 2 + bit;
+    }
+
+    private Void dropExcessBits() {
+        if (this.length <= 55) {
+            return;
+        }
+
+        Int drop = this.length - 55;
+        Int factor = BinaryQuotient.powerOfTwo(drop);
+        this.sticky = this.accumulator % factor != 0;
+        this.accumulator = this.accumulator / factor;
+        this.length = 55;
+    }
+
+    private Void fillTo55Bits() {
+        while (this.length < 55) {
+            this.shiftRemainder();
+            this.length = this.length + 1;
+        }
+    }
+
+    public static Int bitLength(Int value) {
+        Int count = 0;
+        Int rest = value;
+
+        while (rest > 0) {
+            rest = rest / 2;
+            count = count + 1;
+        }
+
+        return count;
+    }
+
+    public static Int powerOfTwo(Int exponent) {
+        Int result = 1;
+        Int index = 0;
+
+        while (index < exponent) {
+            result = result * 2;
+            index = index + 1;
+        }
+
+        return result;
+    }
+}

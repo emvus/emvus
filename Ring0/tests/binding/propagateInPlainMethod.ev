@@ -1,0 +1,10 @@
+// expect: '?' can only be used in a method that returns Result
+package main
+
+method<Result<Int, IOException>> read {
+    fail IOException()
+}
+
+method run {
+    Int value = read()?
+}

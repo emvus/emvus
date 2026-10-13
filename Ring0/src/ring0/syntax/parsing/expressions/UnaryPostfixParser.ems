@@ -1,0 +1,155 @@
+namespace ring0::syntax;
+
+// Prefix operators, postfix chains (`.x`, `(...)`, `[...]`, `?`, `!`, `++`) and cascades.
+public class UnaryPostfixParser {
+    private ParserState state;
+
+    public UnaryPostfixParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parseUnary() {
+        Token token = this.state.peek();
+
+        if (!this.isPrefixOperator(token)) {
+            return this.parsePostfix();
+        }
+
+        this.state.advance();
+        Node unary = this.state.nodeAt(token, AstKinds.unary(), token.text());
+        unary.add(this.parseUnary());
+        return unary;
+    }
+
+    private Bool isPrefixOperator(Token token) {
+        return token.isSymbol("!") || token.isSymbol("-") || token.isSymbol("+") || token.isSymbol("++") || token.isSymbol("--");
+    }
+
+    // A primary followed by its chain; trailing `..` sections turn it into one flat cascade.
+    private Node parsePostfix() {
+        Node chained = this.parsePostfixChain(PrimaryParser(this.state).parsePrimary());
+
+        if (!this.state.checkSymbol("..") || this.state.cascadesHeld()) {
+            return chained;
+        }
+
+        Node cascade = this.state.node(AstKinds.cascade(), "");
+        cascade.add(chained);
+
+        while (this.state.checkSymbol("..") && !this.state.cascadesHeld()) {
+            Token dots = this.state.advance();
+            Node section = this.state.nodeAt(dots, AstKinds.cascadeSection(), "");
+            section.add(this.parseCascadeSection());
+            cascade.add(section);
+        }
+
+        return cascade;
+    }
+
+    // The value of `..x = value` must stop at the next `..`, which starts the following
+    // section of this cascade instead of cascading on the value.
+    private Node parseCascadeSection() {
+        Token first = this.state.peek();
+
+        if (!first.isName()) {
+            this.state.errorHere("Expected member name after '..'");
+            return this.state.nodeAt(first, AstKinds.errorNode(), "");
+        }
+
+        this.state.advance();
+        Node chain = this.parsePostfixChain(this.state.nodeAt(first, AstKinds.nameReference(), first.text()));
+
+        if (!this.state.checkSymbol("=")) {
+            return chain;
+        }
+
+        Token equals = this.state.advance();
+        Int saved = this.state.holdCascades();
+        Node value = ExpressionParser(this.state).parse();
+        this.state.restoreCascades(saved);
+        Node assign = this.state.nodeAt(equals, AstKinds.assign(), "=");
+        assign.add(chain);
+        assign.add(value);
+        return assign;
+    }
+
+    private Node parsePostfixChain(Node left) {
+        Token token = this.state.peek();
+        Bool sameLine = token.line() == this.state.peekAt(-1).line();
+        Node next = this.parsePostfixStep(left, token, sameLine);
+
+        if (next.kindIs(AstKinds.none())) {
+            return left;
+        }
+
+        return this.parsePostfixChain(next);
+    }
+
+    // One postfix step, or a `none` node when no postfix operator follows.
+    private Node parsePostfixStep(Node left, Token token, Bool sameLine) {
+        if (token.isSymbol(".") && this.state.peekAt(1).isName()) {
+            return this.parseMember(left);
+        }
+
+        if (token.isSymbol("(") && sameLine) {
+            return this.parseCall(left);
+        }
+
+        if (token.isSymbol("[") && sameLine) {
+            return this.parseIndex(left, token);
+        }
+
+        if (token.isSymbol("?") && TernaryLookahead(this.state).isPropagate(token)) {
+            return this.wrap(AstKinds.propagate(), "", left);
+        }
+
+        if (token.isSymbol("!") && sameLine) {
+            return this.wrap(AstKinds.unwrap(), "", left);
+        }
+
+        if ((token.isSymbol("++") || token.isSymbol("--")) && sameLine) {
+            return this.wrap(AstKinds.postfix(), token.text(), left);
+        }
+
+        return this.state.nodeAt(token, AstKinds.none(), "");
+    }
+
+    // Consumes the operator token and wraps the operand in a one-child node.
+    private Node wrap(String kind, String text, Node operand) {
+        Token token = this.state.advance();
+        Node node = this.state.nodeAt(token, kind, text);
+        node.add(operand);
+        return node;
+    }
+
+    private Node parseMember(Node left) {
+        Token name = this.state.peekAt(1);
+        this.state.advance();
+        this.state.advance();
+        Node member = this.state.nodeAt(name, AstKinds.memberAccess(), name.text());
+        member.add(left);
+        return member;
+    }
+
+    private Node parseIndex(Node left, Token open) {
+        this.state.advance();
+        Int saved = this.state.clearCascades();
+        Node index = this.state.nodeAt(open, AstKinds.indexAccess(), "");
+        index.add(left);
+        index.add(ExpressionParser(this.state).parse());
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol("]", "Expected ']' after index");
+        return index;
+    }
+
+    private Node parseCall(Node callee) {
+        Token open = this.state.advance();
+        Int saved = this.state.clearCascades();
+        Node call = this.state.nodeAt(open, AstKinds.callExpression(), "");
+        call.add(callee);
+        ExpressionParser(this.state).parseSequence(call, ")");
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol(")", "Expected ')' after arguments");
+        return call;
+    }
+}

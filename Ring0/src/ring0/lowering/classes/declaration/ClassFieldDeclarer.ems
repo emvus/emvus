@@ -1,0 +1,156 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Creates the Sublang fields of every class: the root's tag first, then for each class the
+// inherited fields (Sublang requires the base's fields as a prefix of the derived class, with
+// the same names and types) followed by its own fields and properties.
+public class ClassFieldDeclarer {
+    private LoweringContext context;
+
+    public ClassFieldDeclarer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Parent-first so a derived class can copy the base's field list.
+    public Void declare() {
+        ClassTable table = this.context.classes();
+        List<Int> done = List();
+        Int index = 0;
+
+        while (index < table.count()) {
+            done.add(0);
+            index = index + 1;
+        }
+
+        this.createRootField(done);
+        Int pass = 0;
+
+        while (pass < table.count()) {
+            index = 1;
+
+            while (index < table.count()) {
+                this.createClassFields(index, done);
+                index = index + 1;
+            }
+
+            pass = pass + 1;
+        }
+    }
+
+    private Void createRootField(List<Int> done) {
+        ClassTable table = this.context.classes();
+        Int span = this.context.builder().syntheticSpan("ring0:object");
+        table.fields().begin(0);
+        Int field = this.context.builder().classField(table.typeIdAt(0), "tag", this.context.builder().intType(), true, span);
+        table.fields().add(0, "tag", field, "Int", AstQuery.none(), 0, false);
+        done.set(0, 1);
+    }
+
+    private Void createClassFields(Int index, List<Int> done) {
+        ClassTable table = this.context.classes();
+
+        if (done.get(index) == 1 || table.isInterfaceAt(index)) {
+            return;
+        }
+
+        Int parent = table.parentAt(index);
+
+        if (done.get(parent) == 0) {
+            return;
+        }
+
+        table.fields().begin(index);
+        this.context.function().bindings().push(table.bindingAt(index));
+        this.copyInherited(index, parent);
+        this.addOwnFields(index);
+        this.context.function().bindings().pop();
+        done.set(index, 1);
+    }
+
+    private Void copyInherited(Int index, Int parent) {
+        ClassTable table = this.context.classes();
+        Int span = this.context.builder().syntheticSpan("ring0:class");
+        Int slot = table.fields().firstSlotAt(parent);
+        Int end = slot + table.fields().countAt(parent);
+
+        while (slot < end) {
+            Int typeId = this.context.kinds().typeIdOfKind(table.fields().kindAt(slot));
+            Int field = this.context.builder().classField(table.typeIdAt(index), this.context.retain(table.fields().nameAt(slot)), typeId, true, span);
+            table.fields().add(index, table.fields().nameAt(slot), field, table.fields().kindAt(slot), table.fields().initAt(slot), table.fields().ownerAt(slot), table.fields().settableAt(slot));
+            slot = slot + 1;
+        }
+    }
+
+    private Void addOwnFields(Int index) {
+        ClassTable table = this.context.classes();
+        Node body = AstQuery.childOfKind(table.nodeAt(index), "body");
+        Int position = 0;
+
+        while (position < body.count()) {
+            Node member = body.child(position);
+
+            if (member.kind() == "property" || member.kind() == "field") {
+                this.addField(index, member);
+            }
+
+            position = position + 1;
+        }
+    }
+
+    private Void addField(Int index, Node member) {
+        ClassTable table = this.context.classes();
+
+        if (AstQuery.isStatic(member)) {
+            this.context.unsupported(member, "static field '" + member.text() + "' needs module-level storage, which Sublang does not provide");
+            return;
+        }
+
+        if (table.fields().slotOf(index, member.text()) >= 0) {
+            this.context.unsupported(member, "field '" + member.text() + "' is declared twice in '" + table.nameAt(index) + "'");
+            return;
+        }
+
+        String kind = this.context.kinds().kindOfType(AstQuery.typeChild(member));
+
+        if (kind.isEmpty() || kind == "Void" || kind == "Unsupported") {
+            this.context.unsupported(member, "field '" + member.text() + "' has a type that is not lowerable: " + UnsupportedReasons.ofType(SourceTypeText.of(AstQuery.typeChild(member))));
+            return;
+        }
+
+        if (ListTable.isListKind(kind)) {
+            this.context.unsupported(member, "field '" + member.text() + "' is a list: Sublang class fields hold primitives, records, text and owned class references, not lists (backend requirement: List-typed class fields)");
+            return;
+        }
+
+        Int span = this.context.span(member);
+        Int field = this.context.builder().classField(table.typeIdAt(index), this.context.retain(member.text()), this.context.kinds().typeIdOfKind(kind), true, span);
+        table.fields().add(index, member.text(), field, kind, this.initializerOf(member), index, ClassFieldDeclarer.hasSetter(member));
+    }
+
+    private Node initializerOf(Node member) {
+        Node last = member.child(member.count() - 1);
+
+        if (last.kind() == "type" || last.kind() == "accessors" || last.kind() == "modifiers" || last.kind() == "var") {
+            return AstQuery.none();
+        }
+
+        return last;
+    }
+
+    private static Bool hasSetter(Node member) {
+        Node accessors = AstQuery.childOfKind(member, "accessors");
+        Int index = 0;
+
+        while (index < accessors.count()) {
+            if (accessors.child(index).text() == "set") {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return member.kind() == "field";
+    }
+}

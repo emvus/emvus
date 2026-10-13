@@ -1,0 +1,78 @@
+namespace ring0::syntax;
+
+// kind: identifier | keyword | number | float | string | symbol | eof
+public class Token {
+    private String kindValue;
+    private String textValue;
+    private Int lineValue;
+    private Int columnValue;
+
+    public Token(String kind, String text, Int line, Int column) {
+        this.kindValue = kind;
+        this.textValue = text;
+        this.lineValue = line;
+        this.columnValue = column;
+    }
+
+    public String kind() {
+        return this.kindValue + "";
+    }
+
+    public String text() {
+        return this.textValue + "";
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    public Bool kindIs(String kind) {
+        return this.kindValue == kind;
+    }
+
+    public Bool isSymbol(String text) {
+        return this.kindValue == "symbol" && this.textValue == text;
+    }
+
+    public Bool isKeyword(String text) {
+        return this.kindValue == "keyword" && this.textValue == text;
+    }
+
+    public Bool isIdentifier(String text) {
+        return this.kindValue == "identifier" && this.textValue == text;
+    }
+
+    public Bool isEof() {
+        return this.kindValue == "eof";
+    }
+
+    public Bool isNumber() {
+        return this.kindValue == "number";
+    }
+
+    public Bool isFloat() {
+        return this.kindValue == "float";
+    }
+
+    public Bool isString() {
+        return this.kindValue == "string";
+    }
+
+    // Plain identifier, as opposed to a reserved keyword.
+    public Bool isPlainName() {
+        return this.kindValue == "identifier";
+    }
+
+    // Identifier or keyword: both can act as names (e.g. `exception` as a variable name).
+    public Bool isName() {
+        return this.kindValue == "identifier" || this.kindValue == "keyword";
+    }
+
+    public Bool isWord(String text) {
+        return this.isName() && this.textValue == text;
+    }
+}

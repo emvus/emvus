@@ -1,0 +1,170 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Top-level methods by case-insensitive name; the function id is filled when the
+// method is emitted. Emvus resolves identifiers without regard to case.
+public class MethodTable {
+    private List<String> keys;
+    private List<Node> declarations;
+    private List<Int> functionIds;
+    private List<String> returnKinds;
+    private List<Int> paramStarts;
+    private List<Int> paramIds;
+    private List<String> paramKinds;
+    private List<Int> paramCounts;
+    private List<Int> owners;
+    private List<Int> selfIds;
+    private List<Int> selfMutations;
+    private List<Int> paramMutations;
+    private List<Int> mutationStarts;
+    private List<String> bindings;
+
+    public MethodTable() {
+        this.keys = List();
+        this.declarations = List();
+        this.functionIds = List();
+        this.returnKinds = List();
+        this.paramStarts = List();
+        this.paramIds = List();
+        this.paramKinds = List();
+        this.paramCounts = List();
+        this.owners = List();
+        this.selfIds = List();
+        this.selfMutations = List();
+        this.paramMutations = List();
+        this.mutationStarts = List();
+        this.bindings = List();
+    }
+
+    public Void add(Node declaration) {
+        this.addKeyed(declaration.text(), declaration, -1);
+    }
+
+    // Class members use the key `class.member/arity`; `owner` is the class index (-1 for top level).
+    public Int addKeyed(String key, Node declaration, Int owner) {
+        this.keys.add(key.toLowerCase() + "");
+        this.declarations.add(declaration);
+        this.functionIds.add(0);
+        this.returnKinds.add("Void");
+        this.paramStarts.add(0);
+        this.paramCounts.add(0);
+        this.owners.add(owner);
+        this.selfIds.add(0);
+        this.selfMutations.add(0);
+        this.bindings.add("");
+        this.mutationStarts.add(this.paramMutations.length());
+        Int count = AstQuery.childOfKind(declaration, "params").count();
+        Int position = 0;
+
+        while (position < count) {
+            this.paramMutations.add(0);
+            position = position + 1;
+        }
+
+        return this.keys.length() - 1;
+    }
+
+    public String keyAt(Int index) {
+        return this.keys.get(index) + "";
+    }
+
+    // Type-parameter frame of a generic method instance ("" for ordinary methods).
+    public String bindingAt(Int index) {
+        return this.bindings.get(index) + "";
+    }
+
+    public Void setBinding(Int index, String frame) {
+        this.bindings.set(index, frame + "");
+    }
+
+    public Int ownerAt(Int index) {
+        return this.owners.get(index);
+    }
+
+    // The receiver parameter of an instance method or constructor-less member; 0 when static.
+    public Int selfIdAt(Int index) {
+        return this.selfIds.get(index);
+    }
+
+    public Void setSelfId(Int index, Int valueId) {
+        this.selfIds.set(index, valueId);
+    }
+
+    public Bool mutatesSelfAt(Int index) {
+        return this.selfMutations.get(index) == 1;
+    }
+
+    public Void markSelfMutated(Int index) {
+        this.selfMutations.set(index, 1);
+    }
+
+    // Parameter positions follow the source order (the receiver is separate).
+    public Bool mutatesParamAt(Int index, Int position) {
+        return this.paramMutations.get(this.mutationStarts.get(index) + position) == 1;
+    }
+
+    public Void markParamMutated(Int index, Int position) {
+        this.paramMutations.set(this.mutationStarts.get(index) + position, 1);
+    }
+
+    public Int count() {
+        return this.keys.length();
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public Node declarationAt(Int index) {
+        return this.declarations.get(index);
+    }
+
+    public Int functionIdAt(Int index) {
+        return this.functionIds.get(index);
+    }
+
+    public String returnKindAt(Int index) {
+        return this.returnKinds.get(index) + "";
+    }
+
+    public Void record(Int index, Int functionId, String returnKind) {
+        this.functionIds.set(index, functionId);
+        this.returnKinds.set(index, returnKind + "");
+    }
+
+    // Parameters are recorded right after their method's signature is declared.
+    public Void beginParams(Int index) {
+        this.paramStarts.set(index, this.paramIds.length());
+    }
+
+    public Void addParam(Int index, Int valueId, String kind) {
+        this.paramIds.add(valueId);
+        this.paramKinds.add(kind + "");
+        this.paramCounts.set(index, this.paramCounts.get(index) + 1);
+    }
+
+    public Int paramCountAt(Int index) {
+        return this.paramCounts.get(index);
+    }
+
+    public Int paramIdAt(Int index, Int position) {
+        return this.paramIds.get(this.paramStarts.get(index) + position);
+    }
+
+    public String paramKindAt(Int index, Int position) {
+        return this.paramKinds.get(this.paramStarts.get(index) + position) + "";
+    }
+}

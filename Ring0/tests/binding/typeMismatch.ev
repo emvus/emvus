@@ -1,0 +1,6 @@
+// expect: Initializer of 'count': expected 'Int', found 'String'
+package main
+
+method run {
+    Int count = "many"
+}

@@ -1,0 +1,231 @@
+namespace ring0::lowering;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+use sublang::ir::SublangCursor;
+use sublang::ir::SublangModule;
+use sublang::ir::SublangOperationBuilder;
+use sublang::ir::data::SublangCollectionBuilder;
+
+// Shared mutable state of one lowering run. Lowerers are stateless wrappers around it,
+// which avoids cyclic class references between statement and expression lowering.
+//
+// The context owns its own cursor instead of using the builder's: every function is
+// declared before any body is emitted (forward references, mutual recursion), so bodies are
+// entered by id. SublangBuilder has no re-entry call, but cursor and operation builders are
+// public and take the module.
+public class LoweringContext {
+    private SublangBuilder irBuilder;
+    private SublangCursor cursor;
+    private SublangOperationBuilder operations;
+    private SublangCollectionBuilder collectionOperations;
+    private DiagnosticBag bag;
+    private VariableEnv variables;
+    private MethodTable methodTable;
+    private ClassTable classTable;
+    private EnumTable enumTable;
+    private DispatchTable dispatchTable;
+    private Int classIndex;
+    private RecordTable recordTable;
+    private List<LoopFrame> loopFrames;
+    private Int sourceIdentifier;
+    private Int integerFailureId;
+    private RetainedPool pool;
+    private Int textListTypeId;
+    private ScopeStack scopes;
+    private ConstructionState construction;
+    private Int panicFailureId;
+    private FunctionState functionState;
+    private ListTable listTable;
+    private GenericDecls genericDecls;
+    private LambdaTable lambdaTable;
+
+    public LoweringContext(SublangBuilder builder, DiagnosticBag diagnostics, RetainedPool retainedPool, String sourceName) {
+        this.irBuilder = builder;
+        this.cursor = SublangCursor(builder.module());
+        this.operations = SublangOperationBuilder(this.cursor);
+        this.collectionOperations = SublangCollectionBuilder(this.cursor);
+        this.bag = diagnostics;
+        this.variables = VariableEnv();
+        this.methodTable = MethodTable();
+        this.classTable = ClassTable();
+        this.enumTable = EnumTable();
+        this.dispatchTable = DispatchTable();
+        this.classIndex = -1;
+        this.recordTable = RecordTable();
+        this.loopFrames = List();
+        this.sourceIdentifier = builder.source(sourceName);
+        this.integerFailureId = builder.failure("emvus.integer_failure");
+        this.panicFailureId = builder.failure("emvus.panic");
+        this.pool = retainedPool;
+        this.textListTypeId = 0;
+        this.scopes = ScopeStack();
+        this.construction = ConstructionState();
+        this.functionState = FunctionState();
+        this.listTable = ListTable();
+        this.genericDecls = GenericDecls();
+        this.lambdaTable = LambdaTable();
+    }
+
+    public SublangBuilder builder() {
+        return this.irBuilder;
+    }
+
+    public SublangOperationBuilder ops() {
+        return this.operations;
+    }
+
+    public SublangCollectionBuilder collections() {
+        return this.collectionOperations;
+    }
+
+    public SublangCursor cursor() {
+        return this.cursor;
+    }
+
+    public VariableEnv env() {
+        return this.variables;
+    }
+
+    public MethodTable methods() {
+        return this.methodTable;
+    }
+
+    public RecordTable records() {
+        return this.recordTable;
+    }
+
+    public ClassTable classes() {
+        return this.classTable;
+    }
+
+    public EnumTable enums() {
+        return this.enumTable;
+    }
+
+    public DispatchTable dispatch() {
+        return this.dispatchTable;
+    }
+
+    // Class whose member body is being emitted, -1 outside classes. Bare names resolve to its members.
+    public Int currentClass() {
+        return this.classIndex;
+    }
+
+    public Void setCurrentClass(Int index) {
+        this.classIndex = index;
+    }
+
+    public Int newBlock() {
+        return this.cursor.currentFunction().addBlock();
+    }
+
+    public Void enterBlock(Int blockId) {
+        this.cursor.enterBlock(blockId);
+    }
+
+    public Int beginBlock() {
+        Int blockId = this.newBlock();
+        this.enterBlock(blockId);
+        return blockId;
+    }
+
+    public Int addBlockParam(Int typeId) {
+        return this.cursor.currentFunction().addBlockParam(this.cursor.currentBlockId(), typeId);
+    }
+
+    // Registers a function (profile and conservative effect summary like the builder's
+    // beginFunction) without entering it; callers enter it with enterFunction.
+    public Int declareFunction(String name, Int returnTypeId, Int span) {
+        SublangModule module = this.irBuilder.module();
+        Int id = module.addFunction(this.retain(name), returnTypeId, 0, span);
+        module.functionAt(id).setProfile(this.irBuilder.startupProfile());
+        module.functionAt(id).setEffectSummary(module.semantics().conservativeEffectSummary());
+        return id;
+    }
+
+    public Void enterFunction(Int functionId) {
+        this.cursor.enterFunction(functionId);
+        this.scopes.reset();
+    }
+
+    // Generated helper ids and the return kind of the function being emitted.
+    public FunctionState function() {
+        return this.functionState;
+    }
+
+    // Owner scopes that are open at this point of the body (function scope, `scoped var`s).
+    public ScopeStack scopes() {
+        return this.scopes;
+    }
+
+    // The object a constructor is building and the fields initialized so far.
+    public ConstructionState construction() {
+        return this.construction;
+    }
+
+    // Generic methods and types; instances are created by InstanceDiscovery.
+    public GenericDecls generics() {
+        return this.genericDecls;
+    }
+
+    // Lambda classes created by discovery.
+    public LambdaTable lambdas() {
+        return this.lambdaTable;
+    }
+
+    // List layouts created so far (one per element kind).
+    public ListTable lists() {
+        return this.listTable;
+    }
+
+    // Kind and type-id resolution for source types.
+    public KindResolver kinds() {
+        return KindResolver(this);
+    }
+
+    // List<Byte>: the representation of every Emvus String value (dynamic text).
+    public Int textListType() {
+        if (this.textListTypeId == 0) {
+            Int span = this.irBuilder.syntheticSpan("ring0:text");
+            this.textListTypeId = this.irBuilder.listType(this.irBuilder.byteType(), span);
+        }
+
+        return this.textListTypeId;
+    }
+
+    public Int textRefType() {
+        return this.irBuilder.module().types().refTypeFor(this.textListType());
+    }
+
+    public List<LoopFrame> frames() {
+        return this.loopFrames;
+    }
+
+    public Int integerFailure() {
+        return this.integerFailureId;
+    }
+
+    public Int panicFailure() {
+        return this.panicFailureId;
+    }
+
+    // Sublang stores the strings it receives without copying them, so names taken from
+    // the AST are kept alive in the caller-owned pool for the lifetime of the module.
+    public String retain(String text) {
+        return this.pool.keep(text);
+    }
+
+    public Int span(Node node) {
+        return this.irBuilder.span(this.sourceIdentifier, node.line(), node.column());
+    }
+
+    public Void unsupported(Node node, String message) {
+        this.bag.error("Lowering: " + message, node.line(), node.column());
+    }
+
+    public Bool failed() {
+        return this.bag.hasErrors();
+    }
+}
