@@ -21,7 +21,7 @@ export const MEMBER_LINES: string[] = [
   'String.length():Int', 'String.isEmpty():Boolean', 'String.isBlank():Boolean', 'String.toLowerCase():String',
   'String.toUpperCase():String', 'String.trim():String', 'String.startsWith(String):Boolean',
   'String.endsWith(String):Boolean', 'String.contains(String):Boolean', 'String.indexOf(String):Int',
-  'String.substring(Int,Int):String', 'String.charAt(Int):Char', 'String.replace(String,String):String',
+  'String.substring(Int,Int):String', 'String.charAt(Int):Char', 'String.byteAt(Int):Int', 'String.replace(String,String):String',
   'String.split(String):List<String>', 'String.repeat(Int):String', 'String.compareTo(String):Int',
   'Char.isDigit():Boolean', 'Char.isLetter():Boolean',
   'Int.abs():Int', 'Int.compareTo(Int):Int', 'static Int.parse(String):Result<Int,?>',

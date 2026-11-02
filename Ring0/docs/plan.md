@@ -21,7 +21,7 @@ Pipeline today:
 Principles: Emvus semantics are never weakened to fit the backend (a missing backend capability is
 a diagnostic and a documented requirement); Int is Int64 with an explicit overflow mode per
 operation; text is an owned `List<Byte>`; all compiler and program runs happen in the capped
-sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostics are English.
+sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostics are English.
 
 ## Checklist
 
@@ -84,5 +84,5 @@ sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostic
 
 ### Housekeeping
 
-- [ ] Pureline leftovers: `ExpressionChecker` (263 lines), `LoweringContext` (231), `InstanceDiscovery` (225), methods of 31 to 49 lines
-- [ ] vscode-emvus aligned with the Ring0 syntax
+- [x] Pureline 1.5 review: no folder above 8 `.ems` files, no `else`, no brace-free control flow, no method above 50 lines (65 methods of 31 to 50 lines are in the review band), largest classes are the constant tables `AstKinds` (416) and `NodeKinds` (400); class size is guidance only (`PL-STRUCT-003`)
+- [x] vscode-emvus aligned with Ring0 (syntax unchanged since it was derived; `String.byteAt` added to its builtins; its 49 tests pass against `Ring0/tests`)
