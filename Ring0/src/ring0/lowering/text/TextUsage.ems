@@ -8,6 +8,26 @@ public class TextUsage {
     public TextUsage() {
     }
 
+    // True when the tree calls a member named `indexOf`; the search helper is then created with the
+    // other text helpers, before any user function. (A List.indexOf also matches: the helper is unused.)
+    public static Bool callsIndexOf(Node node) {
+        if (node.kind() == "member" && node.text() == "indexOf") {
+            return true;
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (TextUsage.callsIndexOf(node.child(index))) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
     public static Bool isUsedIn(Node node) {
         if (node.kind() == "string" || node.type() == "String") {
             return true;

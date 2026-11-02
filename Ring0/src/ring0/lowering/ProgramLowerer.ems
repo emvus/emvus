@@ -82,17 +82,27 @@ public class ProgramLowerer {
     // call an owned-text function (Sublang emit-llvm abort, reproducible without Ring0 via the
     // wire files kept in docs/lowering.md).
     private Void createTextHelpers(LoweringContext context) {
+        Bool text = false;
+        Bool search = false;
         Int index = 0;
 
         while (index < context.methods().count()) {
-            if (TextUsage.isUsedIn(context.methods().declarationAt(index))) {
-                TextHelpers.assignFunction(context);
-                TextHelpers.appendIntFunction(context);
-                TextHelpers.appendBoolFunction(context);
-                return;
-            }
-
+            Node declaration = context.methods().declarationAt(index);
+            text = text || TextUsage.isUsedIn(declaration);
+            search = search || TextUsage.callsIndexOf(declaration);
             index = index + 1;
+        }
+
+        if (!text) {
+            return;
+        }
+
+        TextHelpers.assignFunction(context);
+        TextHelpers.appendIntFunction(context);
+        TextHelpers.appendBoolFunction(context);
+
+        if (search) {
+            TextHelpers.indexOfFunction(context);
         }
     }
 

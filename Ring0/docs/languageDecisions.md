@@ -5,7 +5,7 @@ platform contracts of Sublang (`Sublang_Runtime_IR.md`, next steps 1 to 3: typed
 Linux file I/O and process arguments through IR). Ring0 lowers to those contracts once they exist; until
 then they are the open gate G1. Nothing below asks for C source or an FFI.
 
-Status: decision 1 is **accepted and implemented** except `indexOf`; decisions 2 and 3 are **accepted**
+Status: decision 1 is **accepted and implemented**; decisions 2 and 3 are **accepted**
 (recommendation C and the parameter-passing style) and not implemented yet. Each section states the facts found in Ring0 today, the options,
 and a recommendation. Accepting one means updating `lowering.md`, `plan.md` and the fixtures it names.
 
@@ -37,8 +37,8 @@ existing fixture changes.
 
 Done: `String.byteAt` in `BuiltinMembers`; `byteAt` and `substring` lowered with `list.get` +
 `byte.to_int` and `text.slice`; `charAt` diagnosed; fixtures `textByteAt`, `textByteAtOutOfRange`,
-`textSubstringOutOfRange`, `textCharAtReserved`. Open: `indexOf` needs a generated search loop helper
-and is not lowered yet.
+`textSubstringOutOfRange`, `textCharAtReserved`. `indexOf` is lowered by a generated
+search helper (fixture `textIndexOf`).
 
 ## 2. Contract of `main`'s `Int`
 

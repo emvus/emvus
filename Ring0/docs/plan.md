@@ -45,7 +45,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [x] 59 lowering fixtures green with Flow and Optimind on
 - [ ] `println`/`print`/`Process.args()` on the runtime IR
 - [x] Byte-wise `byteAt` and `substring` (bytes, decision 1); `charAt` is reserved
-- [ ] `indexOf` (needs a generated search helper)
+- [x] `indexOf` (generated search helper `emvus.text.indexOf`; lowered to wire, not yet run natively)
 - [x] Literal top-level constants (Int, Bool, Float; inlined, see `lowering.md`; String constants and static fields still wait for G7 storage)
 - [ ] Nullable reference lowering (String, classes, lists; needs G3). `Int`, `Bool` and `Float` cannot be null in the checker (`TypeRules.assignable`), so there is no primitive-payload step; an `Option<T>` library type is a separate language decision
 

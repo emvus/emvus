@@ -143,6 +143,77 @@ public class TextHelpers {
         return id;
     }
 
+    // indexOf(haystack: borrow_read, needle: borrow_read) -> Int: byte index of the first match,
+    // -1 when there is none, 0 for an empty needle. Naive search: the outer loop walks the start
+    // positions 0..len(haystack)-len(needle), the inner loop compares needle bytes. Both indexes
+    // stay in range by construction, so no access can abort.
+    public static Int indexOfFunction(LoweringContext context) {
+        if (context.function().helperId(3) != 0) {
+            return context.function().helperId(3);
+        }
+
+        Int resume = TextHelpers.savedFunction(context);
+        Int block = TextHelpers.savedBlock(context);
+        Int span = context.builder().syntheticSpan("ring0:text.indexOf");
+        Int id = TextHelpers.declare(context, "emvus.text.indexOf", context.builder().intType(), span);
+        context.function().setHelperId(3, id);
+        Int haystack = context.cursor().currentFunction().addParam("haystack", context.textRefType(), "borrow_read", false);
+        Int needle = context.cursor().currentFunction().addParam("needle", context.textRefType(), "borrow_read", false);
+        context.beginBlock();
+        Int zero = context.ops().constInt(0, span);
+        Int needleLength = context.collections().length(needle, span);
+        Int last = context.ops().intBinary("int.sub", context.collections().length(haystack, span), needleLength, "trap", context.integerFailure(), span);
+        Int outer = context.newBlock();
+        context.ops().branchTo(outer, TextHelpers.one(zero), span);
+        TextHelpers.searchStarts(context, outer, haystack, needle, needleLength, last, zero, span);
+        TextHelpers.restore(context, resume, block);
+        return id;
+    }
+
+    // Outer loop of indexOf: block parameter `start`, leaves with -1 when no start position is left.
+    private static Void searchStarts(LoweringContext context, Int outer, Int haystack, Int needle, Int needleLength, Int last, Int zero, Int span) {
+        Int inner = context.newBlock();
+        Int missing = context.newBlock();
+        context.enterBlock(outer);
+        Int start = context.addBlockParam(context.builder().intType());
+        Int fits = context.ops().compare("ge", last, start, span);
+        List<Int> entry = TextHelpers.one(start);
+        entry.add(zero);
+        context.ops().condBranch(fits, inner, entry, missing, TextHelpers.none(), span);
+        context.enterBlock(missing);
+        context.ops().returnValue(context.ops().constInt(-1, span), span);
+        TextHelpers.compareBytes(context, inner, outer, haystack, needle, needleLength, span);
+    }
+
+    // Inner loop of indexOf: block parameters `start` and `offset`; a match returns `start`.
+    private static Void compareBytes(LoweringContext context, Int inner, Int outer, Int haystack, Int needle, Int needleLength, Int span) {
+        Int step = context.newBlock();
+        Int found = context.newBlock();
+        Int next = context.newBlock();
+        Int advance = context.newBlock();
+        context.enterBlock(inner);
+        Int start = context.addBlockParam(context.builder().intType());
+        Int offset = context.addBlockParam(context.builder().intType());
+        Int more = context.ops().compare("lt", offset, needleLength, span);
+        context.ops().condBranch(more, step, TextHelpers.none(), found, TextHelpers.none(), span);
+        context.enterBlock(found);
+        context.ops().returnValue(start, span);
+        context.enterBlock(step);
+        Int position = context.ops().intBinary("int.add", start, offset, "trap", context.integerFailure(), span);
+        Int left = context.collections().byteToInt(context.collections().get(haystack, position, span), span);
+        Int right = context.collections().byteToInt(context.collections().get(needle, offset, span), span);
+        Int equal = context.ops().compare("eq", left, right, span);
+        context.ops().condBranch(equal, next, TextHelpers.none(), advance, TextHelpers.none(), span);
+        context.enterBlock(next);
+        Int nextOffset = context.ops().intBinary("int.add", offset, context.ops().constInt(1, span), "trap", context.integerFailure(), span);
+        List<Int> again = TextHelpers.one(start);
+        again.add(nextOffset);
+        context.ops().branchTo(inner, again, span);
+        context.enterBlock(advance);
+        Int nextStart = context.ops().intBinary("int.add", start, context.ops().constInt(1, span), "trap", context.integerFailure(), span);
+        context.ops().branchTo(outer, TextHelpers.one(nextStart), span);
+    }
+
     // Declares a helper and enters it; the caller restores the function being emitted.
     private static Int declare(LoweringContext context, String name, Int returnType, Int span) {
         Int id = context.declareFunction(name, returnType, span);

@@ -42,8 +42,8 @@ commit frontend changes before testing against them.
 | `main` returning `Int` or `Void` | lowers now | Void `main` is wrapped into an `() -> Int` entry returning 0 |
 | `String` values, `+`, `${}` of String/Int/Bool, `==`, `!=`, `length()` | lowers now | owned `List<Byte>` in a per-function text scope; parameters `borrow_read`; locals are cells assigned by copy; returns copy into an owned list (`returnOwned`) |
 | `Float` or other types in `${}` | blocked | backend requirement: float/decimal formatting primitive |
-| String `byteAt(i)`, `substring(start, end)` | lowers now | byte semantics (`languageDecisions.md`, decision 1): `list.get` + `byte.to_int`, `text.slice` of `end - start` bytes; out-of-range indexes abort. `charAt` is reserved and diagnosed |
-| String `indexOf`, `contains`, `split`, `trim`, `replace`, character length | blocked | `indexOf` needs a generated search helper (not written yet); the others need more text operations; there is no character-aware length |
+| String `byteAt(i)`, `substring(start, end)`, `indexOf(text)` | lowers now | byte semantics (`languageDecisions.md`, decision 1): `list.get` + `byte.to_int`, `text.slice` of `end - start` bytes; out-of-range indexes abort. `indexOf` is the generated helper `emvus.text.indexOf` (naive search, first byte index, -1 when absent, 0 for an empty needle). `charAt` is reserved and diagnosed |
+| String `contains`, `split`, `trim`, `replace`, character length | blocked | need more text operations; there is no character-aware length |
 | `record`, `data class` (primitive fields) | lowers now | Sublang value records; constructor defaults, `copy()`, `withX()`, positional destructuring `var { a, _ }` |
 | Records with String/record/List fields, data class methods | blocked | backend requirement: reference fields in value records, or class lowering for data classes |
 | `exception` types | lowers now | value records of their primitive fields (a hidden `code` field when none); built-in `Exception`, `IOException`, `UnknownCaseException` |

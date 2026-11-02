@@ -1,0 +1,13 @@
+// indexOf returns the byte index of the first match, -1 when absent, 0 for an empty needle.
+static method<Int> main {
+    String text = "emvus compiler"
+    String repeated = "aaab"
+    String short = "ab"
+    Int word = text.indexOf("com")
+    Int missing = text.indexOf("zzz")
+    Int empty = text.indexOf("")
+    Int letter = text.indexOf("r")
+    Int longer = short.indexOf("abc")
+    Int overlap = repeated.indexOf("ab")
+    return word + missing + empty + letter + longer + overlap
+}

@@ -111,7 +111,7 @@ public class TextLowerer {
     }
 
     // String members. Indexes and lengths count UTF-8 bytes (docs/languageDecisions.md, decision 1):
-    // `length()`, `byteAt(i)` and `substring(start, end)` with `end` exclusive. Out-of-range
+    // `length()`, `byteAt(i)`, `substring(start, end)` with `end` exclusive and `indexOf(text)`. Out-of-range
     // indexes abort, like list access.
     public LoweredValue memberCall(Node node, LoweredValue receiver) {
         Node member = node.child(0);
@@ -128,6 +128,10 @@ public class TextLowerer {
 
         if (name == "substring" && node.count() == 3) {
             return this.substring(node, receiver);
+        }
+
+        if (name == "indexOf" && node.count() == 2) {
+            return this.indexOf(node, receiver);
         }
 
         if (name == "charAt") {
@@ -164,6 +168,29 @@ public class TextLowerer {
         Int length = this.context.ops().intBinary("int.sub", end.valueId(), start.valueId(), "trap", this.context.integerFailure(), span);
         Int slice = this.context.collections().textSlice(this.context.textListType(), receiver.valueId(), start.valueId(), length, this.context.scopes().functionScope(), span);
         return LoweredValue(slice, "String");
+    }
+
+    // Byte index of the first occurrence of the argument, -1 when absent (generated search helper).
+    private LoweredValue indexOf(Node node, LoweredValue receiver) {
+        LoweredValue needle = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (!needle.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (needle.kind() != "String") {
+            this.context.unsupported(node.child(1), "String.indexOf needs a String argument, found " + needle.kind());
+            return LoweredValue.unsupported();
+        }
+
+        List<Int> args = List();
+        args.add(receiver.valueId());
+        args.add(needle.valueId());
+        List<String> modes = List();
+        modes.add("borrow_read");
+        modes.add("borrow_read");
+        Int found = this.context.ops().callDirect(TextHelpers.indexOfFunction(this.context), args, modes, this.context.span(node));
+        return LoweredValue(found, "Int");
     }
 
     private LoweredValue intArgument(Node call, Int position) {
