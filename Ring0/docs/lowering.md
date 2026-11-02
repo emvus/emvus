@@ -19,6 +19,13 @@ scripts/checkLowering.sh                                           # all fixture
 `optimind:`, `effects:` and `lowering:` lines of the pipeline plan (`<binary>.plan`).
 `RING0_FLOW` and `RING0_OPTIMIND` override the defaults (`on`, `on`) for bisecting.
 
+Setup on a fresh machine: `scripts/sandbox/build.sh` builds the image `emerald-selfhost-sandbox`
+(LLVM 22 libraries, clang 22, gcc, diffutils; needs network once). The scripts expect the Emerald
+root as `$RING0_EMERALD_ROOT` with `emerald-stable/emerald-compiler` next to `stdlib/` and `runtime/`
+(copy them from the Emerald kit's `bin/`, `stdlib/`, `runtime/`), and Sublang's own scripts read
+`SUBLANG_EMERALD_ROOT` the same way. Scripts are stored without the executable bit: run them with
+`bash scripts/<name>.sh`, or `chmod +x` them.
+
 The Sublang checkout is read-only input (`RING0_SUBLANG_CHECKOUT`); nothing is copied into either
 repository. The frontend is taken from `git archive HEAD` unless `RING0_BASE_SRC` is set, so
 commit frontend changes before testing against them.

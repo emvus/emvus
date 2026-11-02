@@ -52,8 +52,8 @@ sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostic
 ### Language decisions
 
 - [x] `String` operations count UTF-8 bytes (`languageDecisions.md`, decision 1: bytes now, `byteAt`, characters later)
-- [ ] `main` exit code contract (the entry prints `main`'s Int today)
-- [ ] Which Emvus subset is the stable input of Ring1
+- [x] `main` exit code contract decided (`languageDecisions.md`, decision 2): the Int is the exit status, `Void` is 0; the entry keeps printing as a named bootstrap behavior until Sublang offers output and exit (G1), then the switch is part of the G1 work
+- [x] Ring1 subset v0 decided (`languageDecisions.md`, decision 3): parameter-passing style over primitive types, strings, enums, primitive records, `Result` and lists passed as parameters; no list-typed class fields; idiomatic Ring2 waits for G3 to G6
 
 ### Runtime IR (ours) and platform layer (Sublang)
 

@@ -5,7 +5,8 @@ platform contracts of Sublang (`Sublang_Runtime_IR.md`, next steps 1 to 3: typed
 Linux file I/O and process arguments through IR). Ring0 lowers to those contracts once they exist; until
 then they are the open gate G1. Nothing below asks for C source or an FFI.
 
-Status: decision 1 is **accepted and implemented** except `indexOf`; decisions 2 and 3 are **proposed, not decided.** Each section states the facts found in Ring0 today, the options,
+Status: decision 1 is **accepted and implemented** except `indexOf`; decisions 2 and 3 are **accepted**
+(recommendation C and the parameter-passing style) and not implemented yet. Each section states the facts found in Ring0 today, the options,
 and a recommendation. Accepting one means updating `lowering.md`, `plan.md` and the fixtures it names.
 
 ## 1. Does `String` count UTF-8 bytes or characters?
