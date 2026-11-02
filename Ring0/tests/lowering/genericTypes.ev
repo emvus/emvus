@@ -1,0 +1,29 @@
+// A generic class and a generic data class, each instantiated more than once.
+class Box where T {
+    T value { get, set }
+
+    Box(T value) {
+        this.value = value
+    }
+
+    method<Boolean> matches(T other) {
+        return value == other
+    }
+}
+
+data class Pair(T first, U second) where T, U
+
+static method<Int> main {
+    Box<Int> box = Box(5)
+    Box<Float> half = Box(1.5)
+    Pair<Int, Int> p = Pair(1, 2)
+    Pair<Int, Float> mixed = Pair(3, 0.5)
+    Boolean same = box.matches(5)
+    box.value = 9
+
+    if (same && half.value > 1.0 && mixed.second < 1.0) {
+        return box.value + p.first * 10 + p.second * 100 + mixed.first * 1000
+    }
+
+    return 0
+}

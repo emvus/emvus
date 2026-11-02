@@ -1,0 +1,64 @@
+namespace ring0::lowering;
+
+// Names the missing backend capability behind a construct the lowering rejects, so a
+// diagnostic reads as a backend requirement and not as a bare "unsupported".
+public class UnsupportedReasons {
+    public UnsupportedReasons() {
+    }
+
+    // For a type spelled `text` that has no lowering.
+    public static String ofType(String text) {
+        String key = text.toLowerCase();
+
+        if (key == "dynamic") {
+            return "dynamic values need a dynamic runtime: Sublang's Dyn library covers nil, Bool, Int, Float and text only, with no objects, lists or properties (backend requirement: a general dynamic value layout)";
+        }
+
+        if (key.length() > 11 && key.substring(0, 11) == "dictionary<") {
+            return UnsupportedReasons.dictionary();
+        }
+
+        if (key.length() > 6 && (key.substring(0, 6) == "fiber<" || key.substring(0, 6) == "virtualthread<" || key.substring(0, 7) == "thread<")) {
+            return UnsupportedReasons.tasks();
+        }
+
+        if (key.length() > 5 && key.substring(0, 5) == "list<") {
+            return "a list element must be Int, Bool, Float, a record, a tuple or a class: dynamic text, nested lists and function values are not Sublang list elements (backend requirement: Ref elements in lists)";
+        }
+
+        if (key.length() > 8 && key.substring(0, 7) == "result<") {
+            return "Result payloads must be Int, Bool, Float or Void and the error a primitive exception: Sublang records hold primitive fields only (backend requirement: reference fields in records)";
+        }
+
+        return "type '" + text + "' has no Sublang representation in this lowering (see docs/lowering.md)";
+    }
+
+    // For an expression node of this kind that has no lowering.
+    public static String ofExpression(String kind) {
+        if (kind == "dict-literal") {
+            return UnsupportedReasons.dictionary();
+        }
+
+        if (kind == "task") {
+            return UnsupportedReasons.tasks();
+        }
+
+        if (kind == "quote" || kind == "splice") {
+            return "macro code (quote/$(...)) is expanded before lowering: Ring0 has no macro expander yet, so a program that still contains it cannot be lowered";
+        }
+
+        if (kind == "null-literal") {
+            return "null needs a nullable reference: Sublang has no null or Option value (backend requirement: nullable references with a checked unwrap); the checker has already proven the null flow";
+        }
+
+        return "expression '" + kind + "' needs backend support that is not available (see docs/lowering.md)";
+    }
+
+    private static String dictionary() {
+        return "dictionaries need a map layout: Sublang has no hash map or key-value collection (backend requirement: Map<K,V> with checked get/put/contains/remove and iteration)";
+    }
+
+    private static String tasks() {
+        return "fiber, virtual and thread blocks need a task contract: Sublang has no threads, fibers or scheduler and no await operation (backend requirement: tasks with a join/await primitive and a thread-safety model)";
+    }
+}

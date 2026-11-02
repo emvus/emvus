@@ -1,0 +1,76 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Declarations with type parameters (`method<T> first(...) where T`, `class Box where T`).
+// They are never lowered directly: every instantiation found by InstanceDiscovery becomes its
+// own monomorphized method, class or record.
+public class GenericDecls {
+    private List<String> keys;
+    private List<Node> nodes;
+    private List<Int> typeFlags;
+
+    public GenericDecls() {
+        this.keys = List();
+        this.nodes = List();
+        this.typeFlags = List();
+    }
+
+    // The type parameter names of a declaration, in declaration order.
+    public static List<String> paramNames(Node declaration) {
+        List<String> names = List();
+        Node where = AstQuery.childOfKind(declaration, "where");
+        Int index = 0;
+
+        while (!AstQuery.isNone(where) && index < where.count()) {
+            if (where.child(index).kind() == "typeparam") {
+                names.add(where.child(index).text() + "");
+            }
+
+            index = index + 1;
+        }
+
+        return names;
+    }
+
+    public static Bool isGeneric(Node declaration) {
+        return GenericDecls.paramNames(declaration).length() > 0;
+    }
+
+    public Void add(Node declaration, Bool isType) {
+        this.keys.add(declaration.text().toLowerCase() + "");
+        this.nodes.add(declaration);
+        this.typeFlags.add(0);
+
+        if (isType) {
+            this.typeFlags.set(this.typeFlags.length() - 1, 1);
+        }
+    }
+
+    // Index of the generic method (isType false) or type (true) with that name, -1 when absent.
+    public Int indexOf(String name, Bool isType) {
+        String key = name.toLowerCase();
+        Int wanted = 0;
+
+        if (isType) {
+            wanted = 1;
+        }
+
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key && this.typeFlags.get(index) == wanted) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public Node nodeAt(Int index) {
+        return this.nodes.get(index);
+    }
+}

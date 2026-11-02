@@ -1,0 +1,88 @@
+namespace ring0::syntax;
+
+use ring0::diagnostic::DiagnosticBag;
+
+// Strings keep their raw text; every `${...}` that parses becomes an `interpolation` child.
+// Unparseable parts (e.g. `$(...)` in macros) stay raw so macro text is never rejected here.
+public class StringPartsParser {
+    private ParserState state;
+
+    public StringPartsParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parse(Token token) {
+        Node node = this.state.nodeAt(token, AstKinds.stringLiteral(), token.text());
+        String text = token.text();
+        Int index = 0;
+
+        while (index + 1 < text.length()) {
+            if (!this.opensInterpolation(text, index)) {
+                index = index + 1;
+                continue;
+            }
+
+            Int close = this.findEnd(text, index + 2);
+
+            if (close < 0) {
+                return node;
+            }
+
+            Node part = this.parsePart(token, text.substring(index + 2, close));
+
+            if (part.kindIs(AstKinds.interpolation())) {
+                node.add(part);
+            }
+
+            index = close + 1;
+        }
+
+        return node;
+    }
+
+    private Bool opensInterpolation(String text, Int index) {
+        return text.charAt(index).toString() == "$" && text.charAt(index + 1).toString() == "{";
+    }
+
+    // Index of the `}` matching the interpolation, or -1 when it is unterminated.
+    private Int findEnd(String text, Int start) {
+        Int depth = 0;
+        Int index = start;
+
+        while (index < text.length()) {
+            String c = text.charAt(index).toString();
+
+            if (c == "{") {
+                depth = depth + 1;
+            }
+
+            if (c == "}" && depth == 0) {
+                return index;
+            }
+
+            if (c == "}") {
+                depth = depth - 1;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    // Parses with a scratch state so errors inside the string never leak into the file's diagnostics.
+    private Node parsePart(Token origin, String source) {
+        DiagnosticBag scratch = DiagnosticBag();
+        List<Token> tokens = Lexer(source, scratch).tokenize();
+        ParserState inner = ParserState(tokens, scratch);
+        Node expression = ExpressionParser(inner).parse();
+
+        if (scratch.hasErrors() || !inner.isAtEnd()) {
+            return this.state.nodeAt(origin, AstKinds.raw(), "");
+        }
+
+        Node part = this.state.nodeAt(origin, AstKinds.interpolation(), "");
+        part.add(expression);
+        return part;
+    }
+}

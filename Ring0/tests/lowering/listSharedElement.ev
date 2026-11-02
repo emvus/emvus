@@ -1,0 +1,15 @@
+// expect-error: shared ownership
+class Item {
+    Int weight { get }
+
+    Item(Int weight) {
+        this.weight = weight
+    }
+}
+
+static method<Int> main {
+    Item a = Item(1)
+    List<Item> items = []
+    items.add(a)
+    return 0
+}

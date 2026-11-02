@@ -1,0 +1,75 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `receiver ..a() ..x = 1`: the receiver is evaluated once and each section acts on it; the
+// value of the whole cascade is the receiver itself.
+public class CascadeLowerer {
+    private LoweringContext context;
+
+    public CascadeLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node cascade) {
+        LoweredValue receiver = ExpressionLowerer(this.context).lower(cascade.child(0));
+
+        if (!receiver.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int position = 1;
+
+        while (position < cascade.count()) {
+            if (!this.section(cascade.child(position).child(0), receiver)) {
+                return LoweredValue.unsupported();
+            }
+
+            position = position + 1;
+        }
+
+        return receiver;
+    }
+
+    private Bool section(Node inner, LoweredValue receiver) {
+        if (inner.kind() == "assign" && inner.child(0).kind() == "name") {
+            return this.assign(inner, receiver);
+        }
+
+        if (inner.kind() == "call" && inner.child(0).kind() == "name") {
+            return this.call(inner, receiver);
+        }
+
+        this.context.unsupported(inner, "cascade section '" + inner.kind() + "' is not supported (only `..member = value` and `..method(args)`)");
+        return false;
+    }
+
+    private Bool call(Node inner, LoweredValue receiver) {
+        LoweredValue result = ObjectMembers(this.context).memberCall(inner, receiver, inner.child(0).text());
+        return result.isUsable() || result.kind() == "Void";
+    }
+
+    private Bool assign(Node inner, LoweredValue receiver) {
+        Node target = inner.child(0);
+        LoweredValue value = this.assignedValue(inner, receiver, target);
+
+        if (!value.isUsable()) {
+            return false;
+        }
+
+        return ObjectMembers(this.context).writeField(inner, receiver, target.text(), value);
+    }
+
+    // `..x += 1` folds into `..x = x + 1`.
+    private LoweredValue assignedValue(Node inner, LoweredValue receiver, Node target) {
+        LoweredValue plain = ExpressionLowerer(this.context).lower(inner.child(1));
+
+        if (!plain.isUsable() || inner.text() == "=") {
+            return plain;
+        }
+
+        LoweredValue current = ObjectMembers(this.context).readField(target, receiver, target.text());
+        String operator = inner.text().substring(0, inner.text().length() - 1);
+        return OperatorLowerer(this.context).apply(inner, operator, current, plain);
+    }
+}

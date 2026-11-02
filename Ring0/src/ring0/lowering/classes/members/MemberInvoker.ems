@@ -1,0 +1,159 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Emits the call of a class member once it is resolved: direct for non-virtual members, through
+// the closed-world dispatch group for virtual ones.
+public class MemberInvoker {
+    private LoweringContext context;
+
+    public MemberInvoker(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // `receiver` is `nothing` for a static member.
+    public LoweredValue invoke(Node call, Int member, LoweredValue receiver, List<LoweredValue> arguments) {
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        List<LoweredValue> coerced = this.coerceArguments(call, member, arguments);
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (VirtualMembers(this.context).isVirtual(member)) {
+            return this.invokeVirtual(call, member, receiver, coerced);
+        }
+
+        return this.invokeDirect(call, member, receiver, coerced);
+    }
+
+    private List<LoweredValue> coerceArguments(Node call, Int member, List<LoweredValue> arguments) {
+        List<LoweredValue> result = List();
+        Node params = AstQuery.childOfKind(this.context.methods().declarationAt(member), "params");
+        Int position = 0;
+
+        while (position < arguments.length() && position < params.count()) {
+            String kind = this.context.methods().paramKindAt(member, position);
+            LoweredValue value = Coercion.to(this.context, call, arguments.get(position), kind);
+
+            if (!value.isUsable() || value.kind() != kind) {
+                this.context.unsupported(call, "argument " + (position + 1).toString() + " has kind " + arguments.get(position).kind() + ", expected " + kind);
+                return result;
+            }
+
+            result.add(value);
+            position = position + 1;
+        }
+
+        return result;
+    }
+
+    private LoweredValue invokeDirect(Node call, Int member, LoweredValue receiver, List<LoweredValue> arguments) {
+        Int functionId = this.context.methods().functionIdAt(member);
+
+        if (functionId == 0) {
+            this.context.unsupported(call, "member has no body to call directly (abstract member reached a direct call)");
+            return LoweredValue.unsupported();
+        }
+
+        List<Int> ids = List();
+        List<String> modes = List();
+
+        if (receiver.isUsable()) {
+            ids.add(receiver.valueId());
+            modes.add(this.receiverMode(member));
+        }
+
+        this.addArguments(member, arguments, ids, modes);
+        return this.emitDirect(call, member, functionId, ids, modes);
+    }
+
+    private String receiverMode(Int member) {
+        if (this.context.methods().mutatesSelfAt(member)) {
+            return "borrow_write";
+        }
+
+        return "borrow_read";
+    }
+
+    private Void addArguments(Int member, List<LoweredValue> arguments, List<Int> ids, List<String> modes) {
+        Int position = 0;
+
+        while (position < arguments.length()) {
+            String kind = this.context.methods().paramKindAt(member, position);
+            ids.add(arguments.get(position).valueId());
+            modes.add(this.modeOf(member, position, kind));
+            position = position + 1;
+        }
+    }
+
+    private String modeOf(Int member, Int position, String kind) {
+        if (RefKinds.isReference(kind) && this.context.methods().mutatesParamAt(member, position)) {
+            return "borrow_write";
+        }
+
+        return GroupPrototype.modeOf(kind);
+    }
+
+    private LoweredValue emitDirect(Node call, Int member, Int functionId, List<Int> ids, List<String> modes) {
+        String returnKind = this.context.methods().returnKindAt(member);
+        Int span = this.context.span(call);
+
+        if (RefKinds.isReference(returnKind)) {
+            Int owned = this.context.ops().callDirectOwned(functionId, ids, modes, this.context.scopes().objectScope(), span);
+            return LoweredValue.fresh(owned, returnKind);
+        }
+
+        if (returnKind == "String") {
+            Int text = this.context.ops().callDirectOwned(functionId, ids, modes, this.context.scopes().functionScope(), span);
+            return LoweredValue(text, "String");
+        }
+
+        return LoweredValue(this.context.ops().callDirect(functionId, ids, modes, span), returnKind);
+    }
+
+    // Groups pass the receiver as a read-only reference to the root class.
+    private LoweredValue invokeVirtual(Node call, Int member, LoweredValue receiver, List<LoweredValue> arguments) {
+        Int group = this.context.dispatch().indexOf(DispatchBuilder.signatureKey(this.context, member));
+
+        if (group < 0 || !receiver.isUsable()) {
+            this.context.unsupported(call, "virtual call without a dispatch group (static virtual members are not supported)");
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(call);
+        List<Int> ids = List();
+        List<String> modes = List();
+        ids.add(this.rootView(receiver, span));
+        modes.add("borrow_read");
+        this.addVirtualArguments(member, arguments, ids, modes);
+        String returnKind = DispatchBuilder.returnKindOf(this.context, member);
+        Int result = this.context.ops().callVirtual(this.context.dispatch().groupAt(group), ids, modes, this.context.kinds().typeIdOfKind(returnKind), span);
+        return LoweredValue(result, returnKind);
+    }
+
+    // An interface value already is a reference to the root; a class value is viewed as one.
+    private Int rootView(LoweredValue receiver, Int span) {
+        Int owner = this.context.classes().indexOf(ClassTable.nameOfKind(receiver.kind()));
+
+        if (this.context.classes().isInterfaceAt(owner)) {
+            return receiver.valueId();
+        }
+
+        return this.context.ops().upcastView(receiver.valueId(), this.context.classes().typeIdAt(0), span);
+    }
+
+    private Void addVirtualArguments(Int member, List<LoweredValue> arguments, List<Int> ids, List<String> modes) {
+        Int position = 0;
+
+        while (position < arguments.length()) {
+            ids.add(arguments.get(position).valueId());
+            modes.add(GroupPrototype.modeOf(this.context.methods().paramKindAt(member, position)));
+            position = position + 1;
+        }
+    }
+}

@@ -1,0 +1,51 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Spelling of a type node as the binder prints annotations: `Result<Int,Failure>`,
+// so declared types and annotated expression types compare directly.
+public class SourceTypeText {
+    public SourceTypeText() {
+    }
+
+    public static String of(Node typeNode) {
+        if (typeNode.kind() == "tuple-type") {
+            return SourceTypeText.tuple(typeNode);
+        }
+
+        if (typeNode.count() == 0) {
+            return typeNode.text();
+        }
+
+        String text = typeNode.text() + "<";
+        Int index = 0;
+
+        while (index < typeNode.count()) {
+            if (index > 0) {
+                text = text + ",";
+            }
+
+            text = text + SourceTypeText.of(typeNode.child(index));
+            index = index + 1;
+        }
+
+        return text + ">";
+    }
+
+    // `[Int,Bool]`, the binder's spelling of a tuple type.
+    private static String tuple(Node typeNode) {
+        String text = "[";
+        Int index = 0;
+
+        while (index < typeNode.count()) {
+            if (index > 0) {
+                text = text + ",";
+            }
+
+            text = text + SourceTypeText.of(typeNode.child(index));
+            index = index + 1;
+        }
+
+        return text + "]";
+    }
+}

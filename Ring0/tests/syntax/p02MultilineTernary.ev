@@ -1,0 +1,12 @@
+// expect-ok
+method<Result<Int, IOException>> f(Int a) {
+    Int x = a > 0
+        ? 1
+        : 2
+    Int y = a > 0 ?
+        1 :
+        2
+    Int z = g(a)?
+    String s = "a=${x + 1} ${y}"
+    success z
+}

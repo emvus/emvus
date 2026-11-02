@@ -1,0 +1,16 @@
+// expect: check ok
+package main
+
+class Profile {
+    String nickname { get, set } = null
+}
+
+method<String> label(Profile profile) {
+    final var nickname = profile.nickname
+
+    if (nickname != null) {
+        return nickname
+    }
+
+    return "unknown"
+}

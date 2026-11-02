@@ -1,0 +1,226 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Shared state of the checkers: symbols, scopes and the context of the current method.
+public class CheckContext {
+    private SymbolTable symbolTable;
+    private DiagnosticBag bag;
+    private TypeResolver typeResolver;
+    private TypeRules typeRules;
+    private Scope localScope;
+    private List<String> typeParams;
+    private List<String> typeBounds;
+    private String currentTypeValue;
+    private Bool inConstructorValue;
+    private String returnTypeValue;
+    private Bool collectingValue;
+    private String collectedValue;
+    private Int loopDepthValue;
+    private String cascadeReceiverValue;
+    private Int overrideLineValue;
+    private Int overrideColumnValue;
+    private Int silentValue;
+
+    public CheckContext(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.symbolTable = symbols;
+        this.bag = diagnostics;
+        this.typeResolver = TypeResolver(symbols, diagnostics);
+        this.typeRules = TypeRules(symbols);
+        this.localScope = Scope();
+        this.typeParams = List();
+        this.typeBounds = List();
+        this.typeRules.setTypeParams(this.typeParams);
+        this.currentTypeValue = "";
+        this.inConstructorValue = false;
+        this.returnTypeValue = "";
+        this.collectingValue = false;
+        this.collectedValue = "";
+        this.loopDepthValue = 0;
+        this.cascadeReceiverValue = "";
+        this.overrideLineValue = 0;
+        this.overrideColumnValue = 0;
+        this.silentValue = 0;
+    }
+
+    public SymbolTable table() {
+        return this.symbolTable;
+    }
+
+    public DiagnosticBag diagnostics() {
+        return this.bag;
+    }
+
+    public TypeResolver resolver() {
+        return this.typeResolver;
+    }
+
+    public TypeRules rules() {
+        return this.typeRules;
+    }
+
+    public Scope scope() {
+        return this.localScope;
+    }
+
+    public List<String> typeParamNames() {
+        return this.typeParams;
+    }
+
+    public List<String> typeParamBounds() {
+        return this.typeBounds;
+    }
+
+    public String currentType() {
+        return this.currentTypeValue;
+    }
+
+    public Void setCurrentType(String value) {
+        this.currentTypeValue = value;
+    }
+
+    public Bool inConstructor() {
+        return this.inConstructorValue;
+    }
+
+    public Void setInConstructor(Bool value) {
+        this.inConstructorValue = value;
+    }
+
+    public String returnType() {
+        return this.returnTypeValue;
+    }
+
+    public Void setReturnType(String value) {
+        this.returnTypeValue = value;
+    }
+
+    public Bool collecting() {
+        return this.collectingValue;
+    }
+
+    public Void setCollecting(Bool value) {
+        this.collectingValue = value;
+    }
+
+    public String collected() {
+        return this.collectedValue;
+    }
+
+    public Void setCollected(String value) {
+        this.collectedValue = value;
+    }
+
+    public Int loopDepth() {
+        return this.loopDepthValue;
+    }
+
+    public Void setLoopDepth(Int value) {
+        this.loopDepthValue = value;
+    }
+
+    public String cascadeReceiver() {
+        return this.cascadeReceiverValue;
+    }
+
+    public Void setCascadeReceiver(String value) {
+        this.cascadeReceiverValue = value;
+    }
+
+    public Int overrideLine() {
+        return this.overrideLineValue;
+    }
+
+    public Void setOverrideLine(Int value) {
+        this.overrideLineValue = value;
+    }
+
+    public Int overrideColumn() {
+        return this.overrideColumnValue;
+    }
+
+    public Void setOverrideColumn(Int value) {
+        this.overrideColumnValue = value;
+    }
+
+    public Int silent() {
+        return this.silentValue;
+    }
+
+    public Void setSilent(Int value) {
+        this.silentValue = value;
+    }
+
+    // Errors inside an interpolation point at the string, not at the sub-expression.
+    public Void report(Node at, String message) {
+        if (this.silentValue > 0) {
+            return;
+        }
+
+        if (this.overrideLineValue > 0) {
+            this.bag.error(message, this.overrideLineValue, this.overrideColumnValue);
+            return;
+        }
+
+        this.bag.error(message, at.line(), at.column());
+    }
+
+    public String thisType() {
+        if (this.currentTypeValue.isEmpty()) {
+            return TypeNames.unknownType();
+        }
+
+        TypeSymbol symbol = this.symbolTable.findType(this.currentTypeValue);
+
+        if (symbol.isMissing()) {
+            return this.currentTypeValue;
+        }
+
+        return TypeText.make(symbol.name(), symbol.typeParams());
+    }
+
+    public Int pushTypeParams(List<String> names, List<String> bounds) {
+        Int index = 0;
+
+        while (index < names.length()) {
+            this.typeParams.add(names.get(index) + "");
+            this.typeBounds.add(bounds.get(index) + "");
+            index = index + 1;
+        }
+
+        return names.length();
+    }
+
+    public Void popTypeParams(Int count) {
+        Int index = 0;
+
+        while (index < count) {
+            Int last = this.typeParams.length() - 1;
+            this.typeParams.removeAt(last);
+            this.typeBounds.removeAt(last);
+            index = index + 1;
+        }
+    }
+
+    public Void requireAssignable(String target, String source, Node at, String what) {
+        if (this.typeRules.assignable(target, source)) {
+            return;
+        }
+
+        this.report(at, what + ": expected '" + target + "', found '" + source + "'");
+    }
+
+    public Void declareLocal(String name, String type, Bool isFinal, Node at) {
+        if (this.localScope.hasInCurrent(name)) {
+            this.report(at, "Variable '" + name + "' is already declared in this scope");
+        }
+
+        this.localScope.declare(name, type, isFinal);
+    }
+
+    // Type parameters and unknown types stay permissive so that no follow-up errors appear.
+    public Bool isLoose(String type) {
+        return TypeText.isUnknown(type) || type == TypeNames.dynamicType() || this.typeParams.contains(type);
+    }
+}

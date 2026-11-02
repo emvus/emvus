@@ -1,0 +1,8 @@
+// expect: cannot implement class 'Animal'
+package main
+
+class Animal {
+}
+
+class Dog implements Animal {
+}

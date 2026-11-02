@@ -1,0 +1,5 @@
+// expect-abort
+static method<Int> main {
+    Int zero = 0
+    return 10 / zero
+}

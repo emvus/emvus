@@ -1,0 +1,22 @@
+// String indexes and lengths count UTF-8 bytes: byteAt returns the byte as an Int, substring takes [start, end).
+static method<Int> sumBytes(String text) {
+    Int total = 0
+
+    for (Int i = 0; i < text.length(); i++) {
+        total = total + text.byteAt(i)
+    }
+
+    return total
+}
+
+static method<Int> main {
+    String word = "Emvus"
+    String middle = word.substring(1, 4)
+    Int total = word.byteAt(0) + sumBytes(word.substring(1, 3))
+
+    if (middle == "mvu") {
+        total = total + 1000
+    }
+
+    return total + word.substring(2, 2).length()
+}

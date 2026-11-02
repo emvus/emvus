@@ -1,0 +1,54 @@
+namespace ring0::lowering;
+
+// Lambdas found by discovery: one synthesized class per lambda expression and type-parameter
+// frame. A lambda is looked up by its source position plus the frame it is lowered under, so a
+// lambda inside a generic method gets one class per instance.
+public class LambdaTable {
+    private List<String> keys;
+    private List<Int> classIndices;
+    private List<String> captureNames;
+
+    public LambdaTable() {
+        this.keys = List();
+        this.classIndices = List();
+        this.captureNames = List();
+    }
+
+    public static String keyOf(Int line, Int column, String frame) {
+        return line.toString() + ":" + column.toString() + "@" + frame;
+    }
+
+    public Int indexOf(String key) {
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public Int count() {
+        return this.keys.length();
+    }
+
+    public Int add(String key, Int classIndex, String names) {
+        this.keys.add(key + "");
+        this.classIndices.add(classIndex);
+        this.captureNames.add(names + "");
+        return this.keys.length() - 1;
+    }
+
+    public Int classAt(Int index) {
+        return this.classIndices.get(index);
+    }
+
+    // Captured variable names, comma separated, in constructor parameter order.
+    public String capturesAt(Int index) {
+        return this.captureNames.get(index) + "";
+    }
+}

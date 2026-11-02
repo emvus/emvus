@@ -1,0 +1,80 @@
+namespace ring0::syntax;
+
+// enum Name { A, B(args); members }
+//
+//   enum        text=Name  body
+//   body        children: enum-entry*, then members after `;`
+//   enum-entry  text=name, children: argument expressions
+public class EnumParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public EnumParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    // Starts at the `enum` keyword.
+    public Node parse(Node holder, Node modifiers) {
+        this.state.advance();
+        Token nameToken = this.header.consumeName("Expected enum name");
+        Node declaration = this.state.nodeAt(nameToken, AstKinds.enumDeclaration(), nameToken.text());
+        this.header.attach(declaration, holder, modifiers);
+        Node body = this.state.node(AstKinds.body(), "");
+        this.state.consumeSymbol("{", "Expected '{' before enum body");
+        this.parseEntries(body);
+        this.parseMembers(body);
+        this.state.consumeSymbol("}", "Expected '}' after enum body");
+        declaration.add(body);
+        return declaration;
+    }
+
+    // Entries up to ';' or '}'
+    private Void parseEntries(Node body) {
+        while (this.header.isNameAt(0) && !this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            body.add(this.parseEntry());
+
+            if (!this.state.matchSymbol(",")) {
+                return;
+            }
+        }
+    }
+
+    private Node parseEntry() {
+        Token nameToken = this.state.advance();
+        Node entry = this.state.nodeAt(nameToken, AstKinds.enumEntry(), nameToken.text());
+
+        if (!this.state.matchSymbol("(")) {
+            return entry;
+        }
+
+        while (!this.state.checkSymbol(")") && !this.state.isAtEnd()) {
+            entry.add(ExpressionParser(this.state).parse());
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        this.state.consumeSymbol(")", "Expected ')' after enum entry arguments");
+        return entry;
+    }
+
+    // Members may follow the entries after a `;`
+    private Void parseMembers(Node body) {
+        if (!this.state.matchSymbol(";")) {
+            return;
+        }
+
+        DeclMemberParser members = DeclMemberParser(this.state);
+
+        while (!this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            Int start = this.state.position();
+            body.add(members.parseMember());
+
+            if (this.state.position() == start) {
+                this.state.advance();
+            }
+        }
+    }
+}

@@ -1,0 +1,25 @@
+// an object owns another object created by its constructor; a method reads through the field.
+class Engine {
+    Int power { get }
+
+    Engine(Int power) {
+        this.power = power
+    }
+}
+
+class Car {
+    Engine motor { get }
+
+    Car(Int power) {
+        this.motor = Engine(power)
+    }
+
+    method<Int> power {
+        return motor.power
+    }
+}
+
+static method<Int> main {
+    Car car = Car(90)
+    return car.power() + car.motor.power
+}

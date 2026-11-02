@@ -1,0 +1,5 @@
+// expect-error: dynamic values need a dynamic runtime
+static method<Int> main {
+    dynamic value = 42
+    return 0
+}

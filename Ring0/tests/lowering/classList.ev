@@ -1,0 +1,21 @@
+// A list owns its class elements; they are read through borrowed views.
+class Item {
+    Int weight { get }
+
+    Item(Int weight) {
+        this.weight = weight
+    }
+}
+
+static method<Int> main {
+    List<Item> items = []
+    items.add(Item(3))
+    items.add(Item(4))
+    Int sum = 0
+
+    for (Item item in items) {
+        sum = sum + item.weight
+    }
+
+    return sum * 10 + items.get(0).weight
+}

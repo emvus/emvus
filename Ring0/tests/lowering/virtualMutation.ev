@@ -1,0 +1,25 @@
+// expect-error: writes through 'this'
+abstract class Counter {
+    Int count { get, set }
+
+    Counter(Int start) {
+        this.count = start
+    }
+
+    abstract method step
+}
+
+class Doubler based Counter {
+    Doubler(Int start) : super(start) {
+    }
+
+    override method step {
+        count = count * 2
+    }
+}
+
+static method<Int> main {
+    Counter counter = Doubler(3)
+    counter.step()
+    return counter.count
+}

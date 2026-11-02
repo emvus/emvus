@@ -1,0 +1,11 @@
+// expect-error: not a constant expression
+// A computed top-level value would need module-level storage, which Sublang does not have.
+static method<Int> twice(Int value) {
+    return value * 2
+}
+
+final var TOTAL = twice(4)
+
+static method<Int> main {
+    return TOTAL
+}

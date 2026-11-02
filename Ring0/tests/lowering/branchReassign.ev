@@ -1,0 +1,18 @@
+// expect-error: reassigned inside a branch
+class Box {
+    Int size { get }
+
+    Box(Int size) {
+        this.size = size
+    }
+}
+
+static method<Int> main {
+    Box box = Box(1)
+
+    if (box.size > 0) {
+        box = Box(2)
+    }
+
+    return box.size
+}

@@ -1,0 +1,198 @@
+namespace ring0::syntax;
+
+// Branching and loops. There is deliberately no `else`: it is parsed only to report a
+// clear error (guard clauses are the language's style).
+//
+//   if       [cond-expr, body, else?]
+//   else     [body]                         only produced alongside the error
+//   while    [cond-expr, body]
+//   for      [init, condition, update, body]  always 4 children; clauses may be empty
+//            init=[statement], condition=[expr], update=[expr*]
+//   foreach  text=variable name; [type | var, iterable-expr, body]
+//   return   [expr?]                        value only if on the same line as `return`
+//   fail / success  [expr]
+public class ControlFlowParser {
+    private ParserState state;
+
+    public ControlFlowParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parseIf() {
+        Token start = this.state.advance();
+        Node node = this.state.nodeAt(start, AstKinds.ifStatement(), "");
+        node.add(this.parseCondition());
+        node.add(this.parseBody());
+
+        if (this.state.peek().isWord("else")) {
+            this.state.errorHere("'else' is not supported, use guard clauses");
+            Token elseToken = this.state.advance();
+            Node elseNode = this.state.nodeAt(elseToken, AstKinds.elseBranch(), "");
+            elseNode.add(this.parseBody());
+            node.add(elseNode);
+        }
+
+        return node;
+    }
+
+    public Node parseWhile() {
+        Token start = this.state.advance();
+        Node node = this.state.nodeAt(start, AstKinds.whileStatement(), "");
+        node.add(this.parseCondition());
+        node.add(this.parseBody());
+        return node;
+    }
+
+    public Node parseFor() {
+        Token start = this.state.advance();
+        this.state.consumeSymbol("(", "Expected '(' after 'for'");
+
+        if (this.atForeach()) {
+            return this.parseForeach(start);
+        }
+
+        Node node = this.state.nodeAt(start, AstKinds.forStatement(), "");
+        node.add(this.parseForInit());
+        node.add(this.parseForCondition());
+        node.add(this.parseForUpdate());
+        node.add(this.parseBody());
+        return node;
+    }
+
+    private Node parseForInit() {
+        Node init = this.state.node(AstKinds.initializer(), "");
+
+        if (!this.state.checkSymbol(";")) {
+            init.add(StatementParser(this.state).parseSimpleStatement());
+        }
+
+        this.state.consumeSymbol(";", "Expected ';' after for initializer");
+        return init;
+    }
+
+    private Node parseForCondition() {
+        Node condition = this.state.node(AstKinds.condition(), "");
+
+        if (!this.state.checkSymbol(";")) {
+            condition.add(ExpressionParser(this.state).parse());
+        }
+
+        this.state.consumeSymbol(";", "Expected ';' after for condition");
+        return condition;
+    }
+
+    private Node parseForUpdate() {
+        Node update = this.state.node(AstKinds.update(), "");
+        StatementExpressionParser expressions = StatementExpressionParser(this.state);
+
+        if (!this.state.checkSymbol(")")) {
+            update.add(expressions.parseExpressionWithAssign());
+
+            while (this.state.matchSymbol(",")) {
+                update.add(expressions.parseExpressionWithAssign());
+            }
+        }
+
+        this.state.consumeSymbol(")", "Expected ')' after for clauses");
+        return update;
+    }
+
+    // `Type name in` (optionally `final`), checked speculatively after `for (`.
+    private Bool atForeach() {
+        Int start = this.state.position();
+        this.state.beginSpeculation();
+
+        if (this.state.peek().isWord("final")) {
+            this.state.advance();
+        }
+
+        this.skipForeachType();
+
+        Bool parsed = this.state.endSpeculation();
+        Token name = this.state.peek();
+        Bool nameFollows = name.isPlainName() || LocalDeclarationParser(this.state).isNameKeyword(name);
+        Bool result = parsed && nameFollows && this.state.peekAt(1).isWord("in");
+        this.state.seek(start);
+        return result;
+    }
+
+    private Void skipForeachType() {
+        if (this.state.peek().isWord("var")) {
+            this.state.advance();
+            return;
+        }
+
+        TypeParser(this.state).parse();
+    }
+
+    private Node parseForeach(Token start) {
+        if (this.state.peek().isWord("final")) {
+            this.state.advance();
+        }
+
+        Node typeNode = this.parseForeachType();
+        Token name = LocalDeclarationParser(this.state).consumeName("Expected loop variable name");
+
+        if (!this.state.matchIdentifier("in") && !this.state.matchKeyword("in")) {
+            this.state.errorHere("Expected 'in'");
+        }
+
+        Node node = this.state.nodeAt(start, AstKinds.foreachStatement(), name.text());
+        node.add(typeNode);
+        node.add(ExpressionParser(this.state).parse());
+        this.state.consumeSymbol(")", "Expected ')' after for-in clause");
+        node.add(this.parseBody());
+        return node;
+    }
+
+    private Node parseForeachType() {
+        Token first = this.state.peek();
+
+        if (first.isWord("var")) {
+            this.state.advance();
+            return this.state.nodeAt(first, AstKinds.varType(), "var");
+        }
+
+        return TypeParser(this.state).parse();
+    }
+
+    public Node parseReturn() {
+        Token start = this.state.advance();
+        Node node = this.state.nodeAt(start, AstKinds.returnStatement(), "");
+        Token next = this.state.peek();
+
+        if (next.isEof() || next.isSymbol("}") || next.isSymbol(";") || next.line() != start.line()) {
+            return node;
+        }
+
+        Node value = ExpressionParser(this.state).parse();
+        node.add(StatementExpressionParser(this.state).absorbCascade(value));
+        return node;
+    }
+
+    // `fail expr` / `success expr`
+    public Node parseValueStatement(String kind) {
+        Token start = this.state.advance();
+        Node node = this.state.nodeAt(start, kind, "");
+        node.add(ExpressionParser(this.state).parse());
+        return node;
+    }
+
+    // `( expr )`
+    public Node parseCondition() {
+        this.state.consumeSymbol("(", "Expected '(' before condition");
+        Node condition = ExpressionParser(this.state).parse();
+        this.state.consumeSymbol(")", "Expected ')' after condition");
+        return condition;
+    }
+
+    // Braces are mandatory; a brace-less body is reported and parsed as a single statement anyway.
+    private Node parseBody() {
+        if (this.state.checkSymbol("{")) {
+            return StatementParser(this.state).parseBlock();
+        }
+
+        this.state.errorHere("Expected '{': braces are required");
+        return StatementParser(this.state).parseSimpleStatement();
+    }
+}

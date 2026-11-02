@@ -1,0 +1,105 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Classification of switch patterns. Statement switches use pattern-success / pattern-error /
+// pattern-name / pattern-value, expression switches use pattern / pattern-literal; both
+// forms are accepted here so one emitter serves both.
+public class SwitchPatterns {
+    public SwitchPatterns() {
+    }
+
+    public static Bool isSuccess(Node pattern) {
+        return pattern.kind() == "pattern-success" || (pattern.kind() == "pattern" && pattern.text().toLowerCase() == "success");
+    }
+
+    public static Bool isError(Node pattern) {
+        return pattern.kind() == "pattern-error" || (pattern.kind() == "pattern" && pattern.text().toLowerCase() == "error");
+    }
+
+    public static Bool isLiteral(Node pattern) {
+        return pattern.kind() == "pattern-value" || pattern.kind() == "pattern-literal";
+    }
+
+    // `unknown`-style catch-all: a free name without bindings.
+    public static Bool isCatchAll(Node pattern) {
+        if (pattern.kind() == "pattern-name") {
+            return true;
+        }
+
+        return pattern.kind() == "pattern" && pattern.count() == 0 && !SwitchPatterns.isSuccess(pattern) && !SwitchPatterns.isError(pattern);
+    }
+
+    // `Rank.ADMIN` -> `ADMIN`.
+    public static String lastSegment(String name) {
+        Int index = name.length() - 1;
+
+        while (index >= 0) {
+            if (name.charAt(index).toString() == ".") {
+                return name.substring(index + 1, name.length()) + "";
+            }
+
+            index = index - 1;
+        }
+
+        return name + "";
+    }
+
+    // First `binding` child (success(value), error(Type e), error(e)); "" when none or `_`.
+    public static String bindingName(Node pattern) {
+        Int index = 0;
+
+        while (index < pattern.count()) {
+            if (pattern.child(index).kind() == "binding") {
+                return pattern.child(index).text();
+            }
+
+            index = index + 1;
+        }
+
+        return "";
+    }
+
+    // Type named in `error(Type e)`: the type node child of the pattern or its binding.
+    public static String errorTypeName(Node pattern) {
+        Int index = 0;
+
+        while (index < pattern.count()) {
+            Node child = pattern.child(index);
+
+            if (child.kind() == "type") {
+                return child.text();
+            }
+
+            if (child.kind() == "binding" && child.count() > 0 && child.child(0).kind() == "type") {
+                return child.child(0).text();
+            }
+
+            index = index + 1;
+        }
+
+        return "";
+    }
+
+    // Expression cases wrap their patterns in a `patterns` node; statement cases list them
+    // directly before the body.
+    public static Int patternCount(Node caseNode) {
+        if (caseNode.child(0).kind() == "patterns") {
+            return caseNode.child(0).count();
+        }
+
+        return caseNode.count() - 1;
+    }
+
+    public static Node patternAt(Node caseNode, Int position) {
+        if (caseNode.child(0).kind() == "patterns") {
+            return caseNode.child(0).child(position);
+        }
+
+        return caseNode.child(position);
+    }
+
+    public static Node caseBody(Node caseNode) {
+        return caseNode.child(caseNode.count() - 1);
+    }
+}

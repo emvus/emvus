@@ -1,0 +1,82 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Enums are lowered to Int ordinals: entry order is the value. Type safety is a frontend matter;
+// the kind `Enum:<name>` keeps enum values distinct from Int in the lowering.
+public class EnumTable {
+    private List<String> keys;
+    private List<String> names;
+    private List<Node> nodes;
+
+    public EnumTable() {
+        this.keys = List();
+        this.names = List();
+        this.nodes = List();
+    }
+
+    public static String kindFor(String name) {
+        return "Enum:" + name;
+    }
+
+    public static Bool isEnumKind(String kind) {
+        return kind.length() > 5 && kind.substring(0, 5) == "Enum:";
+    }
+
+    public static String nameOfKind(String kind) {
+        return kind.substring(5, kind.length()) + "";
+    }
+
+    public Void add(Node declaration) {
+        this.keys.add(declaration.text().toLowerCase() + "");
+        this.names.add(declaration.text() + "");
+        this.nodes.add(declaration);
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public String nameAt(Int index) {
+        return this.names.get(index) + "";
+    }
+
+    public Node nodeAt(Int index) {
+        return this.nodes.get(index);
+    }
+
+    // Ordinal of an entry, -1 when the enum has no such entry.
+    public Int ordinalOf(Int index, String entry) {
+        Node body = this.nodes.get(index).child(this.nodes.get(index).count() - 1);
+        String key = entry.toLowerCase();
+        Int ordinal = 0;
+        Int position = 0;
+
+        while (position < body.count()) {
+            Node member = body.child(position);
+
+            if (member.kind() == "enum-entry") {
+                if (member.text().toLowerCase() == key) {
+                    return ordinal;
+                }
+
+                ordinal = ordinal + 1;
+            }
+
+            position = position + 1;
+        }
+
+        return -1;
+    }
+}

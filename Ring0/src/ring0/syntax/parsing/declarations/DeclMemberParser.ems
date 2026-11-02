@@ -1,0 +1,92 @@
+namespace ring0::syntax;
+
+// Dispatches members and top-level elements (also used for quote field/method/class).
+// Every declaration starts with annotation*, modifiers, then its own kind-specific children:
+//
+//   class       text=Name  [where] [based] [implements] body        (TypeDeclarationParser)
+//   data-class  text=Name  params [where] [based] [implements] [body]
+//   record      text=Name  params [where] [based] [implements] [body]
+//   interface   text=Name  [where] [based] body
+//   exception   text=Name  [params] [where] [based] [body]
+//   enum        text=Name  body (enum-entry*, members)               (EnumParser)
+//   macro       text=Name  params targets block                      (MacroParser)
+//   method / constructor                                              (MethodParser)
+//   property / field / variable                                       (FieldParser)
+public class DeclMemberParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public DeclMemberParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    public Node parseMember() {
+        Node holder = this.state.node(AstKinds.holder(), "");
+        this.header.parseAnnotations(holder);
+        Node modifiers = this.header.parseModifiers();
+        // Annotations may also appear between modifiers
+        this.header.parseAnnotations(holder);
+
+        Node result = this.parseDeclaration(holder, modifiers);
+        this.state.matchSymbol(";");
+        return result;
+    }
+
+    private Node parseDeclaration(Node holder, Node modifiers) {
+        Node typeDeclaration = this.parseTypeDeclaration(holder, modifiers);
+
+        if (!typeDeclaration.kindIs(AstKinds.none())) {
+            return typeDeclaration;
+        }
+
+        if (this.header.isWord(0, "macro") && this.header.isNameAt(1)) {
+            return MacroParser(this.state).parse(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "method")) {
+            return MethodParser(this.state).parseMethod(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "var")) {
+            return FieldParser(this.state).parseVariable(holder, modifiers);
+        }
+
+        if (this.state.peek().isPlainName() && this.state.peekAt(1).isSymbol("(")) {
+            return MethodParser(this.state).parseConstructor(holder, modifiers);
+        }
+
+        return FieldParser(this.state).parseField(holder, modifiers);
+    }
+
+    // class, data class, interface, enum, record, exception - or a `none` node.
+    private Node parseTypeDeclaration(Node holder, Node modifiers) {
+        TypeDeclarationParser types = TypeDeclarationParser(this.state);
+
+        if (this.header.isWord(0, "class")) {
+            return types.parseClass(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "data") && this.header.isWord(1, "class")) {
+            return types.parseDataClass(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "interface")) {
+            return types.parseInterface(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "enum")) {
+            return EnumParser(this.state).parse(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "record") && this.header.isNameAt(1)) {
+            return types.parseRecord(holder, modifiers);
+        }
+
+        if (this.header.isWord(0, "exception") && this.header.isNameAt(1)) {
+            return types.parseException(holder, modifiers);
+        }
+
+        return this.state.node(AstKinds.none(), "");
+    }
+}

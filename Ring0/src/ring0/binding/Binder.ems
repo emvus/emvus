@@ -1,0 +1,34 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Entry point of semantic checking: register built-ins, collect declarations, check bodies.
+public class Binder {
+    private DiagnosticBag bag;
+
+    public Binder(DiagnosticBag diagnostics) {
+        this.bag = diagnostics;
+    }
+
+    public Void bind(Node file) {
+        SymbolTable table = SymbolTable();
+        Builtins.register(table);
+        Collector collector = Collector(table, this.bag);
+        collector.collect(file);
+
+        if (this.bag.hasErrors()) {
+            return;
+        }
+
+        Checker checker = Checker(table, this.bag);
+        checker.check(file);
+
+        if (this.bag.hasErrors()) {
+            return;
+        }
+
+        NullFlowAnalyzer flow = NullFlowAnalyzer(this.bag);
+        flow.analyze(file);
+    }
+}

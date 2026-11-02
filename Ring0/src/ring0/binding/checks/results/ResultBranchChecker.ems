@@ -1,0 +1,78 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// success/fail branches of a switch inside a Result context.
+public class ResultBranchChecker {
+    private CheckContext context;
+
+    public ResultBranchChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String successBranch(Node body, String expected) {
+        String valueExpected = this.resultContext(expected, false);
+
+        if (valueExpected.isEmpty() && !this.context.collecting()) {
+            this.context.report(body, "'success' requires a Result context");
+        }
+
+        String type = TypeNames.unknownType();
+
+        if (body.count() > 0) {
+            type = this.expressionChecker().typeOf(body.child(0), valueExpected);
+        }
+
+        if (!valueExpected.isEmpty()) {
+            this.context.requireAssignable(valueExpected, type, body, "'success' value");
+        }
+
+        return TypeText.result(type, TypeNames.unknownType());
+    }
+
+    public String failBranch(Node body, String expected) {
+        String errorExpected = this.resultContext(expected, true);
+        String type = TypeNames.unknownType();
+
+        if (body.count() > 0) {
+            type = this.expressionChecker().typeOf(body.child(0), "");
+        }
+
+        if (errorExpected.isEmpty() && !this.context.collecting()) {
+            this.context.report(body, "'fail' requires a Result context");
+        }
+
+        if (!errorExpected.isEmpty()) {
+            this.context.requireAssignable(errorExpected, type, body, "'fail' value");
+        }
+
+        return TypeText.result(TypeNames.unknownType(), type);
+    }
+
+    // The Result expected by the branch, otherwise the method's return type.
+    private String resultContext(String expected, Bool wantError) {
+        String source = this.context.returnType();
+
+        if (TypeText.isResult(expected)) {
+            source = expected;
+        }
+
+        if (!TypeText.isResult(source)) {
+            return "";
+        }
+
+        if (wantError) {
+            return TypeText.resultError(source);
+        }
+
+        return TypeText.resultValue(source);
+    }
+
+    private SwitchChecker switchChecker() {
+        return SwitchChecker(this.context);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

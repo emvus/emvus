@@ -1,0 +1,26 @@
+namespace ring0::lowering;
+
+// Names for the IR: instance keys such as `Box<Int>` or `Fn$Int$to$Int` are not valid
+// identifiers in the IR text forms, so they are sanitized when they become Sublang type names.
+public class IrNames {
+    public IrNames() {
+    }
+
+    public static String sanitize(String name) {
+        String result = "";
+        Int index = 0;
+
+        while (index < name.length()) {
+            String c = name.charAt(index).toString();
+
+            if (c == "<" || c == ">" || c == "," || c == ":" || c == "$" || c == " ") {
+                c = "_";
+            }
+
+            result = result + c;
+            index = index + 1;
+        }
+
+        return result;
+    }
+}

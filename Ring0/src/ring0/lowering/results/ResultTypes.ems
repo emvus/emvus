@@ -1,0 +1,164 @@
+namespace ring0::lowering;
+
+use sublang::ir::SublangBuilder;
+
+// `Result<T, E>` is lowered as a value record per instantiation (monomorphization):
+//   tag (Int: 0 success, 1 error), value (T, or an Int dummy for Void), then one field per
+//   field of the exception E. Emvus has no try/catch, so Sublang exception opcodes are not
+//   used; `fail`, `success` and `?` become tag tests and returns.
+// Sublang records hold primitive fields only, hence T is Int, Bool, Float or Void and E is
+// an exception whose fields are primitive.
+public class ResultTypes {
+    public ResultTypes() {
+    }
+
+    public static Bool isResultText(String text) {
+        return text.length() > 8 && text.substring(0, 7) == "Result<" && text.substring(text.length() - 1, text.length()) == ">";
+    }
+
+    public static Bool isResultKind(String kind) {
+        return RecordTable.isRecordKind(kind) && ResultTypes.isResultName(RecordTable.nameOfKind(kind));
+    }
+
+    public static Bool isResultName(String name) {
+        return name.length() > 7 && name.substring(0, 7).toLowerCase() == "result$";
+    }
+
+    // Text of the value type argument: `Int` in `Result<Int,Failure>`.
+    public static String valueTextOf(String resultText) {
+        String inner = resultText.substring(7, resultText.length() - 1);
+        Int split = ResultTypes.topLevelComma(inner);
+        return inner.substring(0, split) + "";
+    }
+
+    public static String errorTextOf(String resultText) {
+        String inner = resultText.substring(7, resultText.length() - 1);
+        Int split = ResultTypes.topLevelComma(inner);
+        return inner.substring(split + 1, inner.length()) + "";
+    }
+
+    private static Int topLevelComma(String inner) {
+        Int depth = 0;
+        Int index = 0;
+
+        while (index < inner.length()) {
+            String c = inner.charAt(index).toString();
+
+            if (c == "<") {
+                depth = depth + 1;
+            }
+
+            if (c == ">") {
+                depth = depth - 1;
+            }
+
+            if (c == "," && depth == 0) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return inner.length() - 1;
+    }
+
+    private static Int dollarFrom(String name, Int start) {
+        Int index = start;
+
+        while (index < name.length()) {
+            if (name.charAt(index).toString() == "$") {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return name.length();
+    }
+
+    // Value kind (Int, Bool, Float, Void) and exception record name of a Result record name.
+    public static String valueKindOfName(String recordName) {
+        Int second = ResultTypes.dollarFrom(recordName, 7);
+        return ResultTypes.canonicalKind(recordName.substring(7, second));
+    }
+
+    // Record kinds are compared case-insensitively and may arrive lower-cased.
+    private static String canonicalKind(String text) {
+        String key = text.toLowerCase();
+
+        if (key == "bool") {
+            return "Bool";
+        }
+
+        if (key == "float") {
+            return "Float";
+        }
+
+        if (key == "void") {
+            return "Void";
+        }
+
+        return "Int";
+    }
+
+    public static String errorNameOfName(String recordName) {
+        Int second = ResultTypes.dollarFrom(recordName, 7);
+        return recordName.substring(second + 1, recordName.length()) + "";
+    }
+
+    // Kind of a `Result<T,E>` type text, declaring the record on first use; "" when the
+    // instantiation is outside what Sublang records can hold.
+    public static String kindOf(LoweringContext context, String text) {
+        if (!ResultTypes.isResultText(text)) {
+            return "";
+        }
+
+        String valueText = ResultTypes.valueTextOf(text);
+        String errorText = ResultTypes.errorTextOf(text);
+        String valueKind = context.kinds().kindOfTypeText(valueText);
+        Int exception = context.records().indexOf(errorText);
+
+        if (valueKind != "Int" && valueKind != "Bool" && valueKind != "Float" && valueKind != "Void") {
+            return "";
+        }
+
+        if (exception < 0 || !context.records().isException(exception)) {
+            return "";
+        }
+
+        String name = "Result$" + valueKind + "$" + errorText;
+
+        if (context.records().indexOf(name) < 0) {
+            ResultTypes.declare(context, name, valueKind, exception);
+        }
+
+        return RecordTable.kindFor(name);
+    }
+
+    private static Void declare(LoweringContext context, String name, String valueKind, Int exception) {
+        SublangBuilder builder = context.builder();
+        RecordTable table = context.records();
+        Int span = builder.syntheticSpan("ring0:result");
+        Int typeId = builder.recordType(context.retain(name), span);
+        Int record = table.add(name, typeId);
+        Int tag = builder.recordField(typeId, "tag", builder.intType(), span);
+        table.addField(record, "tag", tag, "Int");
+        String payload = valueKind;
+
+        if (valueKind == "Void") {
+            payload = "Int";
+        }
+
+        Int value = builder.recordField(typeId, "value", SourceTypes.typeIdOf(builder, payload), span);
+        table.addField(record, "value", value, payload);
+        Int slot = table.firstFieldSlot(exception);
+        Int end = slot + table.fieldCountAt(exception);
+
+        while (slot < end) {
+            String kind = table.fieldKindAt(slot);
+            Int field = builder.recordField(typeId, context.retain("e_" + table.fieldKeyAt(slot)), SourceTypes.typeIdOf(builder, kind), span);
+            table.addField(record, "e_" + table.fieldKeyAt(slot), field, kind);
+            slot = slot + 1;
+        }
+    }
+}

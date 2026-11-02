@@ -1,0 +1,3 @@
+// The smallest complete program: a Void main is wrapped into the Int entry.
+static method main {
+}

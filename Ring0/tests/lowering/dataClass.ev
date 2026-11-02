@@ -1,0 +1,9 @@
+// data class: defaults, withX, positional destructuring.
+data class Server(Int port, Int slots = 20)
+
+static method<Int> main {
+    Server first = Server(25565)
+    Server second = first.withSlots(5)
+    var { port, slots } = second
+    return slots + port - 25560
+}

@@ -1,0 +1,4 @@
+// expect: Unexpected character '#'@3
+method f {
+    Int x = 1 # 2
+}

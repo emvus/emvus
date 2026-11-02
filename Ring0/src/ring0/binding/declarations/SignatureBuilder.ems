@@ -1,0 +1,105 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Builds method and constructor signatures from their declarations.
+public class SignatureBuilder {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public SignatureBuilder(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public MemberSymbol buildMethod(Node decl, String owner, List<String> outer, Bool inInterface) {
+        List<String> own = this.typeFiller().typeParamNames(decl);
+        List<String> scope = List();
+        Int index = 0;
+
+        while (index < outer.length()) {
+            scope.add(outer.get(index) + "");
+            index = index + 1;
+        }
+
+        index = 0;
+
+        while (index < own.length()) {
+            scope.add(own.get(index) + "");
+            index = index + 1;
+        }
+
+        String returnType = TypeNames.voidType();
+        Node returnNode = AstQuery.childOfKind(decl, NodeKinds.returnType());
+
+        if (returnNode.count() > 0) {
+            returnType = this.resolver.resolve(returnNode.child(0), scope);
+        }
+
+        MemberSymbol method = MemberSymbol(decl.text(), SymbolKinds.method(), returnType, owner);
+        method.setPosition(decl.line(), decl.column());
+        method.setStatic(AstQuery.isStatic(decl));
+        method.setOverride(AstQuery.isOverride(decl));
+        method.setAccess(this.memberCollector().accessOf(decl));
+        method.setAsync(AstQuery.hasAnnotation(decl, "Async"));
+        Bool hasBlock = AstQuery.hasChild(decl, NodeKinds.block()) || AstQuery.hasChild(decl, NodeKinds.placeholder());
+        method.setHasBody(hasBlock);
+        method.setAbstract(AstQuery.isAbstract(decl) || (inInterface && !hasBlock));
+        this.fillParamList(decl, method, scope);
+        Node whereNode = AstQuery.childOfKind(decl, NodeKinds.whereClause());
+        Int tp = 0;
+
+        while (tp < whereNode.count()) {
+            method.addTypeParam(whereNode.child(tp).text(), this.typeFiller().boundsText(whereNode.child(tp), scope));
+            tp = tp + 1;
+        }
+
+        return method;
+    }
+
+    public Void fillParamList(Node member, MemberSymbol target, List<String> scope) {
+        Node params = AstQuery.childOfKind(member, NodeKinds.params());
+        Bool sawDefault = false;
+        List<String> seen = List();
+        Int index = 0;
+
+        while (index < params.count()) {
+            Node param = params.child(index);
+            Node typeNode = AstQuery.typeChild(param);
+            String type = TypeNames.unknownType();
+
+            if (!AstQuery.isNone(typeNode)) {
+                type = this.resolver.resolve(typeNode, scope);
+            }
+
+            Bool hasDefault = AstQuery.hasDefaultValue(param);
+
+            if (hasDefault) {
+                sawDefault = true;
+            }
+
+            if (!hasDefault && sawDefault) {
+                this.bag.error("Parameter '" + param.text() + "' without default value cannot follow a parameter with a default value", param.line(), param.column());
+            }
+
+            if (seen.contains(Names.lower(param.text()))) {
+                this.bag.error("Duplicate parameter '" + param.text() + "'", param.line(), param.column());
+            }
+
+            seen.add(Names.lower(param.text()));
+            target.addParam(param.text(), type, hasDefault);
+            index = index + 1;
+        }
+    }
+
+    private MemberCollector memberCollector() {
+        return MemberCollector(this.table, this.bag);
+    }
+
+    private TypeFiller typeFiller() {
+        return TypeFiller(this.table, this.bag);
+    }
+}

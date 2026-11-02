@@ -1,0 +1,202 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Assignments: plain, compound (`x += y`) and `x++` / `x--` statements. Targets are locals,
+// fields written through a receiver (`obj.field`, `this.field`) and bare fields of the
+// current class. String locals are cells whose bytes are replaced; everything else rebinds
+// the SSA value.
+public class AssignmentLowerer {
+    private LoweringContext context;
+
+    public AssignmentLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void lowerAssignment(Node node) {
+        Node target = node.child(0);
+
+        if (target.kind() == "member") {
+            this.assignMember(node, target);
+            return;
+        }
+
+        if (target.kind() == "index") {
+            ListLowerer(this.context).assignIndex(node, target);
+            return;
+        }
+
+        Int slot = this.context.env().indexOf(target.text());
+
+        if (target.kind() == "name" && slot < 0) {
+            this.assignImplicit(node, target);
+            return;
+        }
+
+        if (target.kind() != "name" || slot < 0) {
+            this.context.unsupported(node, "assignment target must be a local variable or a field");
+            return;
+        }
+
+        this.assignLocal(node, slot);
+    }
+
+    private Void assignLocal(Node node, Int slot) {
+        LoweredValue assigned = this.combine(node, slot, ExpressionLowerer(this.context).lower(node.child(1)));
+
+        if (!assigned.isUsable()) {
+            return;
+        }
+
+        if (assigned.kind() == "String") {
+            TextLowerer(this.context).assign(node, this.context.env().valueAt(slot), assigned);
+            return;
+        }
+
+        LoweredValue coerced = Coercion.to(this.context, node, assigned, this.context.env().kindAt(slot));
+
+        if (RefKinds.isReference(coerced.kind()) && this.context.env().kindAt(slot) != coerced.kind()) {
+            this.context.unsupported(node, "assignment changes the variable's reference kind from " + this.context.env().kindAt(slot) + " to " + coerced.kind());
+            return;
+        }
+
+        this.context.env().setValueAt(slot, coerced.valueId());
+    }
+
+    // `x op= y` folds into `x = x op y`; plain `=` passes the value through.
+    private LoweredValue combine(Node node, Int slot, LoweredValue value) {
+        if (node.text() == "=" || !value.isUsable()) {
+            return value;
+        }
+
+        LoweredValue current = LoweredValue(this.context.env().valueAt(slot), this.context.env().kindAt(slot));
+        String operator = node.text().substring(0, node.text().length() - 1);
+        return OperatorLowerer(this.context).apply(node, operator, current, value);
+    }
+
+    // `receiver.field = value` and `receiver.field += value`.
+    private Void assignMember(Node node, Node target) {
+        LoweredValue receiver = ExpressionLowerer(this.context).lower(target.child(0));
+
+        if (!receiver.isUsable()) {
+            return;
+        }
+
+        this.storeField(node, receiver, target);
+    }
+
+    // A bare name that is not a local: a field of `this`.
+    private Void assignImplicit(Node node, Node target) {
+        Int thisSlot = this.context.env().indexOf("this");
+
+        if (thisSlot < 0) {
+            this.context.unsupported(node, "assignment target '" + target.text() + "' is not a variable");
+            return;
+        }
+
+        LoweredValue receiver = LoweredValue(this.context.env().valueAt(thisSlot), this.context.env().kindAt(thisSlot), true);
+        this.storeField(node, receiver, target);
+    }
+
+    private Void storeField(Node node, LoweredValue receiver, Node target) {
+        LoweredValue value = this.fieldValue(node, receiver, target);
+
+        if (!value.isUsable()) {
+            return;
+        }
+
+        ObjectMembers(this.context).writeField(node, receiver, target.text(), value);
+    }
+
+    private LoweredValue fieldValue(Node node, LoweredValue receiver, Node target) {
+        LoweredValue plain = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (!plain.isUsable() || node.text() == "=") {
+            return plain;
+        }
+
+        LoweredValue current = ObjectMembers(this.context).readField(target, receiver, target.text());
+
+        if (!current.isUsable()) {
+            return current;
+        }
+
+        String operator = node.text().substring(0, node.text().length() - 1);
+        return OperatorLowerer(this.context).apply(node, operator, current, plain);
+    }
+
+    // `i++` and `i--` as statements: i = i +/- 1.
+    public Void lowerStep(Node node) {
+        Node target = node.child(0);
+
+        if (target.kind() == "index") {
+            ListLowerer(this.context).stepIndex(node, target);
+            return;
+        }
+
+        if (target.kind() == "member" || (target.kind() == "name" && this.context.env().indexOf(target.text()) < 0)) {
+            this.stepField(node, target);
+            return;
+        }
+
+        Int slot = this.context.env().indexOf(target.text());
+
+        if (target.kind() != "name" || slot < 0) {
+            this.context.unsupported(node, "'" + node.text() + "' needs a local variable or a field");
+            return;
+        }
+
+        LoweredValue current = LoweredValue(this.context.env().valueAt(slot), this.context.env().kindAt(slot));
+        LoweredValue next = this.stepped(node, current);
+
+        if (next.isUsable()) {
+            this.context.env().setValueAt(slot, next.valueId());
+        }
+    }
+
+    private LoweredValue stepped(Node node, LoweredValue current) {
+        Int one = this.context.ops().constInt(1, this.context.span(node));
+        String operator = "+";
+
+        if (node.text() == "--") {
+            operator = "-";
+        }
+
+        return OperatorLowerer(this.context).apply(node, operator, current, LoweredValue(one, "Int"));
+    }
+
+    private Void stepField(Node node, Node target) {
+        LoweredValue receiver = this.receiverOf(node, target);
+
+        if (!receiver.isUsable()) {
+            return;
+        }
+
+        LoweredValue current = ObjectMembers(this.context).readField(target, receiver, target.text());
+
+        if (!current.isUsable()) {
+            return;
+        }
+
+        LoweredValue next = this.stepped(node, current);
+
+        if (next.isUsable()) {
+            ObjectMembers(this.context).writeField(node, receiver, target.text(), next);
+        }
+    }
+
+    private LoweredValue receiverOf(Node node, Node target) {
+        if (target.kind() == "member") {
+            return ExpressionLowerer(this.context).lower(target.child(0));
+        }
+
+        Int thisSlot = this.context.env().indexOf("this");
+
+        if (thisSlot < 0) {
+            this.context.unsupported(node, "'" + target.text() + "' is not a variable");
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue(this.context.env().valueAt(thisSlot), this.context.env().kindAt(thisSlot), true);
+    }
+}

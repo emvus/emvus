@@ -1,0 +1,24 @@
+// cascade sections act on one receiver: method calls and property assignment.
+class Counter {
+    Int count { get, set }
+
+    Counter(Int start) {
+        this.count = start
+    }
+
+    method increment {
+        count = count + 1
+    }
+
+    method<Int> value {
+        return count
+    }
+}
+
+static method<Int> main {
+    Counter counter = Counter(0)
+        ..increment()
+        ..count = 40
+        ..increment()
+    return counter.value()
+}

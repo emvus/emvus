@@ -1,0 +1,6 @@
+// expect: Expected ')'@3
+class A {
+    method<Int> f(Int a {
+        return a
+    }
+}

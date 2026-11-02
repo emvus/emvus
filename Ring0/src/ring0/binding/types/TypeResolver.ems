@@ -1,0 +1,86 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Resolves type nodes to canonical type texts and reports unknown types.
+public class TypeResolver {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+
+    public TypeResolver(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+    }
+
+    public String resolve(Node node, List<String> typeParams) {
+        if (node.kind() == NodeKinds.varType()) {
+            return TypeNames.inferredType();
+        }
+
+        if (node.kind() == NodeKinds.tupleType()) {
+            List<String> elements = List();
+            Int index = 0;
+
+            while (index < node.count()) {
+                elements.add(this.resolve(node.child(index), typeParams));
+                index = index + 1;
+            }
+
+            return TypeText.tuple(elements);
+        }
+
+        if (node.kind() != NodeKinds.typeNode()) {
+            return TypeNames.unknownType();
+        }
+
+        return this.resolveNamed(node, typeParams);
+    }
+
+    private String resolveNamed(Node node, List<String> typeParams) {
+        String name = node.text();
+
+        if (name == TypeNames.inferredType()) {
+            return TypeNames.inferredType();
+        }
+
+        if (name == TypeNames.dynamicType()) {
+            return TypeNames.dynamicType();
+        }
+
+        if (name == TypeNames.voidType() || name == TypeNames.nullType()) {
+            return name;
+        }
+
+        if (name == "Bool" || name == TypeNames.booleanType()) {
+            return TypeNames.booleanType();
+        }
+
+        if (typeParams.contains(name)) {
+            return name;
+        }
+
+        TypeSymbol symbol = this.table.findType(Names.lastSegment(name));
+
+        if (symbol.isMissing()) {
+            this.bag.error("Unknown type '" + name + "'", node.line(), node.column());
+            return TypeNames.unknownType();
+        }
+
+        List<String> arguments = List();
+        Int index = 0;
+
+        while (index < node.count()) {
+            arguments.add(this.resolve(node.child(index), typeParams));
+            index = index + 1;
+        }
+
+        Int expected = symbol.typeParams().length();
+
+        if (arguments.length() > 0 && !symbol.isVariadic() && arguments.length() != expected && !symbol.isOpaque()) {
+            this.bag.error("Type '" + symbol.name() + "' expects " + expected.toString() + " type argument(s), found " + arguments.length().toString(), node.line(), node.column());
+        }
+
+        return TypeText.make(symbol.name(), arguments);
+    }
+}

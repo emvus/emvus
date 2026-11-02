@@ -1,0 +1,156 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+public class InheritanceValidator {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public InheritanceValidator(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void validate(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node decl = file.child(index);
+
+            if (this.collector().isTypeDecl(decl.kind())) {
+                this.validateType(decl);
+            }
+
+            if (decl.kind() == NodeKinds.methodDeclaration()) {
+                this.annotationValidator().checkAnnotations(decl, SymbolKinds.methodTarget());
+                this.annotationValidator().checkParamAnnotations(decl);
+            }
+
+            if (decl.kind() == NodeKinds.variableDeclaration()) {
+                this.annotationValidator().checkAnnotations(decl, "Variable");
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void validateType(Node decl) {
+        TypeSymbol symbol = this.table.findType(decl.text());
+
+        if (symbol.isMissing() || symbol.line() != decl.line()) {
+            return;
+        }
+
+        this.annotationValidator().checkAnnotations(decl, AstQuery.targetKind(decl.kind()));
+
+        if (this.hasCycle(symbol)) {
+            this.bag.error("Cyclic inheritance involving '" + symbol.name() + "'", decl.line(), decl.column());
+            return;
+        }
+
+        Node body = AstQuery.childOfKind(decl, NodeKinds.body());
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node member = body.child(index);
+            this.annotationValidator().checkAnnotations(member, AstQuery.targetKind(member.kind()));
+
+            if (member.kind() == NodeKinds.methodDeclaration() || member.kind() == NodeKinds.constructorDeclaration()) {
+                this.annotationValidator().checkParamAnnotations(member);
+            }
+
+            if (member.kind() == NodeKinds.methodDeclaration() && AstQuery.isOverride(member)) {
+                this.checkOverride(member, symbol);
+            }
+
+            index = index + 1;
+        }
+
+        if (!symbol.isAbstract() && (symbol.kind() == NodeKinds.classDeclaration() || symbol.kind() == NodeKinds.dataClass() || symbol.kind() == NodeKinds.exceptionDeclaration() || symbol.kind() == NodeKinds.recordDeclaration())) {
+            this.abstractMemberValidator().checkAbstractImplemented(symbol, decl);
+        }
+    }
+
+    private Bool hasCycle(TypeSymbol symbol) {
+        List<String> visited = List();
+        return this.reaches(symbol.name(), symbol, visited, 0);
+    }
+
+    private Bool reaches(String target, TypeSymbol current, List<String> visited, Int depth) {
+        if (depth > 30) {
+            return false;
+        }
+
+        Int index = 0;
+
+        while (index < current.bases().length() + current.interfaces().length()) {
+            String name = "";
+
+            if (index < current.bases().length()) {
+                name = TypeText.base(current.bases().get(index));
+            }
+
+            if (index >= current.bases().length()) {
+                name = TypeText.base(current.interfaces().get(index - current.bases().length()));
+            }
+
+            if (Names.same(name, target)) {
+                return true;
+            }
+
+            if (!visited.contains(Names.lower(name))) {
+                visited.add(Names.lower(name));
+                TypeSymbol next = this.table.findType(name);
+
+                if (!next.isMissing() && this.reaches(target, next, visited, depth + 1)) {
+                    return true;
+                }
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private Void checkOverride(Node member, TypeSymbol owner) {
+        List<MemberSymbol> candidates = this.table.findMembers(owner.name(), member.text());
+        Int arity = AstQuery.childOfKind(member, NodeKinds.params()).count();
+        Int index = 0;
+
+        while (index < candidates.length()) {
+            MemberSymbol candidate = candidates.get(index);
+
+            if (candidate.kind() == NodeKinds.methodDeclaration() && !Names.same(candidate.owner(), owner.name()) && candidate.paramCount() == arity) {
+                return;
+            }
+
+            index = index + 1;
+        }
+
+        if (this.table.hasOpenMembers(owner.name()) && owner.bases().length() > 0) {
+            TypeSymbol baseSymbol = this.table.findType(TypeText.base(owner.bases().get(0)));
+
+            if (!baseSymbol.isMissing() && baseSymbol.isOpaque()) {
+                return;
+            }
+        }
+
+        this.bag.error("Method '" + member.text() + "' is marked 'override' but overrides nothing", member.line(), member.column());
+    }
+
+    private AnnotationValidator annotationValidator() {
+        return AnnotationValidator(this.table, this.bag);
+    }
+
+    private Collector collector() {
+        return Collector(this.table, this.bag);
+    }
+
+    private AbstractMemberValidator abstractMemberValidator() {
+        return AbstractMemberValidator(this.table, this.bag);
+    }
+}

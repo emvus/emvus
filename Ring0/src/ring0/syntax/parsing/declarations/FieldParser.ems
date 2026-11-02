@@ -1,0 +1,81 @@
+namespace ring0::syntax;
+
+// Fields, properties and `var` members.
+//
+//   property  text=name  type-node accessors(accessor text=[modifiers ]get|set) [initializer]
+//   field     text=name  type-node [initializer]
+//   variable  text=name  type-node (text "var" for var) [initializer]   e.g. `final var X = 1`
+public class FieldParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public FieldParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    // var name = expr
+    public Node parseVariable(Node holder, Node modifiers) {
+        Token keyword = this.state.advance();
+        Token nameToken = this.header.consumeName("Expected variable name");
+        Node variable = this.state.nodeAt(nameToken, AstKinds.variableDeclaration(), nameToken.text());
+        this.header.attach(variable, holder, modifiers);
+        variable.add(this.state.nodeAt(keyword, AstKinds.typeNode(), "var"));
+
+        if (this.state.matchSymbol("=")) {
+            variable.add(ExpressionParser(this.state).parse());
+        }
+
+        return variable;
+    }
+
+    // Type name [{ get, set }] [= expr]; an accessor block makes the member a property.
+    public Node parseField(Node holder, Node modifiers) {
+        Node typeNode = TypeParser(this.state).parse();
+        Token nameToken = this.header.consumeName("Expected member name");
+        Bool accessorBlock = this.state.checkSymbol("{");
+        String kind = AstKinds.fieldDeclaration();
+
+        if (accessorBlock) {
+            kind = AstKinds.propertyDeclaration();
+        }
+
+        Node member = this.state.nodeAt(nameToken, kind, nameToken.text());
+        this.header.attach(member, holder, modifiers);
+        member.add(typeNode);
+
+        if (accessorBlock) {
+            member.add(this.parseAccessors());
+        }
+
+        if (this.state.matchSymbol("=")) {
+            member.add(ExpressionParser(this.state).parse());
+        }
+
+        return member;
+    }
+
+    // `{ get, private set }`: modifiers are folded into the accessor text.
+    private Node parseAccessors() {
+        Node accessors = this.state.node(AstKinds.accessors(), "");
+        this.state.advance();
+
+        while (!this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            String text = "";
+
+            while (this.header.isModifierAt(0)) {
+                text = text + this.state.advance().text() + " ";
+            }
+
+            Token word = this.header.consumeName("Expected 'get' or 'set'");
+            accessors.add(this.state.nodeAt(word, AstKinds.accessor(), text + word.text()));
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        this.state.consumeSymbol("}", "Expected '}' after accessors");
+        return accessors;
+    }
+}

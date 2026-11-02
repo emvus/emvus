@@ -1,0 +1,229 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Evaluates an expression and returns its null state; reports every use of a value
+// that is not known to be non-null. Mutates `env` for assignments in the expression.
+public class ExpressionFlow {
+    private FlowContext context;
+    private AccessFlow access;
+    private ConditionRefiner refiner;
+
+    public ExpressionFlow(FlowContext flowContext) {
+        this.context = flowContext;
+        this.access = AccessFlow(flowContext);
+        this.refiner = ConditionRefiner();
+    }
+
+    public AccessFlow accessFlow() {
+        return this.access;
+    }
+
+    public ConditionRefiner conditionRefiner() {
+        return this.refiner;
+    }
+
+    public String eval(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.nullLiteral()) {
+            return NullState.nullValue();
+        }
+
+        if (kind == NodeKinds.nameReference()) {
+            return this.evalName(node, env);
+        }
+
+        if (kind == NodeKinds.memberAccess()) {
+            return this.access.member(node, env, this);
+        }
+
+        if (kind == NodeKinds.callExpression()) {
+            return this.access.call(node, env, this);
+        }
+
+        if (kind == NodeKinds.indexAccess()) {
+            return this.access.index(node, env, this);
+        }
+
+        if (kind == NodeKinds.assign()) {
+            return this.access.assign(node, env, this);
+        }
+
+        return this.evalOther(node, env);
+    }
+
+    private String evalOther(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.binary()) {
+            return this.evalBinary(node, env);
+        }
+
+        if (kind == NodeKinds.ternary()) {
+            return this.evalTernary(node, env);
+        }
+
+        if (kind == NodeKinds.unary() || kind == NodeKinds.postfix() || kind == NodeKinds.propagate() || kind == NodeKinds.unwrap()) {
+            return this.evalOperand(node, env);
+        }
+
+        if (kind == NodeKinds.isCheck() || kind == NodeKinds.asCast()) {
+            return this.evalCast(node, env);
+        }
+
+        return this.evalStructural(node, env);
+    }
+
+    private String evalName(Node node, FlowEnv env) {
+        String name = node.text();
+
+        if (env.has(name)) {
+            return env.get(name);
+        }
+
+        String key = FlowKinds.fieldKeyPrefix() + name;
+
+        if (env.has(key) && env.get(key) != NullState.nonNull()) {
+            this.context.error("'" + name + "' is read before it is initialized", node);
+            return NullState.nonNull();
+        }
+
+        return this.access.propertyState(name);
+    }
+
+    // The right operand of && and || only runs when the left one decided nothing.
+    private String evalBinary(Node node, FlowEnv env) {
+        String operator = node.text();
+        Node left = node.child(0);
+        Node right = node.child(1);
+        String leftState = this.eval(left, env);
+
+        if (operator == "&&" || operator == "||") {
+            FlowEnv rightEnv = env.copy();
+            this.refiner.refine(left, rightEnv, operator == "&&");
+            this.eval(right, rightEnv);
+            return NullState.nonNull();
+        }
+
+        String rightState = this.eval(right, env);
+
+        if (operator == "==" || operator == "!=") {
+            return NullState.nonNull();
+        }
+
+        this.access.require(left, leftState, env, "it cannot be used as an operand");
+        this.access.require(right, rightState, env, "it cannot be used as an operand");
+        return NullState.nonNull();
+    }
+
+    private String evalTernary(Node node, FlowEnv env) {
+        Node condition = node.child(0);
+        this.eval(condition, env);
+        FlowEnv thenEnv = env.copy();
+        this.refiner.refine(condition, thenEnv, true);
+        FlowEnv elseEnv = env.copy();
+        this.refiner.refine(condition, elseEnv, false);
+        String thenState = this.eval(node.child(1), thenEnv);
+        String elseState = this.eval(node.child(2), elseEnv);
+        env.becomeJoin(thenEnv, elseEnv);
+        return NullState.join(thenState, elseState);
+    }
+
+    private String evalOperand(Node node, FlowEnv env) {
+        Node operand = node.child(0);
+        this.access.require(operand, this.eval(operand, env), env, "it cannot be used as an operand");
+        return NullState.nonNull();
+    }
+
+    private String evalCast(Node node, FlowEnv env) {
+        this.eval(node.child(0), env);
+        return NullState.nonNull();
+    }
+
+    // Literals, collections, lambdas, tasks, cascades and everything else without
+    // null-specific rules: evaluate the children for the problems they contain.
+    private String evalStructural(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.typeNode() || kind == NodeKinds.quote() || kind == NodeKinds.splice() || kind == NodeKinds.genericRef()) {
+            return NullState.nonNull();
+        }
+
+        if (kind == NodeKinds.lambda()) {
+            return this.evalLambda(node, env);
+        }
+
+        if (kind == NodeKinds.task()) {
+            this.flowNested(node.child(0), env.copy());
+            return NullState.nonNull();
+        }
+
+        if (kind == NodeKinds.switchNode()) {
+            return SwitchFlow(this.context, this).evalSwitch(node, env, false);
+        }
+
+        if (kind == NodeKinds.cascade() && node.count() > 0) {
+            Node target = node.child(0);
+            this.access.require(target, this.eval(target, env), env, "it cannot be dereferenced");
+        }
+
+        return this.evalChildren(node, env);
+    }
+
+    private String evalChildren(Node node, FlowEnv env) {
+        Bool isString = node.kind() == NodeKinds.stringLiteral();
+        Bool isCascade = node.kind() == NodeKinds.cascade();
+        Int index = 0;
+
+        if (isCascade) {
+            index = 1;
+        }
+
+        while (index < node.count()) {
+            Node child = node.child(index);
+
+            if (isString && child.kind() == FlowKinds.interpolation() && child.count() > 0) {
+                this.eval(child.child(0), env);
+            }
+
+            if (!isString) {
+                this.eval(child, env);
+            }
+
+            index = index + 1;
+        }
+
+        return NullState.nonNull();
+    }
+
+    private String evalLambda(Node node, FlowEnv env) {
+        FlowEnv inner = env.copy();
+        Node params = node.child(0);
+        Int index = 0;
+
+        while (index < params.count()) {
+            inner.set(params.child(index).text(), NullState.nonNull());
+            index = index + 1;
+        }
+
+        this.flowNested(node.child(1), inner);
+        return NullState.nonNull();
+    }
+
+    // Blocks nested in expressions; returns inside them do not leave the enclosing method.
+    public Void flowNested(Node body, FlowEnv env) {
+        Int exitMark = this.context.exitCount();
+        StatementFlow statements = StatementFlow(this.context, this);
+
+        if (body.kind() == NodeKinds.block()) {
+            statements.flowStatement(body, env);
+        }
+
+        if (body.kind() != NodeKinds.block()) {
+            this.eval(body, env);
+        }
+
+        this.context.takeExitsFrom(exitMark);
+    }
+}

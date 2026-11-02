@@ -1,0 +1,11 @@
+// expect-error: shared ownership
+// Capturing a function value would need shared ownership of the closure object.
+method<Function<Int, Int>> twice(Function<Int, Int> f) {
+    return (x) -> f(f(x))
+}
+
+static method<Int> main {
+    Function<Int, Int> inc = (v) -> v + 1
+    Function<Int, Int> add2 = twice(inc)
+    return add2(5)
+}

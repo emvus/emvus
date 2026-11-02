@@ -1,0 +1,17 @@
+namespace ring0::lowering;
+
+// Owns the strings Sublang keeps by reference (function and parameter names). It must
+// outlive the module, so the caller of ProgramLowerer holds it, not the lowering run.
+public class RetainedPool {
+    private List<RetainedText> items;
+
+    public RetainedPool() {
+        this.items = List();
+    }
+
+    public String keep(String text) {
+        RetainedText kept = RetainedText(text);
+        this.items.add(kept);
+        return kept.text();
+    }
+}

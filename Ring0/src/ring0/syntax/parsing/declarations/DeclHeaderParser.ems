@@ -1,0 +1,173 @@
+namespace ring0::syntax;
+
+// Helper parser for declarations: words, annotations, modifiers, where clauses, type lists.
+//
+// Node kinds:
+//   annotation    text=name, children: argument expressions
+//   modifiers     text="" ; children: modifier (text=public|private|protected|static|abstract|override|final)
+//   where         children: typeparam (text=name; children: type nodes as bounds)
+//   based / implements   children: type nodes
+public class DeclHeaderParser {
+    private ParserState state;
+
+    public DeclHeaderParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    // Keyword or identifier with this text (regardless of token kind)
+    public Bool isWord(Int offset, String text) {
+        return this.state.peekAt(offset).isWord(text);
+    }
+
+    public Bool isNameAt(Int offset) {
+        return this.state.peekAt(offset).isName();
+    }
+
+    public Bool matchWord(String text) {
+        if (this.isWord(0, text)) {
+            this.state.advance();
+            return true;
+        }
+
+        return false;
+    }
+
+    public Token consumeName(String message) {
+        if (this.isNameAt(0)) {
+            return this.state.advance();
+        }
+
+        this.state.errorHere(message);
+        return this.state.peek();
+    }
+
+    // a.b.c
+    public String parseQualifiedName(String message) {
+        String value = this.consumeName(message).text();
+
+        while (this.state.checkSymbol(".") && this.isNameAt(1)) {
+            this.state.advance();
+            value = value + "." + this.state.advance().text();
+        }
+
+        return value;
+    }
+
+    // Number of tokens that make up "..." at offset (0 = no placeholder)
+    public Int placeholderLength(Int offset) {
+        if (this.state.peekAt(offset).isSymbol("...")) {
+            return 1;
+        }
+
+        if (this.state.peekAt(offset).isSymbol("..") && this.state.peekAt(offset + 1).isSymbol(".")) {
+            return 2;
+        }
+
+        if (this.state.peekAt(offset).isSymbol(".") && this.state.peekAt(offset + 1).isSymbol(".") && this.state.peekAt(offset + 2).isSymbol(".")) {
+            return 3;
+        }
+
+        return 0;
+    }
+
+    // @Name or @Name(args): attaches an annotation node to owner
+    public Void parseAnnotations(Node owner) {
+        while (this.state.checkSymbol("@")) {
+            Token at = this.state.advance();
+            String name = this.parseQualifiedName("Expected annotation name after '@'");
+            Node annotation = this.state.nodeAt(at, AstKinds.annotation(), name);
+
+            if (this.state.checkSymbol("(")) {
+                this.state.advance();
+
+                while (!this.state.checkSymbol(")") && !this.state.isAtEnd()) {
+                    ExpressionParser expressions = ExpressionParser(this.state);
+                    annotation.add(expressions.parse());
+
+                    if (!this.state.matchSymbol(",")) {
+                        break;
+                    }
+                }
+
+                this.state.consumeSymbol(")", "Expected ')' after annotation arguments");
+            }
+
+            owner.add(annotation);
+        }
+    }
+
+    public Bool isModifierAt(Int offset) {
+        Token token = this.state.peekAt(offset);
+
+        if (!token.isName()) {
+            return false;
+        }
+
+        String text = token.text();
+        return text == "public" || text == "private" || text == "protected" || text == "static" || text == "abstract" || text == "override" || text == "final";
+    }
+
+    public Node parseModifiers() {
+        Node modifiers = this.state.node(AstKinds.modifiers(), "");
+
+        while (this.isModifierAt(0)) {
+            Token token = this.state.advance();
+            modifiers.add(this.state.nodeAt(token, AstKinds.modifier(), token.text()));
+        }
+
+        return modifiers;
+    }
+
+    // where T, U: A & B   - callers must check isWord(0, "where") first
+    public Node parseWhere() {
+        Token keyword = this.state.advance();
+        Node where = this.state.nodeAt(keyword, AstKinds.whereClause(), "");
+
+        while (this.isNameAt(0)) {
+            Token nameToken = this.state.advance();
+            Node parameter = this.state.nodeAt(nameToken, AstKinds.typeParam(), nameToken.text());
+
+            if (this.state.matchSymbol(":")) {
+                TypeParser types = TypeParser(this.state);
+                parameter.add(types.parse());
+
+                while (this.state.matchSymbol("&")) {
+                    parameter.add(types.parse());
+                }
+            }
+
+            where.add(parameter);
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        return where;
+    }
+
+    // A, B, C  (at least one type)
+    public Node parseTypeList(String kind) {
+        Node list = this.state.node(kind, "");
+        TypeParser types = TypeParser(this.state);
+        list.add(types.parse());
+
+        while (this.state.matchSymbol(",")) {
+            list.add(types.parse());
+        }
+
+        return list;
+    }
+
+    // Attaches annotations (from holder) and modifiers to the declaration
+    public Void attach(Node declaration, Node holder, Node modifiers) {
+        Int index = 0;
+
+        while (index < holder.count()) {
+            declaration.add(holder.child(index));
+            index = index + 1;
+        }
+
+        declaration.add(modifiers);
+    }
+}

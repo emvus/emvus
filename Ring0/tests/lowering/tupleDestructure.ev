@@ -1,0 +1,16 @@
+// Tuples are value records per shape: literal, positional destructuring and t[0].
+method<[Int, Bool]> pair(Int a) {
+    return [a * 2, a > 3]
+}
+
+static method<Int> main {
+    var { n, flag } = pair(4)
+    [Int, Bool] t = pair(1)
+    Int extra = t[0]
+
+    if (flag) {
+        return n + extra
+    }
+
+    return 0
+}

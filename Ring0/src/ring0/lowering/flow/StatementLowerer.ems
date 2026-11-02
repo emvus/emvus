@@ -1,0 +1,161 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Lowers statements. Every method returns true when control cannot continue past the
+// statement (return, break, continue, fail), so unreachable code is not emitted.
+public class StatementLowerer {
+    private LoweringContext context;
+
+    public StatementLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Bool lowerBlock(Node block) {
+        Int mark = this.context.env().size();
+        Int scopeMark = this.context.scopes().count();
+        Bool terminated = false;
+        Int index = 0;
+
+        while (index < block.count() && !terminated) {
+            terminated = this.lowerStatement(block.child(index));
+            index = index + 1;
+        }
+
+        this.endScopes(block, scopeMark, terminated);
+        this.context.env().truncate(mark);
+        return terminated;
+    }
+
+    // `scoped var` scopes opened in this block end with it, innermost first. A terminating
+    // statement already closed them on its own path.
+    private Void endScopes(Node block, Int scopeMark, Bool terminated) {
+        Int position = this.context.scopes().count() - 1;
+
+        while (!terminated && position >= scopeMark) {
+            this.context.ops().scopeEnd(this.context.scopes().at(position), this.context.span(block));
+            position = position - 1;
+        }
+
+        this.context.scopes().popTo(scopeMark);
+    }
+
+    public Bool lowerStatement(Node node) {
+        String kind = node.kind();
+
+        if (kind == "local") {
+            return LocalLowerer(this.context).lower(node);
+        }
+
+        if (kind == "destructure") {
+            return this.lowerDestructure(node);
+        }
+
+        if (kind == "expr-stmt") {
+            return this.lowerExpressionStatement(node.child(0));
+        }
+
+        if (kind == "return" || kind == "fail" || kind == "success") {
+            return ResultStatements(this.context).lower(node);
+        }
+
+        if (kind == "switch") {
+            return SwitchEmitter(this.context).emit(node, false, "").kind() == "Terminated";
+        }
+
+        return this.lowerControl(node);
+    }
+
+    private Bool lowerControl(Node node) {
+        String kind = node.kind();
+
+        if (kind == "if") {
+            return BranchLowerer(this.context).lowerIf(node);
+        }
+
+        if (kind == "while") {
+            return LoopLowerer(this.context).lowerWhile(node);
+        }
+
+        if (kind == "for") {
+            return LoopLowerer(this.context).lowerFor(node);
+        }
+
+        if (kind == "foreach") {
+            return ForEachLowerer(this.context).lower(node);
+        }
+
+        if (kind == "break" || kind == "continue") {
+            return this.lowerJump(node);
+        }
+
+        if (kind == "block") {
+            return this.lowerBlock(node);
+        }
+
+        this.context.unsupported(node, "statement '" + kind + "' needs backend support that is not available (see docs/lowering.md)");
+        return false;
+    }
+
+    public Bool lowerExpressionStatement(Node expression) {
+        String kind = expression.kind();
+
+        if (kind == "assign") {
+            AssignmentLowerer(this.context).lowerAssignment(expression);
+            return false;
+        }
+
+        if (kind == "postfix") {
+            AssignmentLowerer(this.context).lowerStep(expression);
+            return false;
+        }
+
+        LoweredValue value = ExpressionLowerer(this.context).lower(expression);
+        return value.kind() == "Terminated";
+    }
+
+    private Bool lowerDestructure(Node node) {
+        Node init = node.child(node.count() - 1);
+        LoweredValue source = ExpressionLowerer(this.context).lower(init.child(0));
+
+        if (!source.isUsable()) {
+            return false;
+        }
+
+        RecordLowerer(this.context).destructure(node, source);
+        return false;
+    }
+
+    private Bool lowerJump(Node node) {
+        Int depth = this.context.frames().length();
+
+        if (depth == 0) {
+            this.context.unsupported(node, "'" + node.kind() + "' outside of a loop");
+            return true;
+        }
+
+        LoopFrame frame = this.context.frames().get(depth - 1);
+        Int target = frame.continueTarget();
+
+        if (node.kind() == "break") {
+            target = frame.breakTarget();
+        }
+
+        this.closeScopesDownTo(frame.scopeDepth(), this.context.span(node));
+        List<Int> values = CarriedVariables.currentValues(this.context, frame.carriedIndices());
+        this.context.ops().branchTo(target, values, this.context.span(node));
+        return true;
+    }
+
+    // Leaving a loop body early ends the scopes opened inside it (the stack itself is untouched:
+    // the fall-through path still owns them).
+    private Void closeScopesDownTo(Int depth, Int span) {
+        Int position = this.context.scopes().count() - 1;
+
+        while (position >= depth) {
+            this.context.ops().scopeEnd(this.context.scopes().at(position), span);
+            position = position - 1;
+        }
+    }
+}

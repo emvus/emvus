@@ -1,0 +1,175 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Field access and member calls on class values. Reads of text, object and record fields are
+// borrowed views; writes of text and objects move a fresh owned value into the field (text is
+// copied first so Emvus value semantics survive). Inside a constructor the first assignment
+// to a field is its initialization.
+public class ObjectMembers {
+    private LoweringContext context;
+
+    public ObjectMembers(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Int classOf(LoweredValue value) {
+        if (!ClassTable.isClassKind(value.kind())) {
+            return -1;
+        }
+
+        return this.context.classes().indexOf(ClassTable.nameOfKind(value.kind()));
+    }
+
+    public LoweredValue readField(Node at, LoweredValue receiver, String name) {
+        Int owner = this.classOf(receiver);
+        Int slot = -1;
+
+        if (owner >= 0 && !this.context.classes().isInterfaceAt(owner)) {
+            slot = this.context.classes().fields().slotOf(owner, name);
+        }
+
+        if (slot < 0) {
+            this.context.unsupported(at, "member '" + name + "' is not a field of " + receiver.kind());
+            return LoweredValue.unsupported();
+        }
+
+        String kind = this.context.classes().fields().kindAt(slot);
+        Int field = this.context.classes().fields().idAt(slot);
+        Int span = this.context.span(at);
+
+        if (kind == "Int" || kind == "Bool" || kind == "Float" || EnumTable.isEnumKind(kind) || RecordTable.isRecordKind(kind)) {
+            return LoweredValue(this.context.ops().fieldRead(receiver.valueId(), field, span), kind);
+        }
+
+        return LoweredValue(this.context.ops().fieldBorrow(receiver.valueId(), field, span), kind, true);
+    }
+
+    // Initializes or writes a field; false when the value cannot be stored.
+    public Bool writeField(Node at, LoweredValue receiver, String name, LoweredValue assigned) {
+        Int owner = this.classOf(receiver);
+        Int slot = -1;
+
+        if (owner >= 0) {
+            slot = this.context.classes().fields().slotOf(owner, name);
+        }
+
+        if (slot < 0) {
+            this.context.unsupported(at, "'" + name + "' is not a field of " + receiver.kind());
+            return false;
+        }
+
+        LoweredValue value = Coercion.to(this.context, at, assigned, this.context.classes().fields().kindAt(slot));
+
+        if (!value.isUsable() || value.kind() != this.context.classes().fields().kindAt(slot)) {
+            this.context.unsupported(at, "field '" + name + "' has type " + this.context.classes().fields().kindAt(slot) + " but the value is " + value.kind());
+            return false;
+        }
+
+        Bool initializing = this.context.construction().building() == receiver.valueId() && !this.context.construction().isInitialized(name);
+        FieldStore store = FieldStore(this.context);
+
+        if (initializing) {
+            this.context.construction().mark(name);
+        }
+
+        return store.store(at, receiver, this.context.classes().fields().idAt(slot), this.context.classes().fields().kindAt(slot), value, initializing);
+    }
+
+    // `receiver.name(args)` on a class or interface value.
+    public LoweredValue memberCall(Node call, LoweredValue receiver, String name) {
+        Int arity = call.count() - 1;
+        Int owner = this.classOf(receiver);
+
+        if (owner < 0) {
+            this.context.unsupported(call, "member '" + name + "' on " + receiver.kind() + " is not available");
+            return LoweredValue.unsupported();
+        }
+
+        Int member = this.findMember(owner, name, arity);
+
+        if (member < 0) {
+            this.context.unsupported(call, receiver.kind() + " has no method '" + name + "' with " + arity.toString() + " arguments");
+            return LoweredValue.unsupported();
+        }
+
+        return MemberInvoker(this.context).invoke(call, member, receiver, this.lowerArguments(call));
+    }
+
+    // `Type.method(args)` for a static member.
+    public LoweredValue staticCall(Node call, Int classIndex, String name) {
+        Int member = this.findMember(classIndex, name, call.count() - 1);
+
+        if (member < 0 || !AstQuery.isStatic(this.context.methods().declarationAt(member))) {
+            this.context.unsupported(call, "'" + this.context.classes().nameAt(classIndex) + "' has no static method '" + name + "' with " + (call.count() - 1).toString() + " arguments");
+            return LoweredValue.unsupported();
+        }
+
+        return MemberInvoker(this.context).invoke(call, member, LoweredValue.nothing(), this.lowerArguments(call));
+    }
+
+    // A bare call inside a class body: a method of the current class (an implicit `this`) or a
+    // static member; -1 when the name is not a member.
+    public Int memberOfCurrent(String name, Int arity) {
+        if (this.context.currentClass() < 0) {
+            return -1;
+        }
+
+        return this.findMember(this.context.currentClass(), name, arity);
+    }
+
+    public LoweredValue callOnThis(Node call, Int member) {
+        Int thisSlot = this.context.env().indexOf("this");
+        List<LoweredValue> arguments = this.lowerArguments(call);
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (AstQuery.isStatic(this.context.methods().declarationAt(member)) || thisSlot < 0) {
+            return MemberInvoker(this.context).invoke(call, member, LoweredValue.nothing(), arguments);
+        }
+
+        LoweredValue receiver = LoweredValue(this.context.env().valueAt(thisSlot), this.context.env().kindAt(thisSlot), true);
+        return MemberInvoker(this.context).invoke(call, member, receiver, arguments);
+    }
+
+    private List<LoweredValue> lowerArguments(Node call) {
+        List<LoweredValue> values = List();
+        Int index = 1;
+
+        while (index < call.count()) {
+            values.add(ExpressionLowerer(this.context).lower(call.child(index)));
+            index = index + 1;
+        }
+
+        return values;
+    }
+
+    // Methods are found in the class (inherited ones are copied per class) or, for an
+    // interface, in the interface and the interfaces it is based on.
+    private Int findMember(Int owner, String name, Int arity) {
+        Int found = MemberResolver.findMethod(this.context, owner, name, arity);
+
+        if (found >= 0 || !this.context.classes().isInterfaceAt(owner)) {
+            return found;
+        }
+
+        Int iface = 1;
+
+        while (iface < this.context.classes().count()) {
+            if (this.context.classes().isInterfaceAt(iface) && this.context.classes().implementsInterface(owner, iface)) {
+                Int viaBase = MemberResolver.findMethod(this.context, iface, name, arity);
+
+                if (viaBase >= 0) {
+                    return viaBase;
+                }
+            }
+
+            iface = iface + 1;
+        }
+
+        return -1;
+    }
+}

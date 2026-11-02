@@ -1,0 +1,216 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class CallChecker {
+    private CheckContext context;
+
+    public CallChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String typeOfCall(Node node, String expected) {
+        Node callee = node.child(0);
+        String kind = callee.kind();
+
+        if (kind == NodeKinds.nameReference()) {
+            return this.callByName(node, callee, expected);
+        }
+
+        if (kind == NodeKinds.memberAccess()) {
+            return this.callByMember(node, callee, expected);
+        }
+
+        if (kind == NodeKinds.genericRef()) {
+            return this.constructorChecker().callGenericRef(node, callee);
+        }
+
+        String type = this.expressionChecker().typeOf(callee, "");
+        return this.callFunctionValue(node, type, "value");
+    }
+
+    public Void evaluateArguments(Node node) {
+        Int index = 1;
+
+        while (index < node.count()) {
+            this.expressionChecker().typeOf(node.child(index), "");
+            index = index + 1;
+        }
+    }
+
+    private String callByName(Node node, Node callee, String expected) {
+        String name = callee.text();
+
+        if (this.context.scope().has(name)) {
+            String local = this.context.scope().typeOf(name);
+
+            if (this.context.rules().isFunctionType(local) || local == TypeNames.dynamicType() || TypeText.isUnknown(local)) {
+                this.expressionChecker().typeOf(callee, "");
+                return this.callFunctionValue(node, local, name);
+            }
+        }
+
+        if (!this.context.cascadeReceiver().isEmpty()) {
+            List<MemberSymbol> viaReceiver = this.memberLookup().candidates(this.context.cascadeReceiver(), name);
+
+            if (viaReceiver.length() > 0 && viaReceiver.get(0).kind() == NodeKinds.methodDeclaration() && !Names.same(viaReceiver.get(0).owner(), TypeNames.anyType())) {
+                return this.argumentChecker().callMethod(viaReceiver, node, name, this.context.cascadeReceiver(), expected);
+            }
+        }
+
+        if (!this.context.currentType().isEmpty()) {
+            List<MemberSymbol> own = this.memberLookup().candidates(this.context.thisType(), name);
+
+            if (own.length() > 0 && own.get(0).kind() == NodeKinds.methodDeclaration()) {
+                return this.argumentChecker().callMethod(own, node, name, this.context.thisType(), expected);
+            }
+        }
+
+        List<MemberSymbol> topLevel = this.context.table().findTopLevelAll(name, SymbolKinds.method());
+
+        if (topLevel.length() > 0) {
+            return this.argumentChecker().callMethod(topLevel, node, name, "", expected);
+        }
+
+        TypeSymbol symbol = this.context.table().findType(name);
+
+        if (!symbol.isMissing()) {
+            List<String> preset = List();
+            return this.constructorChecker().callConstructor(node, symbol, preset, expected);
+        }
+
+        if (this.context.scope().has(name)) {
+            this.expressionChecker().typeOf(callee, "");
+            return this.callFunctionValue(node, this.context.scope().typeOf(name), name);
+        }
+
+        this.context.report(callee, "Unknown function '" + name + "'");
+        this.evaluateArguments(node);
+        return TypeNames.unknownType();
+    }
+
+    private String callByMember(Node node, Node callee, String expected) {
+        String receiver = this.expressionChecker().typeOf(callee.child(0), "");
+        String name = callee.text();
+
+        if (TypeText.isUnknown(receiver) || receiver == TypeNames.dynamicType()) {
+            this.evaluateArguments(node);
+            return receiver;
+        }
+
+        if (receiver == TypeNames.nullType()) {
+            this.context.report(callee, "Cannot call '" + name + "' on null");
+            this.evaluateArguments(node);
+            return TypeNames.unknownType();
+        }
+
+        Bool isStatic = TypeText.isTypeReference(receiver);
+        String lookup = receiver;
+
+        if (isStatic) {
+            lookup = TypeText.referencedType(receiver);
+        }
+
+        List<MemberSymbol> found = this.memberLookup().candidates(lookup, name);
+
+        if (found.length() == 0) {
+            this.reportMissingMethod(callee, lookup, name, isStatic);
+            this.evaluateArguments(node);
+            return TypeNames.unknownType();
+        }
+
+        if (found.get(0).kind() != SymbolKinds.method()) {
+            String valueType = this.nameChecker().memberType(receiver, name, callee);
+            return this.callFunctionValue(node, valueType, name);
+        }
+
+        return this.argumentChecker().callMethod(found, node, name, lookup, expected);
+    }
+
+    // Types with macros, imports or type parameters do not know all of their methods.
+    private Void reportMissingMethod(Node callee, String lookup, String name, Bool isStatic) {
+        if (TypeText.isTuple(lookup)) {
+            this.context.report(callee, "Tuples have no method '" + name + "'");
+            return;
+        }
+
+        TypeSymbol symbol = this.context.table().findType(TypeText.base(lookup));
+
+        if (symbol.isMissing()) {
+            return;
+        }
+
+        Bool closed = !this.context.table().hasOpenMembers(lookup) && !this.context.typeParamNames().contains(lookup);
+
+        if (isStatic) {
+            closed = symbol.isUserDeclared() && !symbol.hasMacro();
+        }
+
+        if (closed) {
+            this.context.report(callee, "Type '" + lookup + "' has no method '" + name + "'");
+        }
+    }
+
+    private String callFunctionValue(Node node, String type, String name) {
+        Int count = node.count() - 1;
+        node.bind(SymbolKinds.value(), name, "");
+
+        if (TypeText.isUnknown(type) || type == TypeNames.dynamicType()) {
+            this.evaluateArguments(node);
+            return type;
+        }
+
+        if (!this.context.rules().isFunctionType(type)) {
+            this.context.report(node, "'" + name + "' is not callable (type '" + type + "')");
+            this.evaluateArguments(node);
+            return TypeNames.unknownType();
+        }
+
+        Int arity = this.context.rules().functionArity(type);
+        List<String> args = TypeText.args(type);
+
+        if (arity != count) {
+            this.context.report(node, "'" + name + "' expects " + arity.toString() + " argument(s), found " + count.toString());
+        }
+
+        Int index = 0;
+
+        while (index < count) {
+            String wanted = TypeNames.unknownType();
+
+            if (index < arity && index < args.length()) {
+                wanted = args.get(index) + "";
+            }
+
+            String actual = this.expressionChecker().typeOf(node.child(index + 1), wanted);
+
+            if (index < arity) {
+                this.context.requireAssignable(wanted, actual, node.child(index + 1), "Argument " + (index + 1).toString() + " of '" + name + "'");
+            }
+
+            index = index + 1;
+        }
+
+        return this.context.rules().functionReturn(type);
+    }
+
+    private ArgumentChecker argumentChecker() {
+        return ArgumentChecker(this.context);
+    }
+
+    private ConstructorChecker constructorChecker() {
+        return ConstructorChecker(this.context);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private MemberLookup memberLookup() {
+        return MemberLookup(this.context);
+    }
+
+    private NameChecker nameChecker() {
+        return NameChecker(this.context);
+    }
+}

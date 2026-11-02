@@ -1,0 +1,4 @@
+// expect: Expected ')' after arguments@4
+method f {
+    println("a"
+}

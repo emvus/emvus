@@ -1,0 +1,11 @@
+// Lambdas capture by value, are typed by their function type and are applied with f(x).
+method<Int> apply(Int x, Function<Int, Int> f) {
+    return f(x)
+}
+
+static method<Int> main {
+    Int offset = 10
+    Function<Int, Int> addOffset = (v) -> v + offset
+    BiFunction<Int, Int, Int> mul = (a, b) -> a * b
+    return apply(5, addOffset) + mul(3, 4) + apply(2, (z) -> z * z)
+}

@@ -1,0 +1,129 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Loops are analysed conservatively: one silent pass learns what the body changes, the
+// loop head state is the join of the entry and the end of that pass, and a second pass
+// over the joined state reports errors. Breaks and continues flow into the exit state.
+public class LoopFlow {
+    private FlowContext context;
+    private ExpressionFlow expressions;
+    private StatementFlow statements;
+
+    public LoopFlow(FlowContext flowContext, ExpressionFlow expressionFlow, StatementFlow statementFlow) {
+        this.context = flowContext;
+        this.expressions = expressionFlow;
+        this.statements = statementFlow;
+    }
+
+    public Void flowLoop(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.whileStatement()) {
+            this.flowWhile(node, env);
+            return;
+        }
+
+        if (kind == NodeKinds.forStatement()) {
+            this.flowFor(node, env);
+            return;
+        }
+
+        this.flowForeach(node, env);
+    }
+
+    private Void flowWhile(Node node, FlowEnv env) {
+        Node condition = node.child(0);
+        this.iterate(condition, node.child(1), AstQuery.none(), env, !this.isConstantTrue(condition));
+    }
+
+    // for: children are init, condition, update, body wrapper nodes.
+    private Void flowFor(Node node, FlowEnv env) {
+        Node init = node.child(0);
+        Int index = 0;
+
+        while (index < init.count()) {
+            this.statements.flowStatement(init.child(index), env);
+            index = index + 1;
+        }
+
+        Node condition = LoopFlow.forCondition(node);
+        Bool exits = !AstQuery.isNone(condition) && !this.isConstantTrue(condition);
+        this.iterate(condition, node.child(3), node.child(2), env, exits);
+    }
+
+    private static Node forCondition(Node node) {
+        if (node.child(1).count() == 0) {
+            return AstQuery.none();
+        }
+
+        return node.child(1).child(0);
+    }
+
+    private Void flowForeach(Node node, FlowEnv env) {
+        Node iterable = node.child(1);
+        this.expressions.accessFlow().require(iterable, this.expressions.eval(iterable, env), env, "it cannot be iterated");
+        env.set(node.text(), NullState.nonNull());
+        this.iterate(AstQuery.none(), node.child(2), AstQuery.none(), env, true);
+    }
+
+    private Bool isConstantTrue(Node condition) {
+        return condition.kind() == NodeKinds.boolLiteral() && condition.text() == "true";
+    }
+
+    private Void iterate(Node condition, Node body, Node update, FlowEnv env, Bool exitsNormally) {
+        Int breakMark = this.context.breakCount();
+        Int continueMark = this.context.continueCount();
+        FlowEnv probe = env.copy();
+        this.context.beginSilent();
+        this.runIteration(condition, body, update, probe);
+        this.context.endSilent();
+        this.context.takeBreaksFrom(breakMark);
+        FlowEnv head = env.copy();
+        head.becomeJoin(env, probe);
+        LoopFlow.joinAll(head, this.context.takeContinuesFrom(continueMark));
+        FlowEnv real = head.copy();
+        this.runIteration(condition, body, update, real);
+        FlowEnv after = head.copy();
+        after.becomeJoin(head, real);
+        LoopFlow.joinAll(after, this.context.takeContinuesFrom(continueMark));
+        this.finishLoop(condition, after, exitsNormally);
+        LoopFlow.joinAll(after, this.context.takeBreaksFrom(breakMark));
+        env.becomeJoin(after, after);
+    }
+
+    private Void finishLoop(Node condition, FlowEnv after, Bool exitsNormally) {
+        if (!exitsNormally) {
+            after.kill();
+            return;
+        }
+
+        if (!AstQuery.isNone(condition)) {
+            this.expressions.conditionRefiner().refine(condition, after, false);
+        }
+    }
+
+    private Void runIteration(Node condition, Node body, Node update, FlowEnv env) {
+        if (!AstQuery.isNone(condition)) {
+            this.expressions.eval(condition, env);
+            this.expressions.conditionRefiner().refine(condition, env, true);
+        }
+
+        this.statements.flowStatement(body, env);
+        Int index = 0;
+
+        while (!AstQuery.isNone(update) && index < update.count()) {
+            this.expressions.eval(update.child(index), env);
+            index = index + 1;
+        }
+    }
+
+    private static Void joinAll(FlowEnv target, List<FlowEnv> others) {
+        Int index = 0;
+
+        while (index < others.length()) {
+            target.becomeJoin(target, others.get(index));
+            index = index + 1;
+        }
+    }
+}

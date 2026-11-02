@@ -1,0 +1,52 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Stores a value into a field with the ownership the field type needs: primitives by value,
+// text as a fresh copy moved into the field, objects only when the value is an owned temporary.
+public class FieldStore {
+    private LoweringContext context;
+
+    public FieldStore(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Bool store(Node at, LoweredValue receiver, Int field, String kind, LoweredValue value, Bool initializing) {
+        Int span = this.context.span(at);
+
+        if (kind == "String") {
+            return this.storeOwned(span, receiver, field, TextLowerer(this.context).independent(at, value).valueId(), initializing);
+        }
+
+        if (ClassTable.isClassKind(kind)) {
+            return this.storeObject(at, receiver, field, value, initializing, span);
+        }
+
+        if (initializing) {
+            this.context.ops().fieldInit(receiver.valueId(), field, value.valueId(), span);
+            return true;
+        }
+
+        this.context.ops().fieldWrite(receiver.valueId(), field, value.valueId(), span);
+        return true;
+    }
+
+    private Bool storeObject(Node at, LoweredValue receiver, Int field, LoweredValue value, Bool initializing, Int span) {
+        if (!value.isFresh()) {
+            this.context.unsupported(at, "storing an existing object reference in a field would need shared ownership (aliases of one object): Sublang fields own their child exclusively (backend requirement: shared references such as Bond for plain Emvus classes)");
+            return false;
+        }
+
+        return this.storeOwned(span, receiver, field, value.valueId(), initializing);
+    }
+
+    private Bool storeOwned(Int span, LoweredValue receiver, Int field, Int owned, Bool initializing) {
+        if (initializing) {
+            this.context.ops().fieldInitOwned(receiver.valueId(), field, owned, span);
+            return true;
+        }
+
+        this.context.ops().fieldWriteOwned(receiver.valueId(), field, owned, span);
+        return true;
+    }
+}

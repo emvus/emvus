@@ -1,0 +1,64 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+use sublang::ir::SublangBuilder;
+
+// Maps the Emvus type names of the prototype subset onto Sublang primitive types.
+public class SourceTypes {
+    public SourceTypes() {
+    }
+
+    // Returns Int, Bool, Float, String, Void or "" for an unsupported type.
+    public static String kindOf(Node typeNode) {
+        if (typeNode.count() > 0) {
+            return "";
+        }
+
+        return SourceTypes.kindOfName(typeNode.text());
+    }
+
+    public static String kindOfName(String name) {
+
+        if (name == "Int") {
+            return "Int";
+        }
+
+        if (name == "Bool" || name == "Boolean") {
+            return "Bool";
+        }
+
+        if (name == "Float") {
+            return "Float";
+        }
+
+        if (name == "String") {
+            return "String";
+        }
+
+        if (name == "Void") {
+            return "Void";
+        }
+
+        return "";
+    }
+
+    public static Int typeIdOf(SublangBuilder builder, String kind) {
+        if (kind == "Int") {
+            return builder.intType();
+        }
+
+        if (kind == "Bool") {
+            return builder.boolType();
+        }
+
+        if (kind == "Float") {
+            return builder.floatType();
+        }
+
+        if (kind == "String") {
+            return builder.module().types().stringType();
+        }
+
+        return builder.voidType();
+    }
+}

@@ -1,0 +1,15 @@
+// expect: Property 'name' is read-only
+package main
+
+class Person {
+    String name { get }
+
+    Person(String name) {
+        this.name = name
+    }
+}
+
+method run {
+    Person person = Person("Anna")
+    person.name = "Berta"
+}

@@ -1,0 +1,9 @@
+// expect-error: null needs a nullable reference
+class Profile {
+    String nickname { get, set } = null
+}
+
+static method<Int> main {
+    Profile profile = Profile()
+    return 0
+}

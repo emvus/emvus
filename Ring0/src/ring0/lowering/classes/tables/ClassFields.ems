@@ -1,0 +1,110 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Field slots of all classes, stored flat. A class lists its inherited fields first (Sublang's
+// field prefix rule), so `slotOf` finds inherited fields too. Fields must be added class after
+// class: `begin` records where a class's slots start.
+public class ClassFields {
+    private List<Int> firstSlots;
+    private List<Int> slotCounts;
+    private List<String> keys;
+    private List<String> names;
+    private List<Int> ids;
+    private List<String> kinds;
+    private List<Node> initializers;
+    private List<Int> owners;
+    private List<Int> setters;
+
+    public ClassFields() {
+        this.firstSlots = List();
+        this.slotCounts = List();
+        this.keys = List();
+        this.names = List();
+        this.ids = List();
+        this.kinds = List();
+        this.initializers = List();
+        this.owners = List();
+        this.setters = List();
+    }
+
+    // One entry per declared class, in class-index order.
+    public Void registerClass() {
+        this.firstSlots.add(0);
+        this.slotCounts.add(0);
+    }
+
+    public Void begin(Int classIndex) {
+        this.firstSlots.set(classIndex, this.keys.length());
+    }
+
+    public Void add(Int classIndex, String name, Int fieldId, String kind, Node initializer, Int owner, Bool settable) {
+        this.keys.add(name.toLowerCase() + "");
+        this.names.add(name + "");
+        this.ids.add(fieldId);
+        this.kinds.add(kind + "");
+        this.initializers.add(initializer);
+        this.owners.add(owner);
+        this.setters.add(0);
+
+        if (settable) {
+            this.setters.set(this.setters.length() - 1, 1);
+        }
+
+        this.slotCounts.set(classIndex, this.slotCounts.get(classIndex) + 1);
+    }
+
+    public Int countAt(Int classIndex) {
+        return this.slotCounts.get(classIndex);
+    }
+
+    public Int firstSlotAt(Int classIndex) {
+        return this.firstSlots.get(classIndex);
+    }
+
+    // Slot of the named field inside the class (inherited fields included), -1 when absent.
+    public Int slotOf(Int classIndex, String name) {
+        String key = name.toLowerCase();
+        Int slot = this.firstSlots.get(classIndex);
+        Int end = slot + this.slotCounts.get(classIndex);
+
+        while (slot < end) {
+            if (this.keys.get(slot) == key) {
+                return slot;
+            }
+
+            slot = slot + 1;
+        }
+
+        return -1;
+    }
+
+    public String nameAt(Int slot) {
+        return this.names.get(slot) + "";
+    }
+
+    public Int idAt(Int slot) {
+        return this.ids.get(slot);
+    }
+
+    public String kindAt(Int slot) {
+        return this.kinds.get(slot) + "";
+    }
+
+    public Node initAt(Int slot) {
+        return this.initializers.get(slot);
+    }
+
+    public Int ownerAt(Int slot) {
+        return this.owners.get(slot);
+    }
+
+    public Bool settableAt(Int slot) {
+        return this.setters.get(slot) == 1;
+    }
+
+    public Bool hasInitializer(Int slot) {
+        return !AstQuery.isNone(this.initializers.get(slot));
+    }
+}

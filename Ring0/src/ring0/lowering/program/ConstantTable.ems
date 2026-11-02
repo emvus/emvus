@@ -1,0 +1,134 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Top-level `final var` constants (the checker types a constant only after the ones it refers to,
+// so a constant may use constants declared above it, not below). Sublang has no module-level storage, so a constant is
+// inlined at every use: its initializer is lowered again where the name is read. That is only
+// sound for initializers that are side-effect free and cheap, so only Int, Bool and Float
+// constant expressions are accepted: literals, unary `-` and `!`, other constants, and
+// binary operators except `/`, `%`, `&&` and `||` (division can abort, the logical operators
+// branch). An arithmetic overflow in a constant therefore aborts where the constant is used,
+// not at program start.
+public class ConstantTable {
+    private static Int maxDepth() {
+        return 32;
+    }
+
+    private List<String> keys;
+    private List<Node> declarations;
+    private List<String> problems;
+
+    public ConstantTable() {
+        this.keys = List();
+        this.declarations = List();
+        this.problems = List();
+    }
+
+    // Registers a final top-level variable that has an initializer; `validate` judges it later,
+    // once every constant it may refer to is known.
+    public Void add(Node declaration) {
+        this.keys.add(declaration.text().toLowerCase() + "");
+        this.declarations.add(declaration);
+        this.problems.add("");
+    }
+
+    public Int count() {
+        return this.keys.length();
+    }
+
+    public Int indexOf(String name) {
+        String key = name.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == key) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public Node declarationAt(Int index) {
+        return this.declarations.get(index);
+    }
+
+    public Node initializerAt(Int index) {
+        return AstQuery.initChild(this.declarations.get(index));
+    }
+
+    // Empty when the constant can be inlined, otherwise why it cannot.
+    public String problemAt(Int index) {
+        return this.problems.get(index) + "";
+    }
+
+    public Bool isUsableAt(Int index) {
+        return this.problems.get(index) == "";
+    }
+
+    public Void validate() {
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            this.problems.set(index, this.judge(index) + "");
+            index = index + 1;
+        }
+    }
+
+    private String judge(Int index) {
+        Node init = this.initializerAt(index);
+        String type = init.type().toLowerCase();
+
+        if (type != "int" && type != "bool" && type != "boolean" && type != "float") {
+            return "constant '" + this.declarations.get(index).text() + "' has type " + init.type() + ": only Int, Bool and Float constants are inlined; other values need static storage (backend requirement)";
+        }
+
+        if (!this.isConstant(init, 0)) {
+            return "initializer of '" + this.declarations.get(index).text() + "' is not a constant expression (literals, unary - and !, other constants and binary operators except / % && ||); a computed value needs static storage (backend requirement)";
+        }
+
+        return "";
+    }
+
+    private Bool isConstant(Node node, Int depth) {
+        String kind = node.kind();
+
+        if (kind == "int-literal" || kind == "float-literal" || kind == "bool-literal") {
+            return true;
+        }
+
+        if (kind == "unary") {
+            return this.isConstant(node.child(0), depth);
+        }
+
+        if (kind == "binary") {
+            return this.isConstantBinary(node, depth);
+        }
+
+        if (kind != "name" || depth >= ConstantTable.maxDepth()) {
+            return false;
+        }
+
+        Int target = this.indexOf(node.text());
+
+        if (target < 0) {
+            return false;
+        }
+
+        return this.isConstant(this.initializerAt(target), depth + 1);
+    }
+
+    private Bool isConstantBinary(Node node, Int depth) {
+        String operator = node.text();
+
+        if (operator == "/" || operator == "%" || operator == "&&" || operator == "||") {
+            return false;
+        }
+
+        return this.isConstant(node.child(0), depth) && this.isConstant(node.child(1), depth);
+    }
+}

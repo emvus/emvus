@@ -1,0 +1,24 @@
+// expect: check ok
+package main
+
+class Profile {
+    String nickname { get, set } = null
+}
+
+method<Int> lengthOf(String text) {
+    if (text == null) {
+        return 0
+    }
+
+    return text.length()
+}
+
+method<Int> nicknameLength(Profile profile) {
+    final var nickname = profile.nickname
+
+    if (nickname == null) {
+        return 0
+    }
+
+    return nickname.length()
+}

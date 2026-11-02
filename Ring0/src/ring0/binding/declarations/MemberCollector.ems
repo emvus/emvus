@@ -1,0 +1,155 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+public class MemberCollector {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public MemberCollector(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void addMember(Node member, TypeSymbol owner, List<String> classScope) {
+        String kind = member.kind();
+
+        if (kind == NodeKinds.methodDeclaration()) {
+            this.addMethod(member, owner, classScope);
+            return;
+        }
+
+        if (kind == NodeKinds.constructorDeclaration()) {
+            this.addConstructor(member, owner, classScope);
+            return;
+        }
+
+        if (kind == NodeKinds.propertyDeclaration() || kind == NodeKinds.fieldDeclaration()) {
+            this.addDataMember(member, owner, classScope);
+        }
+    }
+
+    private Void addMethod(Node member, TypeSymbol owner, List<String> classScope) {
+        Bool inInterface = owner.kind() == NodeKinds.interfaceDeclaration();
+        MemberSymbol method = this.signatureBuilder().buildMethod(member, owner.name(), classScope, inInterface);
+
+        if (this.hasSameSignature(owner, method, SymbolKinds.method())) {
+            this.bag.error("Duplicate method '" + member.text() + "' with " + method.paramCount().toString() + " parameter(s) in '" + owner.name() + "'", member.line(), member.column());
+            return;
+        }
+
+        owner.addMember(method);
+    }
+
+    private Void addConstructor(Node member, TypeSymbol owner, List<String> classScope) {
+        MemberSymbol constructor = MemberSymbol(owner.name(), SymbolKinds.constructor(), owner.name(), owner.name());
+        constructor.setPosition(member.line(), member.column());
+        this.signatureBuilder().fillParamList(member, constructor, classScope);
+
+        if (this.hasSameSignature(owner, constructor, SymbolKinds.constructor())) {
+            this.bag.error("Duplicate constructor with " + constructor.paramCount().toString() + " parameter(s) in '" + owner.name() + "'", member.line(), member.column());
+            return;
+        }
+
+        owner.addMember(constructor);
+    }
+
+    // Overloading by parameter count is allowed; names are case-insensitive.
+    private Bool hasSameSignature(TypeSymbol owner, MemberSymbol candidate, String kind) {
+        Int index = 0;
+
+        while (index < owner.members().length()) {
+            MemberSymbol other = owner.members().get(index);
+            index = index + 1;
+
+            if (other.kind() != kind || other.paramCount() != candidate.paramCount()) {
+                continue;
+            }
+
+            if (kind == SymbolKinds.constructor() || Names.same(other.name(), candidate.name())) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private Void addDataMember(Node member, TypeSymbol owner, List<String> classScope) {
+        Node typeNode = AstQuery.typeChild(member);
+        String type = TypeNames.unknownType();
+
+        if (!AstQuery.isNone(typeNode)) {
+            type = this.resolver.resolve(typeNode, classScope);
+        }
+
+        if (member.kind() == NodeKinds.fieldDeclaration() && owner.kind() == NodeKinds.dataClass()) {
+            this.bag.error("Data class '" + owner.name() + "' cannot declare additional field '" + member.text() + "'; add it to the class header", member.line(), member.column());
+        }
+
+        if (this.hasDataMember(owner, member.text())) {
+            this.bag.error("Duplicate member '" + member.text() + "' in '" + owner.name() + "'", member.line(), member.column());
+            return;
+        }
+
+        MemberSymbol symbol = MemberSymbol(member.text(), member.kind(), type, owner.name());
+        symbol.setPosition(member.line(), member.column());
+        symbol.setStatic(AstQuery.isStatic(member));
+        symbol.setAccess(this.accessOf(member));
+        symbol.setReadOnly(member.kind() == NodeKinds.propertyDeclaration() && !this.hasSetter(member));
+        owner.addMember(symbol);
+    }
+
+    private Bool hasDataMember(TypeSymbol owner, String name) {
+        Int index = 0;
+
+        while (index < owner.members().length()) {
+            MemberSymbol other = owner.members().get(index);
+            index = index + 1;
+            Bool data = other.kind() == SymbolKinds.property() || other.kind() == SymbolKinds.field();
+
+            if (data && Names.same(other.name(), name)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private Bool hasSetter(Node property) {
+        Node accessors = AstQuery.childOfKind(property, NodeKinds.accessors());
+        Int index = 0;
+
+        while (index < accessors.count()) {
+            if (accessors.child(index).text() == "set") {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public String accessOf(Node member) {
+        if (AstQuery.hasModifier(member, SymbolKinds.privateAccess())) {
+            return SymbolKinds.privateAccess();
+        }
+
+        if (AstQuery.hasModifier(member, SymbolKinds.protectedAccess())) {
+            return SymbolKinds.protectedAccess();
+        }
+
+        return SymbolKinds.publicAccess();
+    }
+
+    public TypeFiller typeFiller() {
+        return TypeFiller(this.table, this.bag);
+    }
+
+    private SignatureBuilder signatureBuilder() {
+        return SignatureBuilder(this.table, this.bag);
+    }
+}

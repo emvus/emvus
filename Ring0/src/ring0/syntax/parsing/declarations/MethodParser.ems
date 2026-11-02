@@ -1,0 +1,106 @@
+namespace ring0::syntax;
+
+// Methods and constructors.
+//
+//   method       text=name  [return-type(type node)] params [where] [block | placeholder]
+//   constructor  text=name  params [super-call(text=super|this; children: arguments)] block
+//   placeholder  a body that consists only of `...`
+public class MethodParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public MethodParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    // Starts at the `method` keyword. `method<T> name(...)`: the type in angle brackets is the
+    // return type; without it the method returns Void.
+    public Node parseMethod(Node holder, Node modifiers) {
+        this.state.advance();
+        Node returnType = this.state.node(AstKinds.returnType(), "");
+        Bool hasReturnType = this.parseReturnType(returnType);
+        Token nameToken = this.header.consumeName("Expected method name");
+        Node method = this.state.nodeAt(nameToken, AstKinds.methodDeclaration(), nameToken.text());
+        this.header.attach(method, holder, modifiers);
+
+        if (hasReturnType) {
+            method.add(returnType);
+        }
+
+        method.add(ParameterParser(this.state).parseOptionalParams());
+
+        if (this.header.isWord(0, "where")) {
+            method.add(this.header.parseWhere());
+        }
+
+        if (this.state.checkSymbol("{")) {
+            method.add(this.parseBody());
+        }
+
+        return method;
+    }
+
+    private Bool parseReturnType(Node returnType) {
+        if (!this.state.checkSymbol("<")) {
+            return false;
+        }
+
+        this.state.advance();
+        returnType.add(TypeParser(this.state).parse());
+        this.state.consumeSymbol(">", "Expected '>' after method return type");
+        return true;
+    }
+
+    // `{ ... }` is a placeholder body; any other body is a normal block.
+    private Node parseBody() {
+        Int length = this.header.placeholderLength(1);
+
+        if (length > 0 && this.state.peekAt(1 + length).isSymbol("}")) {
+            Token open = this.state.advance();
+            Int skipped = 0;
+
+            while (skipped < length) {
+                this.state.advance();
+                skipped = skipped + 1;
+            }
+
+            this.state.advance();
+            return this.state.nodeAt(open, AstKinds.placeholder(), "");
+        }
+
+        return StatementParser(this.state).parseBlock();
+    }
+
+    public Node parseConstructor(Node holder, Node modifiers) {
+        Token nameToken = this.state.advance();
+        Node constructor = this.state.nodeAt(nameToken, AstKinds.constructorDeclaration(), nameToken.text());
+        this.header.attach(constructor, holder, modifiers);
+        constructor.add(ParameterParser(this.state).parseParams());
+
+        if (this.state.matchSymbol(":")) {
+            constructor.add(this.parseSuperCall());
+        }
+
+        constructor.add(StatementParser(this.state).parseBlock());
+        return constructor;
+    }
+
+    // `: super(args)` / `: this(args)`
+    private Node parseSuperCall() {
+        Token target = this.header.consumeName("Expected 'super' or 'this' after ':'");
+        Node call = this.state.nodeAt(target, AstKinds.superCall(), target.text());
+        this.state.consumeSymbol("(", "Expected '(' after constructor call target");
+
+        while (!this.state.checkSymbol(")") && !this.state.isAtEnd()) {
+            call.add(ExpressionParser(this.state).parse());
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        this.state.consumeSymbol(")", "Expected ')' after constructor call arguments");
+        return call;
+    }
+}

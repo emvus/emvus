@@ -1,0 +1,90 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// String literals with `${expression}` parts: the raw text is walked, literal pieces are
+// appended and each part is lowered and appended in order.
+public class TextInterpolation {
+    private LoweringContext context;
+
+    public TextInterpolation(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Index of the next `${` at or after `from`, or -1.
+    private static Int openerAt(String raw, Int from) {
+        Int index = from;
+
+        while (index + 1 < raw.length()) {
+            if (raw.charAt(index).toString() == "$" && raw.charAt(index + 1).toString() == "{") {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    // Index of the `}` that closes an interpolation starting after `start`, or -1.
+    private static Int closerFrom(String raw, Int start) {
+        Int depth = 0;
+        Int index = start;
+
+        while (index < raw.length()) {
+            String c = raw.charAt(index).toString();
+
+            if (c == "{") {
+                depth = depth + 1;
+            }
+
+            if (c == "}" && depth == 0) {
+                return index;
+            }
+
+            if (c == "}") {
+                depth = depth - 1;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public LoweredValue interpolate(Node node, Int first, Int span) {
+        String raw = node.text();
+        Int accumulated = first;
+        Int cursor = 0;
+        Int part = 0;
+
+        while (part < node.count()) {
+            Int open = TextInterpolation.openerAt(raw, cursor);
+            Int close = TextInterpolation.closerFrom(raw, open + 2);
+
+            if (open < 0 || close < 0) {
+                this.context.unsupported(node, "interpolation could not be matched to its parts");
+                return LoweredValue.unsupported();
+            }
+
+            this.context.collections().textAppend(accumulated, this.context.ops().constString(this.context.retain(raw.substring(cursor, open)), span), span);
+            LoweredValue value = ExpressionLowerer(this.context).lower(node.child(part).child(0));
+
+            if (!value.isUsable()) {
+                return LoweredValue.unsupported();
+            }
+
+            accumulated = TextLowerer(this.context).append(node.child(part), accumulated, value);
+
+            if (accumulated == 0) {
+                return LoweredValue.unsupported();
+            }
+
+            cursor = close + 1;
+            part = part + 1;
+        }
+
+        this.context.collections().textAppend(accumulated, this.context.ops().constString(this.context.retain(raw.substring(cursor, raw.length())), span), span);
+        return LoweredValue(accumulated, "String");
+    }
+}

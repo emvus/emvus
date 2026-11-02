@@ -1,0 +1,205 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Decides which object parameters (and which `this`) a method may write through. Sublang
+// passes an object as `borrow_read` or `borrow_write`: a read-only borrow can neither be
+// mutated nor forwarded to a mutable parameter, so the modes must be exact, not optimistic.
+// The result is a fixpoint over assignments, `++`/`--`, cascades and calls of mutating members.
+public class MutationAnalysis {
+    private LoweringContext context;
+    private Bool changed;
+
+    public MutationAnalysis(LoweringContext loweringContext) {
+        this.context = loweringContext;
+        this.changed = false;
+    }
+
+    public Void run() {
+        Int round = 0;
+        this.changed = true;
+
+        while (this.changed && round < 64) {
+            this.changed = false;
+            this.pass();
+            round = round + 1;
+        }
+    }
+
+    private Void pass() {
+        Int index = 0;
+
+        while (index < this.context.methods().count()) {
+            Node block = AstQuery.childOfKind(this.context.methods().declarationAt(index), "block");
+
+            if (!AstQuery.isNone(block)) {
+                this.context.function().bindings().push(ProgramLowerer.frameOf(this.context, index));
+                this.scan(block, index);
+                this.context.function().bindings().pop();
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void scan(Node node, Int method) {
+        String kind = node.kind();
+
+        if (kind == "assign" && node.count() > 0) {
+            this.markWritten(node.child(0), method);
+        }
+
+        if (kind == "postfix" && node.count() > 0) {
+            this.markWritten(node.child(0), method);
+        }
+
+        if (kind == "call") {
+            this.scanCall(node, method);
+        }
+
+        if (kind == "cascade") {
+            this.scanCascade(node, method);
+        }
+
+        Int position = 0;
+
+        while (position < node.count()) {
+            this.scan(node.child(position), method);
+            position = position + 1;
+        }
+    }
+
+    // Writing through a member or index chain mutates the object at the chain's root. A bare
+    // name only does when it is a property or field of the current class (an implicit `this`).
+    private Void markWritten(Node target, Int method) {
+        if (target.kind() == "name") {
+            if (target.symbolKind() == "property" || target.symbolKind() == "field") {
+                this.markSelf(method);
+            }
+
+            return;
+        }
+
+        this.markRoot(target, method);
+    }
+
+    private Void markRoot(Node expression, Int method) {
+        Node current = expression;
+
+        while ((current.kind() == "member" || current.kind() == "index") && current.count() > 0) {
+            current = current.child(0);
+        }
+
+        if (current.kind() != "name") {
+            return;
+        }
+
+        if (current.text().toLowerCase() == "this" || current.symbolKind() == "property" || current.symbolKind() == "field") {
+            this.markSelf(method);
+            return;
+        }
+
+        this.markParam(method, current.text());
+    }
+
+    private Void markSelf(Int method) {
+        if (!this.context.methods().mutatesSelfAt(method)) {
+            this.context.methods().markSelfMutated(method);
+            this.changed = true;
+        }
+    }
+
+    private Void markParam(Int method, String name) {
+        Node params = AstQuery.childOfKind(this.context.methods().declarationAt(method), "params");
+        Int position = 0;
+
+        while (position < params.count()) {
+            if (params.child(position).text().toLowerCase() == name.toLowerCase() && !this.context.methods().mutatesParamAt(method, position)) {
+                this.context.methods().markParamMutated(method, position);
+                this.changed = true;
+            }
+
+            position = position + 1;
+        }
+    }
+
+    // A call writes through its receiver when the callee mutates `this`, and through every
+    // argument that is passed to a parameter the callee mutates.
+    private Void scanCall(Node call, Int method) {
+        Node callee = call.child(0);
+
+        if (this.isListMutation(callee)) {
+            this.markRoot(callee.child(0), method);
+        }
+
+        Int target = CalleeResolver(this.context).resolve(call, callee, method);
+
+        if (target < 0) {
+            return;
+        }
+
+        if (this.context.methods().mutatesSelfAt(target)) {
+            this.markReceiver(callee, method);
+        }
+
+        Int position = 0;
+
+        while (position < call.count() - 1) {
+            if (this.context.methods().mutatesParamAt(target, position)) {
+                this.markRoot(call.child(position + 1), method);
+            }
+
+            position = position + 1;
+        }
+    }
+
+    // `xs.add(..)`, `xs.set(..)` and `xs.clear()` write through the list receiver.
+    private Bool isListMutation(Node callee) {
+        if (callee.kind() != "member" || !ListTable.isListText(callee.child(0).type())) {
+            return false;
+        }
+
+        String name = callee.text().toLowerCase();
+        return name == "add" || name == "set" || name == "clear";
+    }
+
+    private Void markReceiver(Node callee, Int method) {
+        if (callee.kind() == "member") {
+            this.markRoot(callee.child(0), method);
+            return;
+        }
+
+        this.markSelf(method);
+    }
+
+    // `receiver ..a() ..x = 1`: sections act on the receiver.
+    private Void scanCascade(Node cascade, Int method) {
+        Node receiver = cascade.child(0);
+        Int owner = MemberResolver.classOfExpression(this.context, receiver);
+        Int position = 1;
+
+        while (position < cascade.count()) {
+            this.scanSection(cascade.child(position), receiver, owner, method);
+            position = position + 1;
+        }
+    }
+
+    private Void scanSection(Node section, Node receiver, Int owner, Int method) {
+        if (section.count() == 0 || owner < 0) {
+            return;
+        }
+
+        Node inner = section.child(0);
+        Bool writes = inner.kind() == "assign";
+
+        if (inner.kind() == "call" && inner.child(0).kind() == "name") {
+            Int target = MemberResolver.findMethod(this.context, owner, inner.child(0).text(), inner.count() - 1);
+            writes = target >= 0 && this.context.methods().mutatesSelfAt(target);
+        }
+
+        if (writes) {
+            this.markRoot(receiver, method);
+        }
+    }
+}

@@ -1,0 +1,95 @@
+namespace ring0::syntax;
+
+// Decides whether a `?` is result propagation or the ternary operator. The two are only
+// distinguishable by what follows, and a ternary may be split across lines.
+public class TernaryLookahead {
+    private ParserState state;
+
+    public TernaryLookahead(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    // `?` is propagation when no expression continues after it (line end, bracket, ...).
+    public Bool isPropagate(Token question) {
+        Token next = this.state.peekAt(1);
+
+        if (next.isEof()) {
+            return true;
+        }
+
+        if (next.line() != question.line()) {
+            return !this.continuesTernary(question);
+        }
+
+        if (!next.kindIs("symbol")) {
+            return false;
+        }
+
+        String text = next.text();
+        return text == ")" || text == "]" || text == "}" || text == ";" || text == "," || text == "." || text == "?" || text == ":";
+    }
+
+    // `?` at line end is a ternary only if a ':' at bracket depth 0 follows before another
+    // '?' or the end of the statement, within a few lines.
+    private Bool continuesTernary(Token question) {
+        Int limitLine = question.line() + this.maxLookaheadLines();
+        Int depth = 0;
+        Int offset = 1;
+
+        while (offset < this.maxLookaheadTokens()) {
+            Token token = this.state.peekAt(offset);
+
+            if (token.isEof() || token.line() > limitLine) {
+                return false;
+            }
+
+            if (token.kindIs("symbol")) {
+                if (depth == 0 && this.isClosing(token)) {
+                    return false;
+                }
+
+                depth = depth + this.depthChange(token);
+
+                if (depth == 0 && token.isSymbol(":")) {
+                    return true;
+                }
+
+                if (depth == 0 && this.endsStatement(token)) {
+                    return false;
+                }
+            }
+
+            offset = offset + 1;
+        }
+
+        return false;
+    }
+
+    private Int maxLookaheadLines() {
+        return 3;
+    }
+
+    private Int maxLookaheadTokens() {
+        return 64;
+    }
+
+    private Bool isClosing(Token token) {
+        return token.isSymbol(")") || token.isSymbol("]") || token.isSymbol("}");
+    }
+
+    private Int depthChange(Token token) {
+        if (token.isSymbol("(") || token.isSymbol("[") || token.isSymbol("{")) {
+            return 1;
+        }
+
+        if (this.isClosing(token)) {
+            return -1;
+        }
+
+        return 0;
+    }
+
+    private Bool endsStatement(Token token) {
+        return token.isSymbol("?") || token.isSymbol(";") || token.isSymbol("->") || token.isSymbol("=");
+    }
+}

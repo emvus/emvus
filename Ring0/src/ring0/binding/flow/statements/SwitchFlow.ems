@@ -1,0 +1,167 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Switch as statement or expression: every case runs on its own copy of the environment
+// and the results are joined. Case bodies may be expressions or statements.
+public class SwitchFlow {
+    private FlowContext context;
+    private ExpressionFlow expressions;
+    private StatementFlow statements;
+
+    public SwitchFlow(FlowContext flowContext, ExpressionFlow expressionFlow) {
+        this.context = flowContext;
+        this.expressions = expressionFlow;
+        this.statements = StatementFlow(flowContext, expressionFlow);
+    }
+
+    public String evalSwitch(Node node, FlowEnv env, Bool isStatement) {
+        Node subject = node.child(0);
+        this.expressions.accessFlow().require(subject, this.expressions.eval(subject, env), env, "it cannot be switched on");
+        FlowEnv joined = FlowEnv();
+        joined.kill();
+        String state = "";
+        Bool catchAll = false;
+        Int index = 1;
+
+        while (index < node.count()) {
+            Node caseNode = node.child(index);
+            FlowEnv caseEnv = env.copy();
+            String bodyState = this.flowCase(caseNode, caseEnv);
+
+            if (caseEnv.isAlive()) {
+                state = SwitchFlow.joinState(state, bodyState);
+            }
+
+            joined.becomeJoin(joined, caseEnv);
+            catchAll = catchAll || SwitchFlow.isCatchAll(caseNode);
+            index = index + 1;
+        }
+
+        if (isStatement && !catchAll && !SwitchFlow.coversResult(node)) {
+            joined.becomeJoin(joined, env.copy());
+        }
+
+        if (joined.isAlive() || isStatement) {
+            env.becomeJoin(joined, joined);
+        }
+
+        if (state == "") {
+            return NullState.nonNull();
+        }
+
+        return state;
+    }
+
+    private static String joinState(String current, String next) {
+        if (current == "") {
+            return next + "";
+        }
+
+        return NullState.join(current, next);
+    }
+
+    private String flowCase(Node caseNode, FlowEnv env) {
+        Int last = caseNode.count() - 1;
+        Int index = 0;
+
+        while (index < last) {
+            SwitchFlow.bindPatterns(caseNode.child(index), env);
+            index = index + 1;
+        }
+
+        return this.flowBody(caseNode.child(last), env);
+    }
+
+    private static Void bindPatterns(Node pattern, FlowEnv env) {
+        if (pattern.kind() == NodeKinds.binding() || pattern.kind() == NodeKinds.patternName()) {
+            env.set(pattern.text(), NullState.nonNull());
+        }
+
+        Int index = 0;
+
+        while (index < pattern.count()) {
+            SwitchFlow.bindPatterns(pattern.child(index), env);
+            index = index + 1;
+        }
+    }
+
+    private String flowBody(Node body, FlowEnv env) {
+        String kind = body.kind();
+
+        if (kind == NodeKinds.successStatement() && body.count() > 0) {
+            this.expressions.eval(body.child(0), env);
+            return NullState.nonNull();
+        }
+
+        if (SwitchFlow.isStatementKind(kind)) {
+            this.statements.flowStatement(body, env);
+            return NullState.nonNull();
+        }
+
+        return this.expressions.eval(body, env);
+    }
+
+    private static Bool isStatementKind(String kind) {
+        if (kind == NodeKinds.block() || kind == NodeKinds.returnStatement() || kind == NodeKinds.failStatement()) {
+            return true;
+        }
+
+        if (kind == NodeKinds.breakStatement() || kind == NodeKinds.continueStatement() || kind == NodeKinds.expressionStatement()) {
+            return true;
+        }
+
+        return kind == NodeKinds.local() || kind == NodeKinds.ifStatement() || kind == NodeKinds.destructure();
+    }
+
+    // A lower-case free name (e.g. `unknown`) matches every remaining value; enum
+    // constants are upper-case and `success`/`error` are handled by coversResult.
+    private static Bool isCatchAll(Node caseNode) {
+        Int last = caseNode.count() - 1;
+        Int index = 0;
+
+        while (index < last) {
+            Node pattern = caseNode.child(index);
+            Bool named = pattern.kind() == NodeKinds.patternName() || pattern.kind() == NodeKinds.pattern();
+
+            if (named && SwitchFlow.isFreeName(pattern.text())) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    private static Bool isFreeName(String text) {
+        if (text.isEmpty() || text == "success" || text == "error") {
+            return false;
+        }
+
+        String first = text.charAt(0).toString();
+        return first == Names.lower(first);
+    }
+
+    private static Bool coversResult(Node node) {
+        Bool success = false;
+        Bool error = false;
+        Int index = 1;
+
+        while (index < node.count()) {
+            Node caseNode = node.child(index);
+            Int patterns = 0;
+
+            while (patterns < caseNode.count() - 1) {
+                String kind = caseNode.child(patterns).kind();
+                success = success || kind == NodeKinds.patternSuccess();
+                error = error || kind == NodeKinds.patternError();
+                patterns = patterns + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return success && error;
+    }
+}

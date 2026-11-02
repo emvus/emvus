@@ -1,0 +1,9 @@
+// expect: 'else' is not supported@6
+method f(Int x) {
+    if (x > 0) {
+        return
+    }
+    else {
+        return
+    }
+}

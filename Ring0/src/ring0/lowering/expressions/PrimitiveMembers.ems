@@ -1,0 +1,70 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Members of Int, Float and Bool values that generic code with a `Comparable<T>` or equality
+// bound relies on: `compareTo` (-1, 0, 1) and `equals`.
+public class PrimitiveMembers {
+    private LoweringContext context;
+
+    public PrimitiveMembers(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue call(Node node, LoweredValue receiver) {
+        String name = node.child(0).text().toLowerCase();
+
+        if (node.count() != 2 || (name != "compareto" && name != "equals")) {
+            this.context.unsupported(node, "member '" + node.child(0).text() + "' on " + receiver.kind() + " is not available");
+            return LoweredValue.unsupported();
+        }
+
+        LoweredValue argument = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (!argument.isUsable() || argument.kind() != receiver.kind()) {
+            this.context.unsupported(node, name + " needs an argument of kind " + receiver.kind());
+            return LoweredValue.unsupported();
+        }
+
+        if (name == "equals") {
+            return OperatorLowerer(this.context).apply(node, "==", receiver, argument);
+        }
+
+        if (receiver.kind() == "Bool") {
+            this.context.unsupported(node, "compareTo is not defined for Bool");
+            return LoweredValue.unsupported();
+        }
+
+        return this.compare(node, receiver, argument);
+    }
+
+    // greater ? 1 : (less ? -1 : 0)
+    private LoweredValue compare(Node node, LoweredValue left, LoweredValue right) {
+        Int span = this.context.span(node);
+        LoweredValue greater = OperatorLowerer(this.context).apply(node, ">", left, right);
+        LoweredValue less = OperatorLowerer(this.context).apply(node, "<", left, right);
+        Int one = this.context.ops().constInt(1, span);
+        Int minusOne = this.context.ops().constInt(-1, span);
+        Int zero = this.context.ops().constInt(0, span);
+        Int inner = this.select(less.valueId(), minusOne, zero, span);
+        return LoweredValue(this.select(greater.valueId(), one, inner, span), "Int");
+    }
+
+    private Int select(Int condition, Int whenTrue, Int whenFalse, Int span) {
+        Int thenBlock = this.context.newBlock();
+        Int elseBlock = this.context.newBlock();
+        Int joinBlock = this.context.newBlock();
+        List<Int> none = List();
+        List<Int> first = List();
+        first.add(whenTrue);
+        List<Int> second = List();
+        second.add(whenFalse);
+        this.context.ops().condBranch(condition, thenBlock, none, elseBlock, none, span);
+        this.context.enterBlock(thenBlock);
+        this.context.ops().branchTo(joinBlock, first, span);
+        this.context.enterBlock(elseBlock);
+        this.context.ops().branchTo(joinBlock, second, span);
+        this.context.enterBlock(joinBlock);
+        return this.context.addBlockParam(this.context.builder().intType());
+    }
+}

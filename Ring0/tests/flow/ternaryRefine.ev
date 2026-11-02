@@ -1,0 +1,11 @@
+// expect: check ok
+package main
+
+class Holder {
+    String text { get, set } = null
+}
+
+method<Int> safeLength(Holder holder) {
+    final var text = holder.text
+    return text == null ? 0 : text.length()
+}

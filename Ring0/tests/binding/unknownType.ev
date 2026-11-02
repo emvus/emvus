@@ -1,0 +1,5 @@
+// expect: Unknown type 'Foo'
+package main
+
+method run(Foo value) {
+}

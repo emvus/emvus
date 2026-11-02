@@ -1,0 +1,93 @@
+namespace ring0::lowering;
+
+// `List<E>` values. A list value is a reference (`Ref<List<E>>`) with kind "List:<element kind>".
+// Sublang lists hold primitives, value records and classes; the builder does not intern List
+// layouts and the verifier compares type ids, so one layout is created per element kind and
+// cached here for the whole run.
+public class ListTable {
+    private List<String> elementKinds;
+    private List<Int> layoutIds;
+
+    public ListTable() {
+        this.elementKinds = List();
+        this.layoutIds = List();
+    }
+
+    public static String kindFor(String elementKind) {
+        return "List:" + elementKind;
+    }
+
+    public static Bool isListKind(String kind) {
+        return kind.length() > 5 && kind.substring(0, 5) == "List:";
+    }
+
+    public static String elementKindOf(String kind) {
+        return kind.substring(5, kind.length()) + "";
+    }
+
+    // Binder spelling: `List<Int>`.
+    public static Bool isListText(String text) {
+        return text.length() > 6 && text.substring(0, 5) == "List<" && text.substring(text.length() - 1, text.length()) == ">";
+    }
+
+    public static String elementTextOf(String listText) {
+        return listText.substring(5, listText.length() - 1) + "";
+    }
+
+    // Elements Sublang lists can hold: primitives, value records (also Result/tuple records) and
+    // classes. Dynamic text (Ref<List<Byte>>) and nested lists are not element types.
+    public static Bool supportsElement(String elementKind) {
+        if (elementKind == "Int" || elementKind == "Bool" || elementKind == "Float") {
+            return true;
+        }
+
+        return RecordTable.isRecordKind(elementKind) || ClassTable.isClassKind(elementKind);
+    }
+
+    // Kind of a `List<E>` type text; "" when E cannot be a Sublang list element.
+    public static String kindOfText(LoweringContext context, String text) {
+        if (!ListTable.isListText(text)) {
+            return "";
+        }
+
+        String element = context.kinds().kindOfTypeText(ListTable.elementTextOf(text));
+
+        if (!ListTable.supportsElement(element)) {
+            return "";
+        }
+
+        return ListTable.kindFor(element);
+    }
+
+    // Sublang type id of the element (class layouts are not wrapped in Ref).
+    public static Int elementTypeId(LoweringContext context, String elementKind) {
+        if (ClassTable.isClassKind(elementKind)) {
+            return context.classes().typeIdAt(context.classes().indexOf(ClassTable.nameOfKind(elementKind)));
+        }
+
+        if (RecordTable.isRecordKind(elementKind)) {
+            return context.records().typeIdAt(context.records().indexOf(RecordTable.nameOfKind(elementKind)));
+        }
+
+        return context.kinds().typeIdOfKind(elementKind);
+    }
+
+    // The List layout for an element kind, created on first use.
+    public Int layoutOf(LoweringContext context, String elementKind) {
+        Int index = 0;
+
+        while (index < this.elementKinds.length()) {
+            if (this.elementKinds.get(index) == elementKind) {
+                return this.layoutIds.get(index);
+            }
+
+            index = index + 1;
+        }
+
+        Int span = context.builder().syntheticSpan("ring0:list");
+        Int layout = context.builder().listType(ListTable.elementTypeId(context, elementKind), span);
+        this.elementKinds.add(elementKind + "");
+        this.layoutIds.add(layout);
+        return layout;
+    }
+}

@@ -1,0 +1,24 @@
+namespace ring0::lowering;
+
+use ring0::diagnostic::DiagnosticBag;
+use sublang::ir::SublangBuilder;
+use sublang::wire::SublangWire;
+use sublang::wire::SublangWireResult;
+use Std::Native::NativeFile;
+
+// Serializes a lowered module for the standalone Sublang compiler. The wire writer
+// requires a frozen snapshot and reports problems with its own message.
+public class WireExport {
+    public static Bool write(SublangBuilder builder, String path) {
+        builder.freeze();
+        SublangWireResult encoded = SublangWire.write(builder.module());
+
+        if (!encoded.valid()) {
+            println("wire export failed: " + encoded.error());
+            return false;
+        }
+
+        NativeFile.writeText(path, encoded.text());
+        return true;
+    }
+}

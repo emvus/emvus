@@ -1,0 +1,99 @@
+namespace ring0::lowering;
+
+// A decimal float literal as digits x 10^exponent. Exact for up to 18 significant digits;
+// anything longer is flagged instead of being rounded silently.
+public class DecimalParts {
+    private Int digitsValue;
+    private Int exponentValue;
+    private Bool exact;
+
+    public DecimalParts(String text) {
+        this.digitsValue = 0;
+        this.exponentValue = 0;
+        this.exact = true;
+        this.parse(text);
+    }
+
+    public Int digits() {
+        return this.digitsValue;
+    }
+
+    public Int exponent() {
+        return this.exponentValue;
+    }
+
+    public Bool isExact() {
+        return this.exact;
+    }
+
+    private Void parse(String text) {
+        Int fraction = 0;
+        Bool afterPoint = false;
+        Int index = 0;
+
+        while (index < text.length() && text.charAt(index).toString() != "e" && text.charAt(index).toString() != "E") {
+            String part = text.charAt(index).toString();
+
+            if (part == ".") {
+                afterPoint = true;
+            }
+
+            if (part != "." && !this.addDigit(part.toInt())) {
+                this.exact = false;
+                return;
+            }
+
+            if (part != "." && afterPoint) {
+                fraction = fraction + 1;
+            }
+
+            index = index + 1;
+        }
+
+        this.exponentValue = this.parseExponent(text, index + 1) - fraction;
+        this.stripTrailingZeros();
+    }
+
+    // Leading zeros do not count as significant digits.
+    private Bool addDigit(Int digit) {
+        if (this.digitsValue > 99999999999999999) {
+            return false;
+        }
+
+        this.digitsValue = this.digitsValue * 10 + digit;
+        return true;
+    }
+
+    private Int parseExponent(String text, Int start) {
+        if (start >= text.length()) {
+            return 0;
+        }
+
+        Bool negative = text.charAt(start).toString() == "-";
+        Int index = start;
+
+        if (negative || text.charAt(start).toString() == "+") {
+            index = index + 1;
+        }
+
+        Int value = 0;
+
+        while (index < text.length() && value < 10000) {
+            value = value * 10 + text.charAt(index).toString().toInt();
+            index = index + 1;
+        }
+
+        if (negative) {
+            return 0 - value;
+        }
+
+        return value;
+    }
+
+    private Void stripTrailingZeros() {
+        while (this.digitsValue > 0 && this.digitsValue % 10 == 0) {
+            this.digitsValue = this.digitsValue / 10;
+            this.exponentValue = this.exponentValue + 1;
+        }
+    }
+}

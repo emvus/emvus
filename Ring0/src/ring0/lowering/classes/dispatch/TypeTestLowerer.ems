@@ -1,0 +1,125 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `value is T` and `value as T` over the closed class world. `is` compares the object's tag
+// with the tags of every class that conforms to T. `as` is a reference conversion: an upcast to
+// an ancestor or interface is a read-only view; a downcast is exact and so only available for a
+// class without registered descendants (Sublang's class.downcast checks one exact tag).
+public class TypeTestLowerer {
+    private LoweringContext context;
+
+    public TypeTestLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lowerIs(Node node) {
+        LoweredValue subject = ExpressionLowerer(this.context).lower(node.child(0));
+        Int target = this.context.classes().indexOf(node.child(1).text());
+
+        if (!subject.isUsable() || !ClassTable.isClassKind(subject.kind()) || target < 0) {
+            this.context.unsupported(node, "'is' is only available between class and interface types");
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+        Int view = this.rootView(subject, span);
+        Int tagField = this.context.classes().fields().idAt(this.context.classes().fields().firstSlotAt(0));
+        Int tag = this.context.ops().fieldRead(view, tagField, span);
+        return LoweredValue(this.anyTag(target, tag, span), "Bool");
+    }
+
+    // The object as a read-only reference to the root class, whatever its static type.
+    private Int rootView(LoweredValue subject, Int span) {
+        Int owner = this.context.classes().indexOf(ClassTable.nameOfKind(subject.kind()));
+
+        if (this.context.classes().isInterfaceAt(owner)) {
+            return subject.valueId();
+        }
+
+        return this.context.ops().upcastView(subject.valueId(), this.context.classes().typeIdAt(0), span);
+    }
+
+    // Chain of tag comparisons over the concrete classes that conform to the target type; the
+    // answer joins through a Bool block parameter (Sublang has no boolean `or` operation).
+    private Int anyTag(Int target, Int tag, Int span) {
+        Int yes = this.context.ops().constBool(true, span);
+        Int no = this.context.ops().constBool(false, span);
+        Int join = this.context.newBlock();
+        List<Int> found = List();
+        found.add(yes);
+        List<Int> none = List();
+        Int candidate = 1;
+
+        while (candidate < this.context.classes().count()) {
+            if (this.conforms(candidate, target)) {
+                Int tagValue = this.context.ops().constInt(this.context.classes().tagAt(candidate), span);
+                Int same = this.context.ops().compare("eq", tag, tagValue, span);
+                Int next = this.context.newBlock();
+                this.context.ops().condBranch(same, join, found, next, none, span);
+                this.context.enterBlock(next);
+            }
+
+            candidate = candidate + 1;
+        }
+
+        List<Int> missing = List();
+        missing.add(no);
+        this.context.ops().branchTo(join, missing, span);
+        this.context.enterBlock(join);
+        return this.context.addBlockParam(this.context.builder().boolType());
+    }
+
+    private Bool conforms(Int candidate, Int target) {
+        if (this.context.classes().isInterfaceAt(candidate) || this.context.classes().isAbstractAt(candidate)) {
+            return false;
+        }
+
+        return Coercion.converts(this.context.classes(), candidate, target);
+    }
+
+    public LoweredValue lowerAs(Node node) {
+        LoweredValue subject = ExpressionLowerer(this.context).lower(node.child(0));
+        Int target = this.context.classes().indexOf(node.child(1).text());
+
+        if (!subject.isUsable() || !ClassTable.isClassKind(subject.kind()) || target < 0) {
+            this.context.unsupported(node, "'as' is only available between class and interface types");
+            return LoweredValue.unsupported();
+        }
+
+        Int source = this.context.classes().indexOf(ClassTable.nameOfKind(subject.kind()));
+        String targetKind = ClassTable.kindFor(this.context.classes().nameAt(target));
+
+        if (Coercion.converts(this.context.classes(), source, target)) {
+            return Coercion.to(this.context, node, subject, targetKind);
+        }
+
+        return this.downcast(node, subject, target, targetKind);
+    }
+
+    private LoweredValue downcast(Node node, LoweredValue subject, Int target, String targetKind) {
+        if (this.context.classes().isInterfaceAt(target) || this.hasDescendants(target)) {
+            this.context.unsupported(node, "'as " + this.context.classes().nameAt(target) + "' needs a downcast to a type with registered descendants or an interface; Sublang's class.downcast is exact (backend requirement: subtree-aware checked downcast)");
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+        Int view = this.rootView(subject, span);
+        Int cast = this.context.ops().downcast(view, this.context.classes().typeIdAt(target), span);
+        return LoweredValue(cast, targetKind, true);
+    }
+
+    private Bool hasDescendants(Int target) {
+        Int candidate = 1;
+
+        while (candidate < this.context.classes().count()) {
+            if (candidate != target && this.context.classes().derivesFrom(candidate, target)) {
+                return true;
+            }
+
+            candidate = candidate + 1;
+        }
+
+        return false;
+    }
+}

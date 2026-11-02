@@ -1,0 +1,105 @@
+namespace ring0::lowering;
+
+use sublang::ir::SublangBuilder;
+
+// A tuple type `[A, B]` is lowered as a value record per shape (monomorphization), named
+// `Tuple$A$B` with fields item0, item1, ... Sublang records hold primitive fields only, so
+// every element must be Int, Bool or Float; other shapes are diagnosed, not widened.
+public class TupleTypes {
+    public TupleTypes() {
+    }
+
+    public static Bool isTupleText(String text) {
+        return text.length() > 2 && text.substring(0, 1) == "[" && text.substring(text.length() - 1, text.length()) == "]";
+    }
+
+    public static Bool isTupleKind(String kind) {
+        return RecordTable.isRecordKind(kind) && TupleTypes.isTupleName(RecordTable.nameOfKind(kind));
+    }
+
+    public static Bool isTupleName(String name) {
+        return name.length() > 6 && name.substring(0, 6) == "tuple$";
+    }
+
+    // Kind of a tuple type text, declaring the record on first use; "" for unsupported shapes.
+    public static String kindOfText(LoweringContext context, String text) {
+        if (!TupleTypes.isTupleText(text)) {
+            return "";
+        }
+
+        List<String> kinds = TupleTypes.elementKinds(context, text.substring(1, text.length() - 1));
+
+        if (kinds.length() < 2) {
+            return "";
+        }
+
+        String name = "Tuple";
+        Int index = 0;
+
+        while (index < kinds.length()) {
+            name = name + "$" + kinds.get(index);
+            index = index + 1;
+        }
+
+        if (context.records().indexOf(name) < 0) {
+            TupleTypes.declare(context, name, kinds);
+        }
+
+        return RecordTable.kindFor(name);
+    }
+
+    // Splits `A,B,List<C>` at top-level commas and resolves each element; an unsupported element
+    // yields an empty list.
+    private static List<String> elementKinds(LoweringContext context, String inner) {
+        List<String> kinds = List();
+        Int depth = 0;
+        Int start = 0;
+        Int index = 0;
+
+        while (index <= inner.length()) {
+            String c = "";
+
+            if (index < inner.length()) {
+                c = inner.charAt(index).toString();
+            }
+
+            if (c == "<" || c == "[") {
+                depth = depth + 1;
+            }
+
+            if (c == ">" || c == "]") {
+                depth = depth - 1;
+            }
+
+            if ((c == "," && depth == 0) || index == inner.length()) {
+                String kind = context.kinds().kindOfTypeText(inner.substring(start, index) + "");
+
+                if (kind != "Int" && kind != "Bool" && kind != "Float") {
+                    return List();
+                }
+
+                kinds.add(kind + "");
+                start = index + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return kinds;
+    }
+
+    private static Void declare(LoweringContext context, String name, List<String> kinds) {
+        SublangBuilder builder = context.builder();
+        Int span = builder.syntheticSpan("ring0:tuple");
+        Int typeId = builder.recordType(context.retain(name), span);
+        Int record = context.records().add(name, typeId);
+        Int index = 0;
+
+        while (index < kinds.length()) {
+            String field = "item" + index.toString();
+            Int fieldId = builder.recordField(typeId, context.retain(field), SourceTypes.typeIdOf(builder, kinds.get(index)), span);
+            context.records().addField(record, field, fieldId, kinds.get(index));
+            index = index + 1;
+        }
+    }
+}

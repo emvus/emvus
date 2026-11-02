@@ -1,0 +1,26 @@
+// an object created in one function is returned owned and used by its caller.
+class Counter {
+    Int count { get, set }
+
+    Counter(Int start) {
+        this.count = start
+    }
+
+    method increment {
+        count = count + 1
+    }
+
+    method<Int> value {
+        return count
+    }
+}
+
+static method<Counter> make(Int start) {
+    return Counter(start)
+}
+
+static method<Int> main {
+    Counter counter = make(7)
+    counter.increment()
+    return counter.value()
+}

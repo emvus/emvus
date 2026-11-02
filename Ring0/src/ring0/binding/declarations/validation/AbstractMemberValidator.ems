@@ -1,0 +1,93 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Concrete classes must implement every abstract member they inherit.
+public class AbstractMemberValidator {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public AbstractMemberValidator(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void checkAbstractImplemented(TypeSymbol symbol, Node decl) {
+        List<String> visited = List();
+        this.requireImplemented(symbol, symbol, decl, visited, 0);
+    }
+
+    public Void requireImplemented(TypeSymbol subject, TypeSymbol current, Node decl, List<String> visited, Int depth) {
+        if (depth > 24) {
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < current.bases().length() + current.interfaces().length()) {
+            String name = "";
+
+            if (index < current.bases().length()) {
+                name = TypeText.base(current.bases().get(index));
+            }
+
+            if (index >= current.bases().length()) {
+                name = TypeText.base(current.interfaces().get(index - current.bases().length()));
+            }
+
+            index = index + 1;
+
+            if (visited.contains(Names.lower(name))) {
+                continue;
+            }
+
+            visited.add(Names.lower(name));
+            TypeSymbol ancestor = this.table.findType(name);
+
+            if (ancestor.isMissing()) {
+                continue;
+            }
+
+            Int memberIndex = 0;
+
+            while (memberIndex < ancestor.members().length()) {
+                MemberSymbol member = ancestor.members().get(memberIndex);
+                memberIndex = memberIndex + 1;
+
+                if (member.kind() != NodeKinds.methodDeclaration() || !member.isAbstract()) {
+                    continue;
+                }
+
+                if (!this.isImplemented(subject, member)) {
+                    this.bag.error("Class '" + subject.name() + "' does not implement abstract method '" + member.name() + "' declared in '" + ancestor.name() + "'", decl.line(), decl.column());
+                }
+            }
+
+            this.requireImplemented(subject, ancestor, decl, visited, depth + 1);
+        }
+    }
+
+    public Bool isImplemented(TypeSymbol subject, MemberSymbol required) {
+        List<MemberSymbol> candidates = this.table.findMembers(subject.name(), required.name());
+        Int index = 0;
+
+        while (index < candidates.length()) {
+            MemberSymbol candidate = candidates.get(index);
+
+            if (candidate.kind() == NodeKinds.methodDeclaration() && candidate.hasBody() && !candidate.isAbstract() && candidate.paramCount() == required.paramCount()) {
+                return true;
+            }
+
+            if (candidate.kind() == NodeKinds.propertyDeclaration() && required.paramCount() == 0) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+}

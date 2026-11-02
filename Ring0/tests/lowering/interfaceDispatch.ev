@@ -1,0 +1,26 @@
+// interface values passed to a function; each call dispatches on the object's class.
+interface IGreeter {
+    method<Int> greet
+}
+
+class Friendly implements IGreeter {
+    method<Int> greet {
+        return 1
+    }
+}
+
+class Formal implements IGreeter {
+    method<Int> greet {
+        return 2
+    }
+}
+
+static method<Int> total(IGreeter first, IGreeter second) {
+    return first.greet() + second.greet() * 10
+}
+
+static method<Int> main {
+    IGreeter first = Friendly()
+    IGreeter second = Formal()
+    return total(first, second)
+}

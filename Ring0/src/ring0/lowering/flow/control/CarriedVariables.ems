@@ -1,0 +1,76 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Variables that flow through block parameters at a control-flow join. Selecting only
+// the ones a construct may reassign keeps the IR free of dead parameters.
+public class CarriedVariables {
+    public CarriedVariables() {
+    }
+
+    public static List<Int> select(LoweringContext context, List<Node> subtrees) {
+        List<String> names = List();
+        Int index = 0;
+
+        while (index < subtrees.length()) {
+            AssignedNames.collect(subtrees.get(index), names);
+            index = index + 1;
+        }
+
+        List<Int> indices = List();
+        index = 0;
+
+        while (index < names.length()) {
+            Int slot = context.env().indexOf(names.get(index));
+
+            if (slot >= 0 && RefKinds.isReference(context.env().kindAt(slot))) {
+                context.unsupported(subtrees.get(0), "object or list variable '" + names.get(index) + "' is reassigned inside a branch or loop: Sublang has no reference block parameters for owned objects (backend requirement)");
+            }
+
+            if (slot >= 0 && context.env().kindAt(slot) != "String" && !RefKinds.isReference(context.env().kindAt(slot))) {
+                indices.add(slot);
+            }
+
+            index = index + 1;
+        }
+
+        return indices;
+    }
+
+    public static List<Int> currentValues(LoweringContext context, List<Int> indices) {
+        List<Int> values = List();
+        Int index = 0;
+
+        while (index < indices.length()) {
+            values.add(context.env().valueAt(indices.get(index)));
+            index = index + 1;
+        }
+
+        return values;
+    }
+
+    // Adds one block parameter per carried variable to the current block and rebinds
+    // the variables to those parameters.
+    public static Void bindParameters(LoweringContext context, List<Int> indices) {
+        Int index = 0;
+
+        while (index < indices.length()) {
+            Int slot = indices.get(index);
+            Int typeId = context.kinds().typeIdOfKind(context.env().kindAt(slot));
+            Int param = context.addBlockParam(typeId);
+            context.env().setValueAt(slot, param);
+            index = index + 1;
+        }
+    }
+
+    // Rebinds the variables to the given values: each switch arm starts from the state
+    // before the switch.
+    public static Void restore(LoweringContext context, List<Int> indices, List<Int> values) {
+        Int index = 0;
+
+        while (index < indices.length()) {
+            context.env().setValueAt(indices.get(index), values.get(index));
+            index = index + 1;
+        }
+    }
+}

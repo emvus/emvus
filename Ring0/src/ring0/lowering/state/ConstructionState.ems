@@ -1,0 +1,45 @@
+namespace ring0::lowering;
+
+// The object a constructor is building and the fields initialized so far: the first assignment
+// to a field is its initialization (`field.init`), later ones are writes.
+public class ConstructionState {
+    private Int buildingId;
+    private List<String> initializedNames;
+
+    public ConstructionState() {
+        this.buildingId = 0;
+        this.initializedNames = List();
+    }
+
+    public Int building() {
+        return this.buildingId;
+    }
+
+    public Void begin(Int objectValue) {
+        this.buildingId = objectValue;
+        this.initializedNames = List();
+    }
+
+    public Void end() {
+        this.buildingId = 0;
+    }
+
+    public Void mark(String field) {
+        this.initializedNames.add(field.toLowerCase() + "");
+    }
+
+    public Bool isInitialized(String field) {
+        String key = field.toLowerCase();
+        Int index = 0;
+
+        while (index < this.initializedNames.length()) {
+            if (this.initializedNames.get(index) == key) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+}

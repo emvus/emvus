@@ -1,0 +1,17 @@
+// String locals are value cells: reassignment in a loop copies, aliases stay independent.
+static method<Int> main {
+    String acc = ""
+    String snapshot = acc
+    Int i = 0
+
+    while (i < 5) {
+        acc = acc + "ab"
+        i++
+    }
+
+    if (snapshot == "") {
+        return acc.length()
+    }
+
+    return -1
+}

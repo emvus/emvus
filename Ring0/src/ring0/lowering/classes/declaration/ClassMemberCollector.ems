@@ -1,0 +1,106 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Registers the constructors and methods of a class in the method table under the keys
+// `class.new/arity` and `class.member/arity`. A class without a constructor gets a default one.
+public class ClassMemberCollector {
+    private LoweringContext context;
+
+    public ClassMemberCollector(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void collect(Int classIndex) {
+        Node declaration = this.context.classes().nodeAt(classIndex);
+        Node body = AstQuery.childOfKind(declaration, "body");
+        Bool hasConstructor = false;
+        Int position = 0;
+
+        while (position < body.count()) {
+            Node member = body.child(position);
+
+            if (member.kind() == "constructor") {
+                hasConstructor = true;
+                this.addMember(classIndex, "new", member);
+            }
+
+            if (member.kind() == "method") {
+                this.addMember(classIndex, member.text(), member);
+            }
+
+            position = position + 1;
+        }
+
+        if (!hasConstructor && !this.context.classes().isInterfaceAt(classIndex)) {
+            this.addDefaultConstructor(classIndex, declaration);
+        }
+
+        this.inherit(classIndex);
+    }
+
+    // Number of base links up to the root: 1 for a class that derives directly from it.
+    public Int depthOf(Int classIndex) {
+        Int depth = 0;
+        Int current = classIndex;
+
+        while (current > 0) {
+            depth = depth + 1;
+            current = this.context.classes().parentAt(current);
+        }
+
+        return depth;
+    }
+
+    // Inherited members are compiled once per class (with `this` of that class): an upcast
+    // view is read-only in Sublang, so a shared base body could not mutate a derived object.
+    private Void inherit(Int classIndex) {
+        Int parent = this.context.classes().parentAt(classIndex);
+
+        if (parent <= 0 || this.context.classes().isInterfaceAt(classIndex)) {
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < this.context.methods().count()) {
+            this.inheritMember(classIndex, parent, index);
+            index = index + 1;
+        }
+    }
+
+    private Void inheritMember(Int classIndex, Int parent, Int index) {
+        Node member = this.context.methods().declarationAt(index);
+
+        if (this.context.methods().ownerAt(index) != parent || member.kind() != "method") {
+            return;
+        }
+
+        Int arity = AstQuery.childOfKind(member, "params").count();
+        String key = MemberResolver.key(this.context.classes().nameAt(classIndex), member.text(), arity);
+
+        if (this.context.methods().indexOf(key) < 0) {
+            this.context.methods().addKeyed(key, member, classIndex);
+        }
+    }
+
+    private Void addMember(Int classIndex, String name, Node member) {
+        Int arity = AstQuery.childOfKind(member, "params").count();
+        String key = MemberResolver.key(this.context.classes().nameAt(classIndex), name, arity);
+
+        if (this.context.methods().indexOf(key) >= 0) {
+            this.context.unsupported(member, "member '" + name + "' with " + arity.toString() + " parameters is declared twice in '" + this.context.classes().nameAt(classIndex) + "'");
+            return;
+        }
+
+        this.context.methods().addKeyed(key, member, classIndex);
+    }
+
+    private Void addDefaultConstructor(Int classIndex, Node declaration) {
+        Node constructor = Node("constructor", declaration.text(), declaration.line(), declaration.column());
+        constructor.add(Node("params", "", declaration.line(), declaration.column()));
+        String key = MemberResolver.key(this.context.classes().nameAt(classIndex), "new", 0);
+        this.context.methods().addKeyed(key, constructor, classIndex);
+    }
+}

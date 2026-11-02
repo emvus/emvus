@@ -1,0 +1,8 @@
+// expect-error: fiber, virtual and thread blocks need a task contract
+static method<Int> main {
+    var job = fiber {
+        return 42
+    }
+
+    return job.await()
+}

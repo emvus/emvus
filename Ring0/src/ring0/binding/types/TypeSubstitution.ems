@@ -1,0 +1,78 @@
+namespace ring0::binding;
+
+// Word-wise replacement of type parameters inside type texts.
+public class TypeSubstitution {
+    public TypeSubstitution() {
+    }
+
+    // Replaces type parameters (name to type) in a type text, word by word.
+    public static String substitute(String type, List<String> names, List<String> values) {
+        String result = "";
+        String word = "";
+        Int index = 0;
+
+        while (index < type.length()) {
+            String piece = type.charAt(index).toString();
+            Bool part = piece == "_" || piece.charAt(0).isLetter() || piece.charAt(0).isDigit();
+
+            if (part) {
+                word = word + piece;
+            }
+
+            if (!part) {
+                result = result + TypeSubstitution.replaceWord(word, names, values) + piece;
+                word = "";
+            }
+
+            index = index + 1;
+        }
+
+        return result + TypeSubstitution.replaceWord(word, names, values);
+    }
+
+    public static String replaceWord(String word, List<String> names, List<String> values) {
+        Int index = 0;
+
+        while (index < names.length()) {
+            if (names.get(index) == word) {
+                return values.get(index) + "";
+            }
+
+            index = index + 1;
+        }
+
+        return word;
+    }
+
+    // True if the text contains one of the names as a whole word.
+    public static Bool mentions(String type, List<String> names) {
+        String word = "";
+        Int index = 0;
+
+        while (index <= type.length()) {
+            String piece = "";
+
+            if (index < type.length()) {
+                piece = type.charAt(index).toString();
+            }
+
+            Bool part = !piece.isEmpty() && (piece == "_" || piece.charAt(0).isLetter() || piece.charAt(0).isDigit());
+
+            if (part) {
+                word = word + piece;
+            }
+
+            if (!part) {
+                if (names.contains(word)) {
+                    return true;
+                }
+
+                word = "";
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+}

@@ -1,0 +1,63 @@
+namespace ring0::lowering;
+
+// Owner scopes that are open at the current point of a function body. The function-level scope
+// is the bottom; each `scoped var` pushes another. Every exit closes the open scopes
+// innermost-first, as Sublang requires.
+public class ScopeStack {
+    private Int functionScopeId;
+    private List<Int> scopeIds;
+    private Int overriddenScope;
+
+    public ScopeStack() {
+        this.functionScopeId = 0;
+        this.scopeIds = List();
+        this.overriddenScope = 0;
+    }
+
+    // A new function body starts with no scopes.
+    public Void reset() {
+        this.functionScopeId = 0;
+        this.scopeIds = List();
+        this.overriddenScope = 0;
+    }
+
+    public Int functionScope() {
+        return this.functionScopeId;
+    }
+
+    public Void setFunctionScope(Int scopeId) {
+        this.functionScopeId = scopeId;
+        this.scopeIds.add(scopeId);
+    }
+
+    public Int count() {
+        return this.scopeIds.length();
+    }
+
+    public Int at(Int position) {
+        return this.scopeIds.get(position);
+    }
+
+    public Void push(Int scopeId) {
+        this.scopeIds.add(scopeId);
+    }
+
+    public Void popTo(Int size) {
+        while (this.scopeIds.length() > size) {
+            this.scopeIds.removeAt(this.scopeIds.length() - 1);
+        }
+    }
+
+    // Objects are owned by the function scope unless a `scoped` initializer overrides it.
+    public Int objectScope() {
+        if (this.overriddenScope != 0) {
+            return this.overriddenScope;
+        }
+
+        return this.functionScopeId;
+    }
+
+    public Void overrideObjectScope(Int scopeId) {
+        this.overriddenScope = scopeId;
+    }
+}

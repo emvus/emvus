@@ -1,0 +1,185 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Calls: top-level methods, record and exception construction, `panic`, and member calls
+// on String, Result and record values. `println` is rejected: Sublang has no output
+// primitive, the observable result of a program is the Int returned by main.
+public class CallLowerer {
+    private LoweringContext context;
+
+    public CallLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node node) {
+        Node callee = node.child(0);
+
+        if (callee.kind() == "member") {
+            return MemberCallLowerer(this.context).lower(node);
+        }
+
+        if (callee.kind() != "name" && callee.kind() != "generic-ref") {
+            this.context.unsupported(node, "only calls of top-level methods are supported (function values need closures)");
+            return LoweredValue.unsupported();
+        }
+
+        Int functionSlot = this.context.env().indexOf(callee.text());
+
+        if (functionSlot >= 0 && LambdaLowerer.isFunctionKind(this.context, this.context.env().kindAt(functionSlot))) {
+            return LambdaLowerer(this.context).apply(node, functionSlot);
+        }
+
+        String name = callee.text().toLowerCase();
+
+        if (name == "println" || name == "print" || name == "errprintln") {
+            this.context.unsupported(node, name + " is not available on the Sublang native target: the program's observable result is the Int returned by main (backend requirement: output primitive)");
+            return LoweredValue.unsupported();
+        }
+
+        if (name == "panic") {
+            return this.lowerPanic(node);
+        }
+
+        return this.lowerNamed(node, callee.text());
+    }
+
+    // The failure model is abort; the message has no channel to be printed on.
+    private LoweredValue lowerPanic(Node node) {
+        this.context.ops().failWith(this.context.panicFailure(), this.context.span(node));
+        return LoweredValue(0, "Terminated");
+    }
+
+    private LoweredValue lowerNamed(Node node, String name) {
+        Int member = ObjectMembers(this.context).memberOfCurrent(name, node.count() - 1);
+
+        if (member >= 0) {
+            return ObjectMembers(this.context).callOnThis(node, member);
+        }
+
+        List<LoweredValue> arguments = this.lowerArguments(node);
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (this.context.generics().indexOf(name, true) >= 0) {
+            return GenericCalls(this.context).construct(node, arguments);
+        }
+
+        if (this.context.generics().indexOf(name, false) >= 0) {
+            return GenericCalls(this.context).call(node, name, arguments);
+        }
+
+        Int record = this.context.records().indexOf(name);
+
+        if (record >= 0) {
+            return RecordLowerer(this.context).construct(node, record, arguments);
+        }
+
+        if (this.context.classes().indexOf(name) >= 0) {
+            return this.construct(node, this.context.classes().indexOf(name), arguments);
+        }
+
+        return this.lowerDirect(node, name, arguments);
+    }
+
+    // `Counter(args)`: the constructor is chosen by arity and returns the new object owned.
+    public LoweredValue construct(Node node, Int classIndex, List<LoweredValue> arguments) {
+        if (this.context.classes().isInterfaceAt(classIndex) || this.context.classes().isAbstractAt(classIndex)) {
+            this.context.unsupported(node, "'" + this.context.classes().nameAt(classIndex) + "' cannot be instantiated");
+            return LoweredValue.unsupported();
+        }
+
+        Int constructor = MemberResolver.findConstructor(this.context, classIndex, arguments.length());
+
+        if (constructor < 0) {
+            this.context.unsupported(node, "'" + this.context.classes().nameAt(classIndex) + "' has no constructor with " + arguments.length().toString() + " arguments");
+            return LoweredValue.unsupported();
+        }
+
+        return MemberInvoker(this.context).invoke(node, constructor, LoweredValue.nothing(), arguments);
+    }
+
+    private List<LoweredValue> lowerArguments(Node node) {
+        List<LoweredValue> values = List();
+        Int index = 1;
+
+        while (index < node.count()) {
+            values.add(ExpressionLowerer(this.context).lower(node.child(index)));
+            index = index + 1;
+        }
+
+        return values;
+    }
+
+    private LoweredValue lowerDirect(Node node, String name, List<LoweredValue> arguments) {
+        Int index = this.context.methods().indexOf(name);
+
+        if (index < 0 && node.symbolKind() == "value") {
+            this.context.unsupported(node, "'" + name + "' is a function value that is not a local or parameter here: a lambda that captures a function value would need shared ownership of that closure object (backend requirement: shared references)");
+            return LoweredValue.unsupported();
+        }
+
+        if (index < 0) {
+            this.context.unsupported(node, "call of unknown method '" + name + "'");
+            return LoweredValue.unsupported();
+        }
+
+        if (arguments.length() != this.context.methods().paramCountAt(index)) {
+            this.context.unsupported(node, "method '" + name + "' expects " + this.context.methods().paramCountAt(index).toString() + " arguments");
+            return LoweredValue.unsupported();
+        }
+
+        return this.emitCall(node, index, arguments);
+    }
+
+    public LoweredValue emitCall(Node node, Int index, List<LoweredValue> arguments) {
+        List<Int> ids = List();
+        List<String> modes = List();
+        Int position = 0;
+
+        while (position < arguments.length()) {
+            String kind = this.context.methods().paramKindAt(index, position);
+            LoweredValue argument = Coercion.to(this.context, node, arguments.get(position), kind);
+
+            if (argument.kind() != kind || !argument.isUsable()) {
+                this.context.unsupported(node, "argument " + (position + 1).toString() + " has kind " + arguments.get(position).kind() + ", expected " + kind);
+                return LoweredValue.unsupported();
+            }
+
+            ids.add(argument.valueId());
+            modes.add(this.modeOf(index, position, kind));
+            position = position + 1;
+        }
+
+        Int functionId = this.context.methods().functionIdAt(index);
+        String returnKind = this.context.methods().returnKindAt(index);
+        Int span = this.context.span(node);
+
+        if (returnKind == "String") {
+            Int owned = this.context.ops().callDirectOwned(functionId, ids, modes, this.context.scopes().functionScope(), span);
+            return LoweredValue(owned, "String");
+        }
+
+        if (RefKinds.isReference(returnKind)) {
+            Int object = this.context.ops().callDirectOwned(functionId, ids, modes, this.context.scopes().objectScope(), span);
+            return LoweredValue.fresh(object, returnKind);
+        }
+
+        return LoweredValue(this.context.ops().callDirect(functionId, ids, modes, span), returnKind);
+    }
+
+    // Text and objects are borrowed; an object is writable only where the callee writes through it.
+    private String modeOf(Int index, Int position, String kind) {
+        if (RefKinds.isReference(kind) && this.context.methods().mutatesParamAt(index, position)) {
+            return "borrow_write";
+        }
+
+        if (kind == "String" || RefKinds.isReference(kind)) {
+            return "borrow_read";
+        }
+
+        return "value";
+    }
+}

@@ -1,0 +1,210 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// switch as statement and expression; patterns bind names and coverage is collected in SwitchInfo.
+public class SwitchChecker {
+    private CheckContext context;
+
+    public SwitchChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String checkSwitch(Node node, String expected, Bool isExpr) {
+        String subject = this.expressionChecker().typeOf(node.child(0), "");
+        TypeSymbol enumSymbol = this.context.table().findType(TypeText.base(subject));
+        SwitchInfo info = SwitchInfo();
+        List<String> branchTypes = List();
+        Int caseIndex = 1;
+
+        while (caseIndex < node.count()) {
+            String branch = this.checkCase(node.child(caseIndex), subject, enumSymbol, info, expected, isExpr);
+            caseIndex = caseIndex + 1;
+
+            if (!branch.isEmpty()) {
+                branchTypes.add(branch + "");
+            }
+        }
+
+        this.requireExhaustive(node, subject, enumSymbol, info, isExpr);
+        node.bind(SymbolKinds.switchKind(), this.coverageKind(subject, enumSymbol, info), subject);
+
+        if (!isExpr) {
+            return TypeNames.voidType();
+        }
+
+        if (!expected.isEmpty()) {
+            return expected;
+        }
+
+        return this.mergeBranchTypes(node, branchTypes);
+    }
+
+    // Returns the branch type ("" if the branch yields no value).
+    private String checkCase(Node caseNode, String subject, TypeSymbol enumSymbol, SwitchInfo info, String expected, Bool isExpr) {
+        if (caseNode.count() == 0) {
+            return "";
+        }
+
+        this.context.scope().push();
+        Int last = caseNode.count() - 1;
+        Int part = 0;
+
+        while (part < last) {
+            this.applyPatterns(caseNode.child(part), subject, enumSymbol, info);
+            part = part + 1;
+        }
+
+        String branch = this.checkCaseBody(caseNode.child(last), expected, isExpr);
+        this.context.scope().pop();
+        return branch;
+    }
+
+    private Void applyPatterns(Node node, String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        if (node.kind() != NodeKinds.patterns()) {
+            this.patternChecker().applyPattern(node, subject, enumSymbol, info);
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            this.patternChecker().applyPattern(node.child(index), subject, enumSymbol, info);
+            index = index + 1;
+        }
+    }
+
+    private Void requireExhaustive(Node node, String subject, TypeSymbol enumSymbol, SwitchInfo info, Bool isExpr) {
+        if (this.context.isLoose(subject) || info.catchAll()) {
+            return;
+        }
+
+        if (TypeText.isResult(subject)) {
+            this.requireBothResultCases(node, info);
+            return;
+        }
+
+        if (!isExpr || this.coversAllValues(subject, enumSymbol, info)) {
+            return;
+        }
+
+        this.context.report(node, "switch expression is not exhaustive; cover every case or add a catch-all such as 'unknown ->'");
+    }
+
+    // How the cases cover the subject: dynamic | catch-all | result | enum | boolean | partial.
+    private String coverageKind(String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        if (this.context.isLoose(subject)) {
+            return "dynamic";
+        }
+
+        if (info.catchAll()) {
+            return "catch-all";
+        }
+
+        if (TypeText.isResult(subject)) {
+            return "result";
+        }
+
+        if (enumSymbol.kind() == NodeKinds.enumDeclaration() && this.coversAllValues(subject, enumSymbol, info)) {
+            return "enum";
+        }
+
+        if (this.coversAllValues(subject, enumSymbol, info)) {
+            return "boolean";
+        }
+
+        return "partial";
+    }
+
+    private Void requireBothResultCases(Node node, SwitchInfo info) {
+        if (info.success() && info.error()) {
+            return;
+        }
+
+        this.context.report(node, "switch on Result must handle both 'success' and 'error'");
+    }
+
+    private Bool coversAllValues(String subject, TypeSymbol enumSymbol, SwitchInfo info) {
+        if (enumSymbol.kind() == NodeKinds.enumDeclaration()) {
+            return info.entries().length() >= enumSymbol.entries().length();
+        }
+
+        if (subject == TypeNames.booleanType()) {
+            return info.hasTrue() && info.hasFalse();
+        }
+
+        return false;
+    }
+
+    private String mergeBranchTypes(Node node, List<String> branchTypes) {
+        String result = TypeNames.unknownType();
+        Int index = 0;
+
+        while (index < branchTypes.length()) {
+            String candidate = branchTypes.get(index) + "";
+            index = index + 1;
+
+            if (TypeText.isUnknown(candidate) || candidate == TypeNames.voidType()) {
+                continue;
+            }
+
+            if (TypeText.isUnknown(result)) {
+                result = candidate;
+                continue;
+            }
+
+            if (!this.context.rules().assignable(result, candidate) && !this.context.rules().assignable(candidate, result)) {
+                this.context.report(node, "switch branches have incompatible types '" + result + "' and '" + candidate + "'");
+                return TypeNames.unknownType();
+            }
+        }
+
+        return result;
+    }
+
+    private String checkCaseBody(Node body, String expected, Bool isExpr) {
+        String kind = body.kind();
+
+        if (kind == NodeKinds.successStatement()) {
+            return this.resultBranchChecker().successBranch(body, expected);
+        }
+
+        if (kind == NodeKinds.failStatement()) {
+            return this.resultBranchChecker().failBranch(body, expected);
+        }
+
+        if (kind == NodeKinds.block() || kind == NodeKinds.expressionStatement()) {
+            this.statementChecker().checkStatement(body);
+            return TypeNames.voidType();
+        }
+
+        if (kind == NodeKinds.returnStatement() || kind == NodeKinds.breakStatement() || kind == NodeKinds.continueStatement() || !isExpr) {
+            this.statementChecker().checkStatement(body);
+            return "";
+        }
+
+        String type = this.expressionChecker().typeOf(body, expected);
+
+        if (!expected.isEmpty()) {
+            this.context.requireAssignable(expected, type, body, "switch branch");
+        }
+
+        return type;
+    }
+
+    public ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private PatternChecker patternChecker() {
+        return PatternChecker(this.context);
+    }
+
+    private StatementChecker statementChecker() {
+        return StatementChecker(this.context);
+    }
+
+    private ResultBranchChecker resultBranchChecker() {
+        return ResultBranchChecker(this.context);
+    }
+}

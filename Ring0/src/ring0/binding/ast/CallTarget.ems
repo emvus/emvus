@@ -1,0 +1,64 @@
+namespace ring0::binding;
+
+// Encodes the resolved target of a call in Node.symbolDetail(): "owner|overload|typeArgs".
+// owner is "" for top-level functions; overload counts the same-owner candidates (-1: external
+// constructor without declared signature); typeArgs are the instantiated generic arguments
+// joined by ",".
+public class CallTarget {
+    public CallTarget() {
+    }
+
+    public static String make(String owner, Int overload, List<String> typeArgs) {
+        String joined = "";
+        Int index = 0;
+
+        while (index < typeArgs.length()) {
+            if (index > 0) {
+                joined = joined + ",";
+            }
+
+            joined = joined + typeArgs.get(index);
+            index = index + 1;
+        }
+
+        return owner + "|" + overload.toString() + "|" + joined;
+    }
+
+    public static String owner(String detail) {
+        return CallTarget.part(detail, 0);
+    }
+
+    public static String overload(String detail) {
+        return CallTarget.part(detail, 1);
+    }
+
+    public static String typeArgs(String detail) {
+        return CallTarget.part(detail, 2);
+    }
+
+    // Typed parts never contain '|', so a plain scan is enough.
+    private static String part(String detail, Int wanted) {
+        Int seen = 0;
+        Int start = 0;
+        Int index = 0;
+
+        while (index < detail.length()) {
+            if (detail.charAt(index).toString() == "|") {
+                if (seen == wanted) {
+                    return detail.substring(start, index);
+                }
+
+                seen = seen + 1;
+                start = index + 1;
+            }
+
+            index = index + 1;
+        }
+
+        if (seen == wanted) {
+            return detail.substring(start, detail.length());
+        }
+
+        return "";
+    }
+}

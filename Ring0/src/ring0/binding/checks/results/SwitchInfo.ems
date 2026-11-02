@@ -1,0 +1,70 @@
+namespace ring0::binding;
+
+// State while checking a switch (case coverage).
+public class SwitchInfo {
+    private Bool successValue;
+    private Bool errorValue;
+    private Bool catchAllValue;
+    private Bool trueValue;
+    private Bool falseValue;
+    private List<String> entryList;
+    private List<String> errorTypeList;
+
+    public SwitchInfo() {
+        this.successValue = false;
+        this.errorValue = false;
+        this.catchAllValue = false;
+        this.trueValue = false;
+        this.falseValue = false;
+        this.entryList = List();
+        this.errorTypeList = List();
+    }
+
+    public Bool success() {
+        return this.successValue;
+    }
+
+    public Bool error() {
+        return this.errorValue;
+    }
+
+    public Bool catchAll() {
+        return this.catchAllValue;
+    }
+
+    public Bool hasTrue() {
+        return this.trueValue;
+    }
+
+    public Bool hasFalse() {
+        return this.falseValue;
+    }
+
+    public Void markSuccess() {
+        this.successValue = true;
+    }
+
+    public Void markError() {
+        this.errorValue = true;
+    }
+
+    public Void markCatchAll() {
+        this.catchAllValue = true;
+    }
+
+    public Void markTrue() {
+        this.trueValue = true;
+    }
+
+    public Void markFalse() {
+        this.falseValue = true;
+    }
+
+    public List<String> entries() {
+        return this.entryList;
+    }
+
+    public List<String> errorTypes() {
+        return this.errorTypeList;
+    }
+}

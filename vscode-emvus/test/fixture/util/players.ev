@@ -1,0 +1,25 @@
+package util
+
+// A player with a score.
+class Player {
+    String name { get }
+    Int score { get, set }
+
+    Player(String name, Int score) {
+        this.name = name
+        this.score = score
+    }
+
+    method<String> describe {
+        return "${name}: ${score}"
+    }
+
+    method addPoints(Int points) {
+        score += points
+    }
+}
+
+enum Level {
+    EASY,
+    HARD
+}

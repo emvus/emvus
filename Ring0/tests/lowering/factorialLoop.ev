@@ -1,0 +1,30 @@
+// Loop-carried locals become block parameters.
+method<Int> factorial(Int n) {
+    Int result = 1
+    Int i = 2
+
+    while (i <= n) {
+        result = result * i
+        i++
+    }
+
+    return result
+}
+
+method<Int> sumBelow(Int n) {
+    Int total = 0
+
+    for (Int i = 0; i < n; i++) {
+        if (i == 3) {
+            continue
+        }
+
+        total += i
+    }
+
+    return total
+}
+
+static method<Int> main {
+    return factorial(5) + sumBelow(10)
+}

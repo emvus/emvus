@@ -1,0 +1,107 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Control flow on Result values: `x?` (propagate), `x!` (unwrap or abort), `orElse`.
+public class ResultFlow {
+    private LoweringContext context;
+
+    public ResultFlow(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // `result?`: on error the method returns the same error in its own Result type.
+    public LoweredValue propagate(Node node) {
+        LoweredValue result = this.operand(node);
+
+        if (!result.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        String own = this.context.function().returnKind();
+
+        if (!ResultTypes.isResultKind(own) || this.errorName(own) != this.errorName(result.kind())) {
+            this.context.unsupported(node, "'?' needs the method to return a Result with the same error type (error inheritance is not modelled)");
+            return LoweredValue.unsupported();
+        }
+
+        ResultLowerer results = ResultLowerer(this.context);
+        Int failed = results.isError(node, result);
+        Int errorBlock = this.context.newBlock();
+        Int okBlock = this.context.newBlock();
+        List<Int> none = List();
+        this.context.ops().condBranch(failed, errorBlock, none, okBlock, none, this.context.span(node));
+        this.context.enterBlock(errorBlock);
+        LoweredValue converted = results.failure(node, own, results.errorOf(node, result));
+        ReturnEmitter.emit(this.context, node, converted);
+        this.context.enterBlock(okBlock);
+        return results.payload(node, result);
+    }
+
+    // `result!`: an error is a programming error and aborts.
+    public LoweredValue unwrap(Node node) {
+        LoweredValue result = this.operand(node);
+
+        if (!result.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        ResultLowerer results = ResultLowerer(this.context);
+        Int failed = results.isError(node, result);
+        Int abortBlock = this.context.newBlock();
+        Int okBlock = this.context.newBlock();
+        List<Int> none = List();
+        this.context.ops().condBranch(failed, abortBlock, none, okBlock, none, this.context.span(node));
+        this.context.enterBlock(abortBlock);
+        this.context.ops().failWith(this.context.panicFailure(), this.context.span(node));
+        this.context.enterBlock(okBlock);
+        return results.payload(node, result);
+    }
+
+    // `result.orElse(fallback)`: the fallback is evaluated eagerly; both arms join its kind.
+    public LoweredValue orElse(Node call, LoweredValue result) {
+        LoweredValue fallback = ExpressionLowerer(this.context).lower(call.child(1));
+        ResultLowerer results = ResultLowerer(this.context);
+        LoweredValue payload = results.payload(call, result);
+
+        if (!fallback.isUsable() || !payload.isUsable() || fallback.kind() != payload.kind()) {
+            this.context.unsupported(call, "orElse needs a fallback of the success type");
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(call);
+        Int failed = results.isError(call, result);
+        Int errorBlock = this.context.newBlock();
+        Int okBlock = this.context.newBlock();
+        Int join = this.context.newBlock();
+        List<Int> none = List();
+        this.context.ops().condBranch(failed, errorBlock, none, okBlock, none, span);
+        this.context.enterBlock(errorBlock);
+        this.context.ops().branchTo(join, this.single(fallback.valueId()), span);
+        this.context.enterBlock(okBlock);
+        this.context.ops().branchTo(join, this.single(payload.valueId()), span);
+        this.context.enterBlock(join);
+        return LoweredValue(this.context.addBlockParam(this.context.kinds().typeIdOfKind(payload.kind())), payload.kind());
+    }
+
+    private LoweredValue operand(Node node) {
+        LoweredValue result = ExpressionLowerer(this.context).lower(node.child(0));
+
+        if (result.isUsable() && !ResultTypes.isResultKind(result.kind())) {
+            this.context.unsupported(node, "'" + node.kind() + "' needs a Result value");
+            return LoweredValue.unsupported();
+        }
+
+        return result;
+    }
+
+    private String errorName(String kind) {
+        return ResultTypes.errorNameOfName(RecordTable.nameOfKind(kind)).toLowerCase();
+    }
+
+    private List<Int> single(Int value) {
+        List<Int> values = List();
+        values.add(value);
+        return values;
+    }
+}

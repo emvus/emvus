@@ -1,0 +1,97 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Index access on tuples, lists, dictionaries and strings.
+public class IndexChecker {
+    private CheckContext context;
+
+    public IndexChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String typeOfIndex(Node node) {
+        String receiver = this.expressionChecker().typeOf(node.child(0), "");
+        String indexType = this.expressionChecker().typeOf(node.child(1), "");
+
+        if (TypeText.isUnknown(receiver) || receiver == TypeNames.dynamicType()) {
+            return receiver;
+        }
+
+        if (TypeText.isTuple(receiver)) {
+            return this.tupleElement(node.child(1), receiver);
+        }
+
+        if (TypeText.base(receiver) == TypeNames.dictionaryType()) {
+            return this.dictionaryValue(node.child(1), receiver, indexType);
+        }
+
+        if (this.isListType(receiver)) {
+            return this.listElement(node.child(1), receiver, indexType);
+        }
+
+        if (receiver == TypeNames.stringType()) {
+            return TypeNames.charType();
+        }
+
+        return TypeNames.unknownType();
+    }
+
+    public String tupleElement(Node indexNode, String receiver) {
+        if (indexNode.kind() != NodeKinds.intLiteral()) {
+            this.context.report(indexNode, "Tuple elements need a constant index");
+            return TypeNames.unknownType();
+        }
+
+        List<String> elements = TypeText.args(receiver);
+        Int position = TypeText.parseInt(indexNode.text());
+
+        if (position >= elements.length()) {
+            this.context.report(indexNode, "Tuple index " + position.toString() + " is out of range for '" + receiver + "'");
+            return TypeNames.unknownType();
+        }
+
+        return elements.get(position) + "";
+    }
+
+    public String dictionaryValue(Node indexNode, String receiver, String indexType) {
+        List<String> args = TypeText.args(receiver);
+
+        if (args.length() != 2) {
+            return TypeNames.unknownType();
+        }
+
+        if (!this.context.rules().assignable(args.get(0), indexType)) {
+            this.context.report(indexNode, "Dictionary key: expected '" + args.get(0) + "', found '" + indexType + "'");
+        }
+
+        return args.get(1) + "";
+    }
+
+    public String listElement(Node indexNode, String receiver, String indexType) {
+        if (!this.context.rules().assignable(TypeNames.intType(), indexType)) {
+            this.context.report(indexNode, "List index must be Int, found '" + indexType + "'");
+        }
+
+        List<String> args = TypeText.args(receiver);
+
+        if (args.length() != 1) {
+            return TypeNames.unknownType();
+        }
+
+        return args.get(0) + "";
+    }
+
+    public Bool isListType(String type) {
+        String base = TypeText.base(type);
+        return base == TypeNames.listType() || base == TypeNames.iListType();
+    }
+
+    private NameChecker nameChecker() {
+        return NameChecker(this.context);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

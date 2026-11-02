@@ -1,0 +1,104 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Narrows null states of stable locals for the case that a condition evaluated to
+// `outcome`. Only locals and parameters refine; property reads never do, because a
+// mutable property can change between the check and the use.
+public class ConditionRefiner {
+    public ConditionRefiner() {
+    }
+
+    public Void refine(Node condition, FlowEnv env, Bool outcome) {
+        String kind = condition.kind();
+
+        if (kind == NodeKinds.unary() && condition.text() == "!" && condition.count() == 1) {
+            this.refine(condition.child(0), env, !outcome);
+            return;
+        }
+
+        if (kind == NodeKinds.isCheck() && outcome && condition.count() > 0) {
+            this.markNonNull(condition.child(0), env);
+            return;
+        }
+
+        if (kind == NodeKinds.binary() && condition.count() == 2) {
+            this.refineBinary(condition, env, outcome);
+        }
+    }
+
+    private Void refineBinary(Node condition, FlowEnv env, Bool outcome) {
+        String operator = condition.text();
+
+        if (operator == "&&") {
+            this.refineConnective(condition, env, outcome, true);
+            return;
+        }
+
+        if (operator == "||") {
+            this.refineConnective(condition, env, outcome, false);
+            return;
+        }
+
+        if (operator == "==" || operator == "!=") {
+            this.refineNullComparison(condition, env, outcome == (operator == "=="));
+        }
+    }
+
+    // `a && b` is fully decided when true, `a || b` when false; the other outcome is a join.
+    private Void refineConnective(Node condition, FlowEnv env, Bool outcome, Bool isAnd) {
+        Node left = condition.child(0);
+        Node right = condition.child(1);
+
+        if (outcome == isAnd) {
+            this.refine(left, env, outcome);
+            this.refine(right, env, outcome);
+            return;
+        }
+
+        FlowEnv leftDecides = env.copy();
+        this.refine(left, leftDecides, outcome);
+        FlowEnv rightDecides = env.copy();
+        this.refine(left, rightDecides, !outcome);
+        this.refine(right, rightDecides, outcome);
+        env.becomeJoin(leftDecides, rightDecides);
+    }
+
+    // equalsNull: the comparison established that the operand is null (true) or non-null (false).
+    private Void refineNullComparison(Node condition, FlowEnv env, Bool equalsNull) {
+        Node left = condition.child(0);
+        Node right = condition.child(1);
+        Bool leftIsNull = left.kind() == NodeKinds.nullLiteral();
+
+        if (!leftIsNull && right.kind() != NodeKinds.nullLiteral()) {
+            return;
+        }
+
+        Node operand = ConditionRefiner.pick(leftIsNull, right, left);
+
+        if (operand.kind() != NodeKinds.nameReference() || !env.has(operand.text())) {
+            return;
+        }
+
+        if (equalsNull) {
+            env.set(operand.text(), NullState.nullValue());
+            return;
+        }
+
+        env.set(operand.text(), NullState.nonNull());
+    }
+
+    private static Node pick(Bool useFirst, Node first, Node second) {
+        if (useFirst) {
+            return first;
+        }
+
+        return second;
+    }
+
+    private Void markNonNull(Node operand, FlowEnv env) {
+        if (operand.kind() == NodeKinds.nameReference() && env.has(operand.text())) {
+            env.set(operand.text(), NullState.nonNull());
+        }
+    }
+}

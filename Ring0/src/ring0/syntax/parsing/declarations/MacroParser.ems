@@ -1,0 +1,46 @@
+namespace ring0::syntax;
+
+// macro Name(params) on Target, Target { ... }
+//
+//   macro    text=Name  params targets block
+//   targets  children: target (text=Class|Method|...)
+public class MacroParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public MacroParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    // Starts at the `macro` keyword.
+    public Node parse(Node holder, Node modifiers) {
+        this.state.advance();
+        Token nameToken = this.header.consumeName("Expected macro name");
+        Node declaration = this.state.nodeAt(nameToken, AstKinds.macroDeclaration(), nameToken.text());
+        this.header.attach(declaration, holder, modifiers);
+        declaration.add(ParameterParser(this.state).parseOptionalParams());
+        declaration.add(this.parseTargets());
+        declaration.add(StatementParser(this.state).parseBlock());
+        return declaration;
+    }
+
+    private Node parseTargets() {
+        Node targets = this.state.node(AstKinds.targets(), "");
+
+        if (!this.header.matchWord("on")) {
+            this.state.errorHere("Expected 'on' and macro target");
+        }
+
+        while (this.header.isNameAt(0) && !this.state.checkSymbol("{")) {
+            Token target = this.state.advance();
+            targets.add(this.state.nodeAt(target, AstKinds.target(), target.text()));
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        return targets;
+    }
+}

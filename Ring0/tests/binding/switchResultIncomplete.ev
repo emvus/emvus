@@ -1,0 +1,12 @@
+// expect: must handle both 'success' and 'error'
+package main
+
+method<Result<Int, IOException>> read {
+    success 1
+}
+
+method run {
+    switch (read()) {
+        success(value) -> println(value)
+    }
+}

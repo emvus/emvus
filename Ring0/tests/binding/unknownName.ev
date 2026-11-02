@@ -1,0 +1,6 @@
+// expect: Unknown name 'missing'
+package main
+
+method run {
+    println(missing)
+}

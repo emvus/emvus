@@ -1,0 +1,26 @@
+// scoped var: the object is released when the enclosing block ends, also on the return path.
+class Counter {
+    Int count { get, set }
+
+    Counter(Int start) {
+        this.count = start
+    }
+
+    method increment {
+        count = count + 1
+    }
+
+    method<Int> value {
+        return count
+    }
+}
+
+static method<Int> useScoped {
+    scoped var counter = Counter(5)
+    counter.increment()
+    return counter.value()
+}
+
+static method<Int> main {
+    return useScoped()
+}

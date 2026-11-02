@@ -1,0 +1,113 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Top-level methods, variables and macros.
+public class TopLevelCollector {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public TopLevelCollector(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void declareMacro(Node node) {
+        MemberSymbol previous = this.table.findTopLevel(node.text(), SymbolKinds.macro());
+
+        if (!previous.isMissing()) {
+            this.bag.error("Duplicate macro '" + node.text() + "'", node.line(), node.column());
+            return;
+        }
+
+        String targets = "";
+        Node targetList = AstQuery.childOfKind(node, NodeKinds.targets());
+        Int index = 0;
+
+        while (index < targetList.count()) {
+            if (index > 0) {
+                targets = targets + ",";
+            }
+
+            targets = targets + targetList.child(index).text();
+            index = index + 1;
+        }
+
+        MemberSymbol macro = MemberSymbol(node.text(), SymbolKinds.macro(), targets, "");
+        macro.setPosition(node.line(), node.column());
+        List<String> noParams = List();
+        Node params = AstQuery.childOfKind(node, NodeKinds.params());
+        Int paramIndex = 0;
+
+        while (paramIndex < params.count()) {
+            Node param = params.child(paramIndex);
+            Node typeNode = AstQuery.typeChild(param);
+            String type = TypeNames.unknownType();
+
+            if (!AstQuery.isNone(typeNode)) {
+                type = this.resolver.resolve(typeNode, noParams);
+            }
+
+            macro.addParam(param.text(), type, AstQuery.hasDefaultValue(param));
+            paramIndex = paramIndex + 1;
+        }
+
+        this.table.addTopLevel(macro);
+    }
+
+    public Void addTopLevelVariable(Node decl) {
+        MemberSymbol previous = this.table.findTopLevel(decl.text(), SymbolKinds.variable());
+
+        if (!previous.isMissing()) {
+            this.bag.error("Duplicate declaration of '" + decl.text() + "'", decl.line(), decl.column());
+            return;
+        }
+
+        List<String> none = List();
+        Node typeNode = AstQuery.typeChild(decl);
+        String type = TypeNames.inferredType();
+
+        if (!AstQuery.isNone(typeNode)) {
+            type = this.resolver.resolve(typeNode, none);
+        }
+
+        MemberSymbol variable = MemberSymbol(decl.text(), SymbolKinds.variable(), type, "");
+        variable.setFinal(AstQuery.isFinal(decl));
+        variable.setStatic(true);
+        variable.setPosition(decl.line(), decl.column());
+        this.table.addTopLevel(variable);
+    }
+
+    public Void addTopLevelMethod(Node decl, List<String> outer) {
+        MemberSymbol method = this.signatureBuilder().buildMethod(decl, "", outer, false);
+        List<MemberSymbol> same = this.table.findTopLevelAll(decl.text(), SymbolKinds.method());
+        Int index = 0;
+
+        while (index < same.length()) {
+            if (same.get(index).line() > 0 && same.get(index).paramCount() == method.paramCount()) {
+                this.bag.error("Duplicate method '" + decl.text() + "' with " + method.paramCount().toString() + " parameter(s)", decl.line(), decl.column());
+                return;
+            }
+
+            index = index + 1;
+        }
+
+        if (!this.table.findTopLevel(decl.text(), SymbolKinds.variable()).isMissing()) {
+            this.bag.error("'" + decl.text() + "' is already declared as a variable", decl.line(), decl.column());
+            return;
+        }
+
+        this.table.addTopLevel(method);
+    }
+
+    private Collector collector() {
+        return Collector(this.table, this.bag);
+    }
+
+    private SignatureBuilder signatureBuilder() {
+        return SignatureBuilder(this.table, this.bag);
+    }
+}

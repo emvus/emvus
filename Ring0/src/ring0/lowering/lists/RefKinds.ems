@@ -1,0 +1,12 @@
+namespace ring0::lowering;
+
+// Kinds that are owned references in Sublang (`Ref<Class>`, `Ref<List<E>>`): they are borrowed
+// into calls, adopted by an owner scope, and can only be moved when they are fresh temporaries.
+public class RefKinds {
+    public RefKinds() {
+    }
+
+    public static Bool isReference(String kind) {
+        return ClassTable.isClassKind(kind) || ListTable.isListKind(kind);
+    }
+}

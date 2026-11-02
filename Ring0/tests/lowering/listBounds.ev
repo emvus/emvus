@@ -1,0 +1,7 @@
+// expect-abort
+// An out-of-range index aborts like every checked operation.
+static method<Int> main {
+    List<Int> xs = [1, 2]
+    Int i = 5
+    return xs[i]
+}

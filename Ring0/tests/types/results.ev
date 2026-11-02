@@ -1,0 +1,19 @@
+// Annotations for Result-returning calls, fail/success and Result switches.
+exception NegativeException(Int value)
+
+method<Result<Int, NegativeException>> check(Int n) {
+    if (n < 0) {
+        fail NegativeException(n)
+    }
+
+    success n
+}
+
+method show(Int n) {
+    switch (check(n)) {
+        success(value) -> println(value)
+        error(problem) -> println(problem.message)
+    }
+
+    Int forced = check(n)!
+}

@@ -1,0 +1,174 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Emits a constructor as a function that returns the new object as an owned reference. The
+// object is allocated in the function's own scope and handed out by `returnOwned`. Base
+// constructors are inlined (Sublang cannot pass an uninitialized object as a base reference):
+// base chain first, each class running its field initializers and then its body, all against
+// the object of the most derived class so field ids stay those of that class.
+public class ConstructorLowerer {
+    private LoweringContext context;
+
+    public ConstructorLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Void lower(Int methodIndex) {
+        Node constructor = this.context.methods().declarationAt(methodIndex);
+        Int owner = this.context.methods().ownerAt(methodIndex);
+        Int span = this.context.span(constructor);
+        String kind = this.context.methods().returnKindAt(methodIndex);
+        this.context.enterFunction(this.context.methods().functionIdAt(methodIndex));
+        this.context.function().setReturnKind(kind);
+        this.context.setCurrentClass(owner);
+        this.context.beginBlock();
+        Int scope = this.context.ops().scopeBegin(span);
+        this.context.scopes().setFunctionScope(scope);
+        Int object = this.context.ops().classNew(this.context.classes().typeIdAt(owner), scope, span);
+        this.context.construction().begin(object);
+        this.initializeTag(owner, object, span);
+        List<LoweredValue> arguments = this.parameterValues(methodIndex);
+
+        this.run(owner, owner, constructor, arguments);
+
+        if (!this.context.failed()) {
+            this.verifyInitialized(owner, constructor);
+            this.context.ops().returnOwned(object, span);
+        }
+
+        this.context.construction().end();
+        this.context.env().truncate(0);
+        this.context.setCurrentClass(-1);
+    }
+
+    private Void initializeTag(Int owner, Int object, Int span) {
+        Int field = this.context.classes().fields().idAt(this.context.classes().fields().firstSlotAt(owner));
+        this.context.ops().fieldInit(object, field, this.context.ops().constInt(this.context.classes().tagAt(owner), span), span);
+        this.context.construction().mark("tag");
+    }
+
+    private List<LoweredValue> parameterValues(Int methodIndex) {
+        List<LoweredValue> values = List();
+        Int position = 0;
+
+        while (position < this.context.methods().paramCountAt(methodIndex)) {
+            String kind = this.context.methods().paramKindAt(methodIndex, position);
+            values.add(LoweredValue(this.context.methods().paramIdAt(methodIndex, position), kind, RefKinds.isReference(kind)));
+            position = position + 1;
+        }
+
+        return values;
+    }
+
+    // Runs one constructor of `current` against the object under construction. `constructed` is
+    // the class of that object.
+    private Void run(Int constructed, Int current, Node constructor, List<LoweredValue> arguments) {
+        Int mark = this.context.env().size();
+        this.bindArguments(constructor, arguments);
+        this.bindThis(constructed);
+        this.runBase(constructed, current, constructor);
+        this.runInitializers(constructed, current);
+        Node block = AstQuery.childOfKind(constructor, "block");
+
+        if (!AstQuery.isNone(block)) {
+            StatementLowerer(this.context).lowerBlock(block);
+        }
+
+        this.context.env().truncate(mark);
+    }
+
+    private Void bindArguments(Node constructor, List<LoweredValue> arguments) {
+        Node params = AstQuery.childOfKind(constructor, "params");
+        Int position = 0;
+
+        while (position < params.count() && position < arguments.length()) {
+            LoweredValue value = arguments.get(position);
+
+            if (value.isBorrowed()) {
+                this.context.env().declareBorrowed(params.child(position).text(), value.valueId(), value.kind());
+            }
+
+            if (!value.isBorrowed()) {
+                this.context.env().declare(params.child(position).text(), value.valueId(), value.kind());
+            }
+
+            position = position + 1;
+        }
+    }
+
+    // `this` under construction is the object itself, not a view.
+    private Void bindThis(Int constructed) {
+        String kind = ClassTable.kindFor(this.context.classes().nameAt(constructed));
+        this.context.env().declare("this", this.context.construction().building(), kind);
+    }
+
+    private Void runBase(Int constructed, Int current, Node constructor) {
+        Int base = this.context.classes().parentAt(current);
+
+        if (base <= 0) {
+            return;
+        }
+
+        Node superCall = AstQuery.childOfKind(constructor, "super-call");
+        List<LoweredValue> values = List();
+        Int position = 0;
+
+        while (position < superCall.count()) {
+            values.add(ExpressionLowerer(this.context).lower(superCall.child(position)));
+            position = position + 1;
+        }
+
+        Int target = MemberResolver.findConstructor(this.context, base, values.length());
+
+        if (target < 0) {
+            this.context.unsupported(constructor, "'" + this.context.classes().nameAt(base) + "' has no constructor with " + values.length().toString() + " arguments");
+            return;
+        }
+
+        this.run(constructed, base, this.context.methods().declarationAt(target), values);
+    }
+
+    // Field initializers of the declaring class run before its constructor body.
+    private Void runInitializers(Int constructed, Int current) {
+        ClassTable table = this.context.classes();
+        Int slot = table.fields().firstSlotAt(constructed);
+        Int end = slot + table.fields().countAt(constructed);
+
+        while (slot < end) {
+            if (table.fields().ownerAt(slot) == current && table.fields().hasInitializer(slot)) {
+                this.initialize(constructed, slot);
+            }
+
+            slot = slot + 1;
+        }
+    }
+
+    private Void initialize(Int constructed, Int slot) {
+        Node initializer = this.context.classes().fields().initAt(slot);
+        LoweredValue value = ExpressionLowerer(this.context).lower(initializer);
+
+        if (!value.isUsable()) {
+            return;
+        }
+
+        LoweredValue receiver = LoweredValue(this.context.construction().building(), ClassTable.kindFor(this.context.classes().nameAt(constructed)));
+        ObjectMembers(this.context).writeField(initializer, receiver, this.context.classes().fields().nameAt(slot), value);
+    }
+
+    // Sublang rejects a returned object with an uninitialized field; say which one.
+    private Void verifyInitialized(Int owner, Node constructor) {
+        ClassTable table = this.context.classes();
+        Int slot = table.fields().firstSlotAt(owner);
+        Int end = slot + table.fields().countAt(owner);
+
+        while (slot < end) {
+            if (!this.context.construction().isInitialized(table.fields().nameAt(slot))) {
+                this.context.unsupported(constructor, "field '" + table.fields().nameAt(slot) + "' of '" + table.nameAt(owner) + "' is not initialized by this constructor (Sublang requires every field set before the object is returned)");
+            }
+
+            slot = slot + 1;
+        }
+    }
+}

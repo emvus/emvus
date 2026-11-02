@@ -1,0 +1,161 @@
+namespace ring0::syntax;
+
+// Statements and blocks.
+//
+// API
+//   parseBlock()     -> "block"   consumes `{ ... }`, semicolons optional
+//   parseStatement() -> statement node, consumes an optional `;`
+//
+// Node kinds (children in order); declarations are documented in LocalDeclarationParser,
+// control flow in ControlFlowParser and switches in StatementSwitchParser.
+//   block         []  statements
+//   empty         []  internal only, for a lone `;` (dropped inside blocks)
+//   placeholder   []  `...` placeholder body
+//   break, continue  []
+//   expr-stmt     [expr | cascade | assign]
+public class StatementParser {
+    private ParserState state;
+
+    public StatementParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parseBlock() {
+        Node block = this.state.node(AstKinds.block(), "");
+        this.state.consumeSymbol("{", "Expected '{' to start block");
+        Int saved = this.state.clearCascades();
+        this.parseStatements(block);
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol("}", "Expected '}' to end block");
+        return block;
+    }
+
+    // Always makes progress: a statement that consumed nothing skips one token.
+    private Void parseStatements(Node block) {
+        while (!this.state.isAtEnd() && !this.state.checkSymbol("}")) {
+            Int before = this.state.position();
+            Node statement = this.parseStatement();
+
+            if (!statement.kindIs(AstKinds.empty())) {
+                block.add(statement);
+            }
+
+            if (this.state.position() == before) {
+                this.state.advance();
+            }
+        }
+    }
+
+    public Node parseStatement() {
+        Node statement = this.parseSimpleStatement();
+
+        if (this.state.checkSymbol(";")) {
+            this.state.advance();
+        }
+
+        return statement;
+    }
+
+    public Node parseSimpleStatement() {
+        Token token = this.state.peek();
+
+        if (token.isSymbol("{")) {
+            return this.parseBlock();
+        }
+
+        if (token.isSymbol(";")) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.empty(), "");
+        }
+
+        if (this.atPlaceholder()) {
+            return this.parsePlaceholder();
+        }
+
+        Node keyword = this.parseKeywordStatement(token);
+
+        if (!keyword.kindIs(AstKinds.none())) {
+            return keyword;
+        }
+
+        LocalDeclarationParser locals = LocalDeclarationParser(this.state);
+
+        if (locals.atLocalStart()) {
+            return locals.parseLocal();
+        }
+
+        return StatementExpressionParser(this.state).parseExpressionStatement();
+    }
+
+    // Statements introduced by a keyword, or a `none` node when the token starts something else.
+    private Node parseKeywordStatement(Token token) {
+        ControlFlowParser flow = ControlFlowParser(this.state);
+
+        if (token.isWord("if")) {
+            return flow.parseIf();
+        }
+
+        if (token.isWord("while")) {
+            return flow.parseWhile();
+        }
+
+        if (token.isWord("for")) {
+            return flow.parseFor();
+        }
+
+        if (token.isWord("switch")) {
+            return StatementSwitchParser(this.state).parse();
+        }
+
+        if (token.isWord("return")) {
+            return flow.parseReturn();
+        }
+
+        if (token.isWord("fail")) {
+            return flow.parseValueStatement(AstKinds.failStatement());
+        }
+
+        if (token.isWord("success")) {
+            return flow.parseValueStatement(AstKinds.successStatement());
+        }
+
+        return this.parseJump(token);
+    }
+
+    private Node parseJump(Token token) {
+        if (token.isWord("break")) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.breakStatement(), "");
+        }
+
+        if (token.isWord("continue")) {
+            this.state.advance();
+            return this.state.nodeAt(token, AstKinds.continueStatement(), "");
+        }
+
+        return this.state.nodeAt(token, AstKinds.none(), "");
+    }
+
+    private Bool atPlaceholder() {
+        if (this.state.checkSymbol("...")) {
+            return true;
+        }
+
+        return this.state.checkSymbol("..") && this.state.peekAt(1).isSymbol(".");
+    }
+
+    private Node parsePlaceholder() {
+        Token token = this.state.peek();
+
+        if (this.state.checkSymbol("...")) {
+            this.state.advance();
+        }
+
+        if (this.state.checkSymbol("..")) {
+            this.state.advance();
+            this.state.advance();
+        }
+
+        return this.state.nodeAt(token, AstKinds.placeholder(), "...");
+    }
+}

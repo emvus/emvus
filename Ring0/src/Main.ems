@@ -1,0 +1,87 @@
+use ring0::binding::Binder;
+use ring0::binding::BindingPrelude;
+use ring0::binding::TypeDump;
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Lexer;
+use ring0::syntax::Node;
+use ring0::syntax::Parser;
+use ring0::syntax::Token;
+use Std::Io::File;
+use Std::Process::Process;
+
+// Ring0: bootstrap compiler for Emvus, written in Emerald.
+// Usage: ring0 <file.ev> [--tokens | --check [--types]]
+main() {
+    List<String> args = Process.args();
+
+    if (args.length() < 1) {
+        println("Usage: ring0 <file.ev> [--tokens]");
+        Process.exit(1);
+    }
+
+    File file = File(args.get(0));
+
+    if (!file.exists()) {
+        println("Source file does not exist: " + args.get(0));
+        Process.exit(1);
+    }
+
+    DiagnosticBag bag = DiagnosticBag();
+    Lexer lexer = Lexer(file.readText(), bag);
+    List<Token> tokens = lexer.tokenize();
+
+    if (args.length() > 1 && args.get(1) == "--tokens") {
+        Int index = 0;
+
+        while (index < tokens.length()) {
+            Token token = tokens.get(index);
+            println(token.line().toString() + ":" + token.column().toString() + " " + token.kind() + " " + token.text());
+            index = index + 1;
+        }
+
+        println("tokens: " + tokens.length().toString());
+        bag.printAll();
+
+        if (bag.hasErrors()) {
+            Process.exit(1);
+        }
+
+        return;
+    }
+
+    if (bag.hasErrors()) {
+        bag.printAll();
+        Process.exit(1);
+    }
+
+    Parser parser = Parser(tokens, bag);
+    Node tree = parser.parse();
+
+    if (args.length() > 1 && args.get(1) == "--check") {
+        if (!bag.hasErrors()) {
+            Binder binder = Binder(bag);
+            binder.bind(tree);
+        }
+
+        bag.printAll();
+
+        if (bag.hasErrors()) {
+            Process.exit(1);
+        }
+
+        if (args.length() > 2 && args.get(2) == "--types") {
+            TypeDump typeDump = TypeDump();
+            println(typeDump.dump(tree));
+        }
+
+        println("check ok");
+        return;
+    }
+
+    println(tree.dump(0));
+    bag.printAll();
+
+    if (bag.hasErrors()) {
+        Process.exit(1);
+    }
+}

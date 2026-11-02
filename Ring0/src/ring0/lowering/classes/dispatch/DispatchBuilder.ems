@@ -1,0 +1,188 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Builds the closed-world dispatch groups for virtual members. A method is virtual when it is
+// abstract, declared in an interface, overridden below its declaring class, or implements an
+// interface member. Sublang groups carry a read-only `Ref<emvus.Object>` receiver, so each
+// registered class gets a wrapper that downcasts to its exact class and calls the class's own
+// copy of the method (inherited methods are copied per class by ClassMemberCollector).
+// Classes without an implementation share the aborting prototype stub.
+public class DispatchBuilder {
+    private LoweringContext context;
+
+    public DispatchBuilder(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // `needsAnchor`: the program downcasts (`as`), which Sublang lowers through the hierarchy's
+    // tag field, a property it only knows through some dispatch group.
+    public Bool build(Bool needsAnchor) {
+        Int index = 0;
+        Bool ok = true;
+
+        while (index < this.context.methods().count()) {
+            if (VirtualMembers(this.context).isVirtual(index) && !this.ensureGroup(index)) {
+                ok = false;
+            }
+
+            index = index + 1;
+        }
+
+        if (!ok) {
+            return false;
+        }
+
+        if (needsAnchor && this.context.dispatch().count() == 0) {
+            GroupPrototype(this.context).anchor();
+        }
+
+        this.fillEntries();
+        return true;
+    }
+
+    public static String signatureKey(LoweringContext context, Int methodIndex) {
+        String name = MemberResolver.memberPart(context.methods().keyAt(methodIndex));
+        return name + ":" + DispatchBuilder.kindsOf(context, methodIndex);
+    }
+
+    private static String kindsOf(LoweringContext context, Int methodIndex) {
+        String text = "(";
+        Int position = 0;
+
+        while (position < context.methods().paramCountAt(methodIndex)) {
+            text = text + context.methods().paramKindAt(methodIndex, position) + ",";
+            position = position + 1;
+        }
+
+        return text + ")" + DispatchBuilder.returnKindOf(context, methodIndex);
+    }
+
+    public static String returnKindOf(LoweringContext context, Int methodIndex) {
+        return context.methods().returnKindAt(methodIndex);
+    }
+
+    // Creates the group and its aborting prototype on first sight of a signature.
+    private Bool ensureGroup(Int methodIndex) {
+        String signature = DispatchBuilder.signatureKey(this.context, methodIndex);
+
+        if (this.context.dispatch().indexOf(signature) >= 0) {
+            return true;
+        }
+
+        Node method = this.context.methods().declarationAt(methodIndex);
+
+        if (!this.supported(methodIndex, method)) {
+            return false;
+        }
+
+        GroupPrototype prototype = GroupPrototype(this.context);
+        Int function = prototype.declare(methodIndex, signature);
+        Int root = this.context.classes().typeIdAt(0);
+        Int tagField = this.context.classes().fields().idAt(this.context.classes().fields().firstSlotAt(0));
+        Int group = this.context.builder().dispatchGroup(this.context.retain(signature), root, tagField, function);
+        this.context.dispatch().add(signature, group, function);
+        return true;
+    }
+
+    // Virtual calls pass a read-only receiver and Sublang's call.virtual cannot name a scope for
+    // an owned reference result; both limits are diagnosed rather than worked around.
+    private Bool supported(Int methodIndex, Node method) {
+        String returned = DispatchBuilder.returnKindOf(this.context, methodIndex);
+
+        if (returned == "String" || RefKinds.isReference(returned)) {
+            this.context.unsupported(method, "virtual method '" + method.text() + "' returns " + returned + ": call.virtual cannot adopt an owned reference result into a scope (backend requirement: a scope operand on call.virtual)");
+            return false;
+        }
+
+        if (this.context.methods().mutatesSelfAt(methodIndex)) {
+            this.context.unsupported(method, "virtual method '" + method.text() + "' writes through 'this': class.upcast and class.downcast give read-only views (backend requirement: mutable views for upcast/downcast)");
+            return false;
+        }
+
+        return true;
+    }
+
+    // One entry per registered class: a wrapper around its own member, or the prototype stub.
+    private Void fillEntries() {
+        Int groupIndex = 0;
+
+        while (groupIndex < this.context.dispatch().count()) {
+            this.fillGroup(groupIndex);
+            groupIndex = groupIndex + 1;
+        }
+    }
+
+    private Void fillGroup(Int groupIndex) {
+        String signature = this.context.dispatch().keyAt(groupIndex);
+        Int group = this.context.dispatch().groupAt(groupIndex);
+        Int stub = this.context.dispatch().prototypeAt(groupIndex);
+        Int classIndex = 0;
+
+        while (classIndex < this.context.classes().count()) {
+            if (!this.context.classes().isInterfaceAt(classIndex)) {
+                this.context.builder().dispatchEntry(group, this.context.classes().tagAt(classIndex), this.entryFor(classIndex, signature, stub));
+            }
+
+            classIndex = classIndex + 1;
+        }
+    }
+
+    // The implementing member of the class for this signature, or the stub.
+    private Int entryFor(Int classIndex, String signature, Int stub) {
+        if (this.context.classes().isAbstractAt(classIndex) || classIndex == 0) {
+            return stub;
+        }
+
+        Int member = this.memberOf(classIndex, signature);
+
+        if (member < 0 || this.context.methods().functionIdAt(member) == 0) {
+            return stub;
+        }
+
+        if (!this.readOnly(member)) {
+            return stub;
+        }
+
+        return GroupPrototype(this.context).wrapper(classIndex, member, signature);
+    }
+
+    // Every implementation of a group receives a read-only view of the object and of its object
+    // parameters, so an implementation that writes through them cannot be dispatched to.
+    private Bool readOnly(Int member) {
+        Node method = this.context.methods().declarationAt(member);
+        Bool writes = this.context.methods().mutatesSelfAt(member);
+        Int position = 0;
+
+        while (position < this.context.methods().paramCountAt(member)) {
+            if (this.context.methods().mutatesParamAt(member, position)) {
+                writes = true;
+            }
+
+            position = position + 1;
+        }
+
+        if (writes) {
+            this.context.unsupported(method, "virtual method '" + method.text() + "' in '" + this.context.classes().nameAt(this.context.methods().ownerAt(member)) + "' writes through 'this' or an object parameter: class.upcast and class.downcast give read-only views (backend requirement: mutable views for upcast/downcast)");
+        }
+
+        return !writes;
+    }
+
+    private Int memberOf(Int classIndex, String signature) {
+        Int index = 0;
+
+        while (index < this.context.methods().count()) {
+            if (this.context.methods().ownerAt(index) == classIndex && this.context.methods().declarationAt(index).kind() == "method") {
+                if (DispatchBuilder.signatureKey(this.context, index).toLowerCase() == signature.toLowerCase()) {
+                    return index;
+                }
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+}

@@ -1,0 +1,263 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class ExpressionChecker {
+    private CheckContext context;
+
+    public ExpressionChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    // Checks the expression and records its type on the node. Silent passes (speculative
+    // re-checks) only annotate nodes that have no type yet, so a final pass always wins.
+    public String typeOf(Node node, String expected) {
+        String type = this.computeType(node, expected);
+
+        if (this.context.silent() == 0 || node.type().isEmpty()) {
+            node.setType(type + "");
+        }
+
+        return type;
+    }
+
+    // Each helper returns "" for node kinds it does not handle; the first match wins.
+    private String computeType(Node node, String expected) {
+        String literal = this.typeOfLiteral(node);
+
+        if (!literal.isEmpty()) {
+            return literal;
+        }
+
+        String reference = this.typeOfReference(node, expected);
+
+        if (!reference.isEmpty()) {
+            return reference;
+        }
+
+        String operation = this.typeOfOperation(node, expected);
+
+        if (!operation.isEmpty()) {
+            return operation;
+        }
+
+        String construct = this.typeOfConstruct(node, expected);
+
+        if (!construct.isEmpty()) {
+            return construct;
+        }
+
+        return TypeNames.unknownType();
+    }
+
+    private String typeOfLiteral(Node node) {
+        String kind = node.kind();
+
+        if (kind.endsWith("-literal") || kind == NodeKinds.stringLiteral()) {
+            node.bind(SymbolKinds.literal(), kind, "");
+        }
+
+        if (kind == NodeKinds.intLiteral()) {
+            return TypeNames.intType();
+        }
+
+        if (kind == NodeKinds.floatLiteral()) {
+            return TypeNames.floatType();
+        }
+
+        if (kind == NodeKinds.boolLiteral()) {
+            return TypeNames.booleanType();
+        }
+
+        if (kind == NodeKinds.nullLiteral()) {
+            return TypeNames.nullType();
+        }
+
+        if (kind != NodeKinds.stringLiteral()) {
+            return "";
+        }
+
+        this.interpolationChecker().checkInterpolation(node);
+        return TypeNames.stringType();
+    }
+
+    private String typeOfReference(Node node, String expected) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.nameReference()) {
+            return this.nameChecker().typeOfName(node);
+        }
+
+        if (kind == NodeKinds.thisReference()) {
+            return this.context.thisType();
+        }
+
+        if (kind == NodeKinds.memberAccess()) {
+            return this.nameChecker().typeOfMember(node);
+        }
+
+        if (kind == NodeKinds.indexAccess()) {
+            return this.indexChecker().typeOfIndex(node);
+        }
+
+        if (kind == NodeKinds.callExpression()) {
+            return this.callChecker().typeOfCall(node, expected);
+        }
+
+        return "";
+    }
+
+    private String typeOfOperation(Node node, String expected) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.propagate()) {
+            return this.operatorChecker().typeOfPropagate(node);
+        }
+
+        if (kind == NodeKinds.unwrap()) {
+            return this.operatorChecker().typeOfUnwrap(node);
+        }
+
+        if (kind == NodeKinds.postfix()) {
+            return this.operatorChecker().typeOfIncrement(node);
+        }
+
+        if (kind == NodeKinds.unary()) {
+            return this.operatorChecker().typeOfUnary(node);
+        }
+
+        if (kind == NodeKinds.binary()) {
+            return this.operatorChecker().typeOfBinary(node);
+        }
+
+        if (kind == NodeKinds.ternary()) {
+            return this.operatorChecker().typeOfTernary(node, expected);
+        }
+
+        if (kind == NodeKinds.assign()) {
+            return this.assignmentChecker().typeOfAssign(node);
+        }
+
+        return this.typeOfTypeTest(node);
+    }
+
+    private String typeOfTypeTest(Node node) {
+        String kind = node.kind();
+
+        if (kind != NodeKinds.isCheck() && kind != NodeKinds.asCast()) {
+            return "";
+        }
+
+        this.typeOf(node.child(0), "");
+        String target = this.context.resolver().resolve(node.child(1), this.context.typeParamNames());
+
+        if (kind == NodeKinds.isCheck()) {
+            return TypeNames.booleanType();
+        }
+
+        return target;
+    }
+
+    private String typeOfConstruct(Node node, String expected) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.cascade()) {
+            return this.literalChecker().typeOfCascade(node, expected);
+        }
+
+        if (kind == NodeKinds.lambda()) {
+            return this.lambdaChecker().typeOfLambda(node, expected);
+        }
+
+        if (kind == NodeKinds.listLiteral()) {
+            return this.literalChecker().typeOfList(node, expected);
+        }
+
+        if (kind == NodeKinds.dictLiteral()) {
+            return this.literalChecker().typeOfDict(node, expected);
+        }
+
+        if (kind == NodeKinds.task()) {
+            return this.lambdaChecker().typeOfTask(node);
+        }
+
+        if (kind == NodeKinds.switchNode()) {
+            return this.switchChecker().checkSwitch(node, expected, true);
+        }
+
+        return this.typeOfWrapped(node, expected);
+    }
+
+    // Parser wrapper nodes and statements in expression position (switch branches).
+    private String typeOfWrapped(Node node, String expected) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.cascadeSection() || kind == NodeKinds.cascadeItem() || kind == NodeKinds.initializer()) {
+            if (node.count() == 0) {
+                return TypeNames.unknownType();
+            }
+
+            return this.typeOf(node.child(0), expected);
+        }
+
+        if (kind == NodeKinds.successStatement() || kind == NodeKinds.failStatement() || kind == NodeKinds.returnStatement()) {
+            this.statementChecker().checkStatement(node);
+            return TypeNames.voidType();
+        }
+
+        if (kind == NodeKinds.block()) {
+            this.statementChecker().checkBlock(node);
+            return TypeNames.voidType();
+        }
+
+        return "";
+    }
+
+    public Void requireBoolean(Node condition, String what) {
+        String type = this.typeOf(condition, TypeNames.booleanType());
+
+        if (!this.context.rules().assignable(TypeNames.booleanType(), type)) {
+            this.context.report(condition, what + " must be Boolean, found '" + type + "'");
+        }
+    }
+
+    private AssignmentChecker assignmentChecker() {
+        return AssignmentChecker(this.context);
+    }
+
+    private CallChecker callChecker() {
+        return CallChecker(this.context);
+    }
+
+    private InterpolationChecker interpolationChecker() {
+        return InterpolationChecker(this.context);
+    }
+
+    private LambdaChecker lambdaChecker() {
+        return LambdaChecker(this.context);
+    }
+
+    private LiteralChecker literalChecker() {
+        return LiteralChecker(this.context);
+    }
+
+    private NameChecker nameChecker() {
+        return NameChecker(this.context);
+    }
+
+    private OperatorChecker operatorChecker() {
+        return OperatorChecker(this.context);
+    }
+
+    private StatementChecker statementChecker() {
+        return StatementChecker(this.context);
+    }
+
+    private SwitchChecker switchChecker() {
+        return SwitchChecker(this.context);
+    }
+
+    private IndexChecker indexChecker() {
+        return IndexChecker(this.context);
+    }
+}

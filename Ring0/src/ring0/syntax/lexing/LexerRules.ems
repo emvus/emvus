@@ -1,0 +1,156 @@
+namespace ring0::syntax;
+
+public class LexerRules {
+    private List<String> keywordList;
+    private List<String> twoCharacterList;
+
+    public LexerRules() {
+        this.keywordList = List();
+        this.twoCharacterList = List();
+        this.addDeclarationKeywords();
+        this.addModifierKeywords();
+        this.addControlKeywords();
+        this.addValueKeywords();
+        this.addTwoCharacterSymbols();
+    }
+
+    private Void addDeclarationKeywords() {
+        this.keywordList.add("package");
+        this.keywordList.add("use");
+        this.keywordList.add("var");
+        this.keywordList.add("dynamic");
+        this.keywordList.add("enum");
+        this.keywordList.add("record");
+        this.keywordList.add("class");
+        this.keywordList.add("interface");
+        this.keywordList.add("exception");
+        this.keywordList.add("method");
+        this.keywordList.add("macro");
+    }
+
+    private Void addModifierKeywords() {
+        this.keywordList.add("final");
+        this.keywordList.add("static");
+        this.keywordList.add("abstract");
+        this.keywordList.add("override");
+        this.keywordList.add("private");
+        this.keywordList.add("protected");
+        this.keywordList.add("public");
+        this.keywordList.add("scoped");
+    }
+
+    private Void addControlKeywords() {
+        this.keywordList.add("if");
+        this.keywordList.add("while");
+        this.keywordList.add("for");
+        this.keywordList.add("in");
+        this.keywordList.add("switch");
+        this.keywordList.add("return");
+        this.keywordList.add("fail");
+        this.keywordList.add("break");
+        this.keywordList.add("continue");
+    }
+
+    // Literals, self references, type tests and the task block keywords.
+    private Void addValueKeywords() {
+        this.keywordList.add("true");
+        this.keywordList.add("false");
+        this.keywordList.add("null");
+        this.keywordList.add("this");
+        this.keywordList.add("super");
+        this.keywordList.add("is");
+        this.keywordList.add("as");
+        this.keywordList.add("fiber");
+        this.keywordList.add("virtual");
+        this.keywordList.add("thread");
+    }
+
+    private Void addTwoCharacterSymbols() {
+        this.twoCharacterList.add("->");
+        this.twoCharacterList.add("==");
+        this.twoCharacterList.add("!=");
+        this.twoCharacterList.add("<=");
+        this.twoCharacterList.add(">=");
+        this.twoCharacterList.add("&&");
+        this.twoCharacterList.add("||");
+        this.twoCharacterList.add("++");
+        this.twoCharacterList.add("--");
+        this.twoCharacterList.add("..");
+        this.twoCharacterList.add("+=");
+        this.twoCharacterList.add("-=");
+        this.twoCharacterList.add("*=");
+        this.twoCharacterList.add("/=");
+        this.twoCharacterList.add("%=");
+    }
+
+    public Bool isKeyword(String text) {
+        return this.listContains(this.keywordList, text);
+    }
+
+    private Bool listContains(List<String> items, String text) {
+        Int index = 0;
+
+        while (index < items.length()) {
+            if (items.get(index) == text) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public Bool isWhitespace(String value) {
+        return value == " " || value == "\t" || value == "\r" || value == "\n";
+    }
+
+    public Bool isDigit(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        return value.charAt(0).isDigit();
+    }
+
+    public Bool isIdentifierStart(String value) {
+        if (value.isEmpty()) {
+            return false;
+        }
+
+        if (value == "_") {
+            return true;
+        }
+
+        return value.charAt(0).isLetter();
+    }
+
+    public Bool isIdentifierPart(String value) {
+        if (this.isIdentifierStart(value)) {
+            return true;
+        }
+
+        return this.isDigit(value);
+    }
+
+    public Bool isThreeCharacterSymbol(String first, String second, String third) {
+        return first == "." && second == "." && third == ".";
+    }
+
+    public Bool isTwoCharacterSymbol(String first, String second) {
+        return this.listContains(this.twoCharacterList, first + second);
+    }
+
+    // Single-character symbols: brackets, separators and operators.
+    public Bool isSymbol(String value) {
+        return this.isBracketOrSeparator(value) || this.isOperatorCharacter(value);
+    }
+
+    private Bool isBracketOrSeparator(String value) {
+        return value == "(" || value == ")" || value == "{" || value == "}" || value == "[" || value == "]" || value == ";" || value == "," || value == ".";
+    }
+
+    private Bool isOperatorCharacter(String value) {
+        return value == "=" || value == "+" || value == "-" || value == "*" || value == "/" || value == "%" || value == "!" || value == "<" || value == ">" || value == "@" || value == "$" || value == ":" || value == "?" || value == "&" || value == "|";
+    }
+}

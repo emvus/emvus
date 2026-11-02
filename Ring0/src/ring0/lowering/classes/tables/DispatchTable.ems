@@ -1,0 +1,52 @@
+namespace ring0::lowering;
+
+// Closed-world dispatch groups by signature key `name/arity/kinds`. One group serves every
+// class and interface that declares a method with that exact signature.
+public class DispatchTable {
+    private List<String> keys;
+    private List<Int> groups;
+    private List<Int> prototypes;
+
+    public DispatchTable() {
+        this.keys = List();
+        this.groups = List();
+        this.prototypes = List();
+    }
+
+    public Void add(String key, Int group, Int prototype) {
+        this.keys.add(key.toLowerCase() + "");
+        this.groups.add(group);
+        this.prototypes.add(prototype);
+    }
+
+    public Int count() {
+        return this.keys.length();
+    }
+
+    public Int indexOf(String key) {
+        String wanted = key.toLowerCase();
+        Int index = 0;
+
+        while (index < this.keys.length()) {
+            if (this.keys.get(index) == wanted) {
+                return index;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    public String keyAt(Int index) {
+        return this.keys.get(index) + "";
+    }
+
+    public Int groupAt(Int index) {
+        return this.groups.get(index);
+    }
+
+    public Int prototypeAt(Int index) {
+        return this.prototypes.get(index);
+    }
+}

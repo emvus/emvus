@@ -1,0 +1,108 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `for (T x in list) { body }` is rewritten to the equivalent counted loop and lowered by the
+// ordinary `for` lowering, so loop-carried variables, break/continue and scope handling are
+// shared:
+//
+//   $list = <iterable>; $len = $list.size(); for ($i = 0; $i < $len; $i++) { T x = $list[$i]; body }
+//
+// The length is read once: an iteration visits the elements that were present when the loop
+// started (appending inside the body does not extend the iteration; shrinking the list inside
+// the body makes the next read abort like any out-of-range access).
+public class ForEachLowerer {
+    private LoweringContext context;
+
+    public ForEachLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // children of `foreach <name>`: element type, iterable expression, body block.
+    public Bool lower(Node node) {
+        Int mark = this.context.env().size();
+        Node iterable = node.child(1);
+        LocalLowerer locals = LocalLowerer(this.context);
+        locals.lower(this.localOf(node, "$list", iterable));
+        Int slot = this.context.env().indexOf("$list");
+
+        if (this.context.failed() || slot < 0 || !ListTable.isListKind(this.context.env().kindAt(slot))) {
+            if (!this.context.failed()) {
+                this.context.unsupported(node, "for-in needs a List value (found " + node.child(1).type() + "); other iterables need backend support (dictionaries, strings)");
+            }
+
+            this.context.env().truncate(mark);
+            return false;
+        }
+
+        locals.lower(this.localOf(node, "$len", this.callOf(node, "size")));
+        Node loop = this.loopOf(node);
+        LoopLowerer(this.context).lowerFor(loop);
+        this.context.env().truncate(mark);
+        return false;
+    }
+
+    private Node localOf(Node at, String name, Node expression) {
+        Node local = Node("local", name, at.line(), at.column());
+        Node init = Node("init", "", at.line(), at.column());
+        init.add(expression);
+        local.add(init);
+        return local;
+    }
+
+    private Node nameOf(Node at, String name) {
+        return Node("name", name, at.line(), at.column());
+    }
+
+    private Node callOf(Node at, String member) {
+        Node call = Node("call", "", at.line(), at.column());
+        Node access = Node("member", member, at.line(), at.column());
+        access.add(this.nameOf(at, "$list"));
+        call.add(access);
+        return call;
+    }
+
+    private Node loopOf(Node node) {
+        Node init = Node("init", "", node.line(), node.column());
+        Node counter = this.localOf(node, "$i", Node("int-literal", "0", node.line(), node.column()));
+        init.add(counter);
+        Node condition = Node("condition", "", node.line(), node.column());
+        Node compare = Node("binary", "<", node.line(), node.column());
+        compare.add(this.nameOf(node, "$i"));
+        compare.add(this.nameOf(node, "$len"));
+        condition.add(compare);
+        Node update = Node("update", "", node.line(), node.column());
+        Node step = Node("postfix", "++", node.line(), node.column());
+        step.add(this.nameOf(node, "$i"));
+        update.add(step);
+        Node loop = Node("for", "", node.line(), node.column());
+        loop.add(init);
+        loop.add(condition);
+        loop.add(update);
+        loop.add(this.bodyOf(node));
+        return loop;
+    }
+
+    // The element variable first, then the user's statements.
+    private Node bodyOf(Node node) {
+        Node body = Node("block", "", node.line(), node.column());
+        Node element = Node("local", node.text(), node.line(), node.column());
+        element.add(node.child(0));
+        Node init = Node("init", "", node.line(), node.column());
+        Node access = Node("index", "", node.line(), node.column());
+        access.add(this.nameOf(node, "$list"));
+        access.add(this.nameOf(node, "$i"));
+        init.add(access);
+        element.add(init);
+        body.add(element);
+        Node original = node.child(2);
+        Int index = 0;
+
+        while (index < original.count()) {
+            body.add(original.child(index));
+            index = index + 1;
+        }
+
+        return body;
+    }
+}

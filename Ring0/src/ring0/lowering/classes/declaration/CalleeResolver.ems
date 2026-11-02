@@ -1,0 +1,47 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Resolves the callee of a call node from the checker's static types, for the mutation analysis.
+public class CalleeResolver {
+    private LoweringContext context;
+
+    public CalleeResolver(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Method-table entry the call refers to, -1 when it is not a member or top-level method.
+    public Int resolve(Node call, Node callee, Int method) {
+        Int arity = call.count() - 1;
+
+        if (callee.kind() == "member") {
+            Int receiver = MemberResolver.classOfExpression(this.context, callee.child(0));
+
+            if (callee.child(0).kind() == "name" && callee.child(0).text().toLowerCase() == "this") {
+                receiver = this.context.methods().ownerAt(method);
+            }
+
+            if (receiver < 0) {
+                return -1;
+            }
+
+            return MemberResolver.findMethod(this.context, receiver, callee.text(), arity);
+        }
+
+        if (callee.kind() != "name") {
+            return -1;
+        }
+
+        Int owner = this.context.methods().ownerAt(method);
+
+        if (owner >= 0) {
+            Int member = MemberResolver.findMethod(this.context, owner, callee.text(), arity);
+
+            if (member >= 0) {
+                return member;
+            }
+        }
+
+        return this.context.methods().indexOf(callee.text());
+    }
+}

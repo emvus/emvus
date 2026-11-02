@@ -1,0 +1,10 @@
+// expect: check ok
+package main
+
+method<Boolean> longEnough(String text) {
+    return text != null && text.length() > 3
+}
+
+method<Boolean> missingOrEmpty(String text) {
+    return text == null || text.isEmpty()
+}

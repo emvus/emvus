@@ -1,0 +1,76 @@
+namespace ring0::syntax;
+
+// `[a, b]` lists/tuples and `{ "key": value }` dictionaries. Whether a list literal is a
+// List or a tuple is decided later by typing, not here.
+public class CollectionLiteralParser {
+    private ParserState state;
+
+    public CollectionLiteralParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parseList() {
+        Token open = this.state.advance();
+        Int saved = this.state.clearCascades();
+        Node list = this.state.nodeAt(open, AstKinds.listLiteral(), "");
+
+        ExpressionParser(this.state).parseSequence(list, "]");
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol("]", "Expected ']' after list literal");
+        return list;
+    }
+
+    public Node parseDictionary() {
+        Token open = this.state.advance();
+        Int saved = this.state.clearCascades();
+        Node dict = this.state.nodeAt(open, AstKinds.dictLiteral(), "");
+
+        this.parseEntries(dict);
+        this.state.restoreCascades(saved);
+        this.state.consumeSymbol("}", "Expected '}' after dictionary literal");
+        return dict;
+    }
+
+    private Void parseEntries(Node dict) {
+        if (this.state.checkSymbol("}")) {
+            return;
+        }
+
+        Bool more = true;
+
+        while (more) {
+            dict.add(this.parseEntry());
+            more = this.state.matchSymbol(",");
+
+            if (more && this.state.checkSymbol("}")) {
+                more = false;
+            }
+        }
+    }
+
+    // `[expr]: value` computes the key; otherwise the key is an operator-level expression
+    // so the ':' is not taken for a ternary.
+    private Node parseEntry() {
+        Token first = this.state.peek();
+
+        if (first.isSymbol("[")) {
+            return this.parseComputedEntry(first);
+        }
+
+        Node entry = this.state.nodeAt(first, AstKinds.dictEntry(), "");
+        entry.add(BinaryExpressionParser(this.state).parseOr());
+        this.state.consumeSymbol(":", "Expected ':' after dictionary key");
+        entry.add(ExpressionParser(this.state).parse());
+        return entry;
+    }
+
+    private Node parseComputedEntry(Token open) {
+        this.state.advance();
+        Node computed = this.state.nodeAt(open, AstKinds.dictEntry(), "computed");
+        computed.add(ExpressionParser(this.state).parse());
+        this.state.consumeSymbol("]", "Expected ']' after computed key");
+        this.state.consumeSymbol(":", "Expected ':' after dictionary key");
+        computed.add(ExpressionParser(this.state).parse());
+        return computed;
+    }
+}

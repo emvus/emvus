@@ -1,0 +1,75 @@
+namespace ring0::lowering;
+
+use ring0::binding::AstQuery;
+use ring0::syntax::Node;
+
+// Decides which class members are virtual. A member is virtual when it is abstract, declared
+// in an interface, overridden below its declaring class, or implements an interface member;
+// calls of virtual members go through a closed-world dispatch group, all others are direct.
+public class VirtualMembers {
+    private LoweringContext context;
+
+    public VirtualMembers(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Whether calls of this member must go through a dispatch group.
+    public Bool isVirtual(Int methodIndex) {
+        Node method = this.context.methods().declarationAt(methodIndex);
+        Int owner = this.context.methods().ownerAt(methodIndex);
+
+        if (owner < 0 || method.kind() != "method" || AstQuery.isStatic(method)) {
+            return false;
+        }
+
+        if (this.context.classes().isInterfaceAt(owner) || AstQuery.isAbstract(method) || AstQuery.isNone(AstQuery.childOfKind(method, "block"))) {
+            return true;
+        }
+
+        return this.overriddenBelow(methodIndex, owner) || this.implementsInterfaceMember(methodIndex, owner);
+    }
+
+    // True when a descendant class declares its own member under the same key.
+    private Bool overriddenBelow(Int methodIndex, Int owner) {
+        Node declaration = this.context.methods().declarationAt(methodIndex);
+        String key = this.context.methods().keyAt(methodIndex);
+        String member = MemberResolver.memberPart(key);
+        Int other = 0;
+
+        while (other < this.context.classes().count()) {
+            if (other != owner && this.context.classes().derivesFrom(other, owner)) {
+                Int found = this.context.methods().indexOf(this.context.classes().nameAt(other) + "." + member);
+
+                if (found >= 0 && !this.sameDeclaration(this.context.methods().declarationAt(found), declaration)) {
+                    return true;
+                }
+            }
+
+            other = other + 1;
+        }
+
+        return false;
+    }
+
+    private Bool sameDeclaration(Node first, Node second) {
+        return first.line() == second.line() && first.column() == second.column() && first.text() == second.text();
+    }
+
+    private Bool implementsInterfaceMember(Int methodIndex, Int owner) {
+        String key = this.context.methods().keyAt(methodIndex);
+        String member = MemberResolver.memberPart(key);
+        Int iface = 1;
+
+        while (iface < this.context.classes().count()) {
+            if (this.context.classes().isInterfaceAt(iface) && this.context.classes().implementsInterface(owner, iface)) {
+                if (this.context.methods().indexOf(this.context.classes().nameAt(iface) + "." + member) >= 0) {
+                    return true;
+                }
+            }
+
+            iface = iface + 1;
+        }
+
+        return false;
+    }
+}

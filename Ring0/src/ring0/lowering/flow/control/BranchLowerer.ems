@@ -1,0 +1,42 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `if` without else (Emvus uses guard clauses). The join block receives the variables
+// the body may reassign, so both paths agree on their SSA values.
+public class BranchLowerer {
+    private LoweringContext context;
+
+    public BranchLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Returns false: control always continues after the join block.
+    public Bool lowerIf(Node node) {
+        Int span = this.context.span(node);
+        LoweredValue condition = ExpressionLowerer(this.context).lower(node.child(0));
+
+        if (condition.kind() != "Bool") {
+            this.context.unsupported(node, "condition of 'if' must be Bool");
+            return false;
+        }
+
+        List<Node> bodies = List();
+        bodies.add(node.child(1));
+        List<Int> carried = CarriedVariables.select(this.context, bodies);
+        Int thenBlock = this.context.newBlock();
+        Int joinBlock = this.context.newBlock();
+        List<Int> none = List();
+        this.context.ops().condBranch(condition.valueId(), thenBlock, none, joinBlock, CarriedVariables.currentValues(this.context, carried), span);
+        this.context.enterBlock(thenBlock);
+        Bool terminated = StatementLowerer(this.context).lowerBlock(node.child(1));
+
+        if (!terminated) {
+            this.context.ops().branchTo(joinBlock, CarriedVariables.currentValues(this.context, carried), span);
+        }
+
+        this.context.enterBlock(joinBlock);
+        CarriedVariables.bindParameters(this.context, carried);
+        return false;
+    }
+}

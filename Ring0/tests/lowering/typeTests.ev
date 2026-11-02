@@ -1,0 +1,43 @@
+// `is` over interface and class types, a class that is not a shape.
+interface IShape {
+    method<Int> id
+}
+
+class Circle implements IShape {
+    method<Int> id {
+        return 1
+    }
+}
+
+class Box implements IShape {
+    method<Int> id {
+        return 2
+    }
+}
+
+class Tag {
+    method<Int> id {
+        return 3
+    }
+}
+
+static method<Int> classify(IShape shape) {
+    Int result = 0
+
+    if (shape is Circle) {
+        result = 10
+    }
+
+    if (shape is Box) {
+        result = 20
+    }
+
+    return result
+}
+
+static method<Int> main {
+    Circle circle = Circle()
+    Box box = Box()
+    Tag tag = Tag()
+    return classify(circle) + classify(box) + tag.id()
+}

@@ -1,0 +1,196 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class ConstructorChecker {
+    private CheckContext context;
+
+    public ConstructorChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String callConstructor(Node node, TypeSymbol symbol, List<String> preset, String expected) {
+        this.rejectAbstractTarget(node, symbol);
+
+        if (!symbol.isUserDeclared()) {
+            this.callChecker().evaluateArguments(node);
+            String external = this.externalConstructed(symbol, preset, expected);
+            node.bind(SymbolKinds.constructor(), symbol.name(), CallTarget.make(symbol.name(), -1, TypeText.args(external)));
+            return external;
+        }
+
+        List<String> names = this.copyOf(symbol.typeParams());
+        List<String> values = this.typeArgumentValues(symbol, preset, expected);
+        List<MemberSymbol> constructors = this.constructorsOf(symbol);
+        Int argCount = node.count() - 1;
+
+        if (constructors.length() == 0) {
+            this.reportMissingConstructor(node, symbol, argCount);
+            return TypeText.make(symbol.name(), values);
+        }
+
+        Int at = this.argumentChecker().pickIndex(constructors, argCount);
+        MemberSymbol chosen = this.argumentChecker().pickByArity(constructors, argCount);
+
+        if (chosen.isMissing()) {
+            this.context.report(node, "Constructor of '" + symbol.name() + "' expects " + this.argumentChecker().arityText(constructors.get(0)) + " argument(s), found " + argCount.toString());
+            this.callChecker().evaluateArguments(node);
+            return TypeText.make(symbol.name(), values);
+        }
+
+        if (chosen.access() == SymbolKinds.privateAccess() && !Names.same(symbol.name(), this.context.currentType())) {
+            this.context.report(node, "Constructor of '" + symbol.name() + "' is private");
+        }
+
+        List<String> noNames = List();
+        List<String> noValues = List();
+        this.argumentChecker().checkArguments(chosen, node, symbol.name(), noNames, noValues, names, values);
+        node.bind(SymbolKinds.constructor(), symbol.name(), CallTarget.make(symbol.name(), this.argumentChecker().overloadNumber(constructors, at), values));
+        return TypeText.make(symbol.name(), values);
+    }
+
+    private Void rejectAbstractTarget(Node node, TypeSymbol symbol) {
+        if (symbol.kind() == NodeKinds.interfaceDeclaration()) {
+            this.context.report(node, "Cannot instantiate interface '" + symbol.name() + "'");
+        }
+
+        if (symbol.kind() == NodeKinds.enumDeclaration()) {
+            this.context.report(node, "Cannot instantiate enum '" + symbol.name() + "'");
+        }
+
+        if (symbol.isAbstract() && symbol.kind() == NodeKinds.classDeclaration()) {
+            this.context.report(node, "Cannot instantiate abstract class '" + symbol.name() + "'");
+        }
+    }
+
+    // Built-in types have no constructor signatures; the expected target type supplies the type arguments.
+    private String externalConstructed(TypeSymbol symbol, List<String> preset, String expected) {
+        if (!expected.isEmpty() && Names.same(TypeText.base(expected), symbol.name())) {
+            return expected;
+        }
+
+        if (preset.length() > 0) {
+            return TypeText.make(symbol.name(), preset);
+        }
+
+        return symbol.name();
+    }
+
+    private Void reportMissingConstructor(Node node, TypeSymbol symbol, Int argCount) {
+        if (argCount > 0) {
+            this.context.report(node, "'" + symbol.name() + "' has no constructor taking " + argCount.toString() + " argument(s)");
+        }
+
+        this.callChecker().evaluateArguments(node);
+    }
+
+    private List<String> copyOf(List<String> source) {
+        List<String> copy = List();
+        Int index = 0;
+
+        while (index < source.length()) {
+            copy.add(source.get(index) + "");
+            index = index + 1;
+        }
+
+        return copy;
+    }
+
+    private List<MemberSymbol> constructorsOf(TypeSymbol symbol) {
+        List<MemberSymbol> constructors = List();
+        Int index = 0;
+
+        while (index < symbol.members().length()) {
+            if (symbol.members().get(index).kind() == NodeKinds.constructorDeclaration()) {
+                constructors.add(symbol.members().get(index));
+            }
+
+            index = index + 1;
+        }
+
+        return constructors;
+    }
+
+    // Explicit type arguments, else those of the expected type, else unknown.
+    private List<String> typeArgumentValues(TypeSymbol symbol, List<String> preset, String expected) {
+        List<String> values = List();
+        Bool fromExpected = preset.length() == 0 && !expected.isEmpty() && Names.same(TypeText.base(expected), symbol.name());
+        List<String> expectedArgs = TypeText.args(expected);
+        Int index = 0;
+
+        while (index < symbol.typeParams().length()) {
+            if (index < preset.length()) {
+                values.add(preset.get(index) + "");
+            }
+
+            if (index >= preset.length() && fromExpected && index < expectedArgs.length()) {
+                values.add(expectedArgs.get(index) + "");
+            }
+
+            if (index >= preset.length() && !(fromExpected && index < expectedArgs.length())) {
+                values.add(TypeNames.unknownType());
+            }
+
+            index = index + 1;
+        }
+
+        return values;
+    }
+
+    public String callGenericRef(Node node, Node callee) {
+        List<String> explicit = List();
+        Int index = 0;
+
+        while (index < callee.count()) {
+            explicit.add(this.context.resolver().resolve(callee.child(index), this.context.typeParamNames()));
+            index = index + 1;
+        }
+
+        if (callee.text() == TypeNames.tupleType()) {
+            Int count = node.count() - 1;
+
+            if (count != explicit.length()) {
+                this.context.report(node, "Tuple expects " + explicit.length().toString() + " element(s), found " + count.toString());
+            }
+
+            Int at = 0;
+
+            while (at < count) {
+                String wanted = TypeNames.unknownType();
+
+                if (at < explicit.length()) {
+                    wanted = explicit.get(at) + "";
+                }
+
+                String actual = this.expressionChecker().typeOf(node.child(at + 1), wanted);
+                this.context.requireAssignable(wanted, actual, node.child(at + 1), "Tuple element " + (at + 1).toString());
+                at = at + 1;
+            }
+
+            node.bind(SymbolKinds.constructor(), TypeNames.tupleType(), CallTarget.make(TypeNames.tupleType(), -1, explicit));
+            return TypeText.tuple(explicit);
+        }
+
+        TypeSymbol symbol = this.context.table().findType(callee.text());
+
+        if (symbol.isMissing()) {
+            this.context.report(callee, "Unknown type '" + callee.text() + "'");
+            this.callChecker().evaluateArguments(node);
+            return TypeNames.unknownType();
+        }
+
+        return this.callConstructor(node, symbol, explicit, "");
+    }
+
+    private ArgumentChecker argumentChecker() {
+        return ArgumentChecker(this.context);
+    }
+
+    private CallChecker callChecker() {
+        return CallChecker(this.context);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

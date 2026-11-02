@@ -1,0 +1,65 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `receiver.name` as a value: a record or object field, or an enum entry (`Rank.ADMIN`).
+public class MemberAccessLowerer {
+    private LoweringContext context;
+
+    public MemberAccessLowerer(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue lower(Node member) {
+        Node receiverNode = member.child(0);
+
+        if (this.namesType(receiverNode)) {
+            return this.lowerTypeMember(member, receiverNode.text());
+        }
+
+        LoweredValue receiver = ExpressionLowerer(this.context).lower(receiverNode);
+
+        if (!receiver.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        if (RecordTable.isRecordKind(receiver.kind())) {
+            return RecordLowerer(this.context).readFieldOf(member, receiver);
+        }
+
+        if (ClassTable.isClassKind(receiver.kind())) {
+            return ObjectMembers(this.context).readField(member, receiver, member.text());
+        }
+
+        this.context.unsupported(member, "member access '" + member.text() + "' on " + receiver.kind() + " is not available");
+        return LoweredValue.unsupported();
+    }
+
+    // A bare name that is not a variable but a declared enum or class.
+    public Bool namesType(Node node) {
+        if (node.kind() != "name" || this.context.env().indexOf(node.text()) >= 0) {
+            return false;
+        }
+
+        return this.context.enums().indexOf(node.text()) >= 0 || this.context.classes().indexOf(node.text()) >= 0;
+    }
+
+    private LoweredValue lowerTypeMember(Node member, String typeName) {
+        Int enumIndex = this.context.enums().indexOf(typeName);
+
+        if (enumIndex < 0) {
+            this.context.unsupported(member, "static member '" + member.text() + "' of '" + typeName + "' needs module-level storage, which Sublang does not provide");
+            return LoweredValue.unsupported();
+        }
+
+        Int ordinal = this.context.enums().ordinalOf(enumIndex, member.text());
+
+        if (ordinal < 0) {
+            this.context.unsupported(member, "enum '" + typeName + "' has no entry '" + member.text() + "'");
+            return LoweredValue.unsupported();
+        }
+
+        Int id = this.context.ops().constInt(ordinal, this.context.span(member));
+        return LoweredValue(id, EnumTable.kindFor(this.context.enums().nameAt(enumIndex)));
+    }
+}

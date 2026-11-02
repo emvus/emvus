@@ -1,0 +1,4 @@
+// expect: Expected '=' in destructuring@3
+method f {
+    var { a, b } 5
+}

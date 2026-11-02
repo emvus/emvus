@@ -1,0 +1,152 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class ProgramChecker {
+    private CheckContext context;
+
+    public ProgramChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void check(Node file) {
+        Int index = 0;
+
+        while (index < file.count()) {
+            Node decl = file.child(index);
+
+            if (decl.kind() == NodeKinds.variableDeclaration()) {
+                this.checkTopLevelVariable(decl);
+            }
+
+            index = index + 1;
+        }
+
+        index = 0;
+
+        while (index < file.count()) {
+            Node decl = file.child(index);
+            String kind = decl.kind();
+
+            if (kind == NodeKinds.classDeclaration() || kind == NodeKinds.dataClass() || kind == NodeKinds.recordDeclaration() || kind == NodeKinds.interfaceDeclaration() || kind == NodeKinds.enumDeclaration() || kind == NodeKinds.exceptionDeclaration()) {
+                this.checkType(decl);
+            }
+
+            if (kind == NodeKinds.methodDeclaration()) {
+                this.methodChecker().checkMethod(decl, "");
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void checkTopLevelVariable(Node decl) {
+        MemberSymbol symbol = this.context.table().findTopLevel(decl.text(), SymbolKinds.variable());
+
+        if (symbol.isMissing() || symbol.line() != decl.line()) {
+            return;
+        }
+
+        Node init = AstQuery.initChild(decl);
+
+        if (AstQuery.isNone(init)) {
+            return;
+        }
+
+        if (symbol.type() == TypeNames.inferredType()) {
+            symbol.setType(this.expressionChecker().typeOf(init, ""));
+            return;
+        }
+
+        String found = this.expressionChecker().typeOf(init, symbol.type());
+        this.context.requireAssignable(symbol.type(), found, init, "Initializer of '" + decl.text() + "'");
+    }
+
+    private Void checkType(Node decl) {
+        TypeSymbol symbol = this.context.table().findType(decl.text());
+
+        if (symbol.isMissing() || symbol.line() != decl.line()) {
+            return;
+        }
+
+        this.context.setCurrentType(symbol.name());
+        Int pushed = this.context.pushTypeParams(symbol.typeParams(), symbol.typeBounds());
+        this.checkHeaderDefaults(decl, symbol);
+        this.checkMembers(decl, symbol);
+        this.context.popTypeParams(pushed);
+        this.context.setCurrentType("");
+    }
+
+    // Default values of the header parameters (data class, record, exception).
+    private Void checkHeaderDefaults(Node decl, TypeSymbol symbol) {
+        Node params = AstQuery.childOfKind(decl, NodeKinds.params());
+        Int index = 0;
+
+        while (index < params.count()) {
+            Node param = params.child(index);
+            Node init = AstQuery.initChild(param);
+            index = index + 1;
+
+            if (AstQuery.isNone(init)) {
+                continue;
+            }
+
+            List<MemberSymbol> props = this.context.table().findMembers(symbol.name(), param.text());
+
+            if (props.length() == 0) {
+                continue;
+            }
+
+            String found = this.expressionChecker().typeOf(init, props.get(0).type());
+            this.context.requireAssignable(props.get(0).type(), found, init, "Default value of '" + param.text() + "'");
+        }
+    }
+
+    private Void checkMembers(Node decl, TypeSymbol symbol) {
+        Node body = AstQuery.childOfKind(decl, NodeKinds.body());
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node member = body.child(index);
+            String kind = member.kind();
+            index = index + 1;
+
+            if (kind == NodeKinds.methodDeclaration()) {
+                this.methodChecker().checkMethod(member, symbol.name());
+            }
+
+            if (kind == NodeKinds.constructorDeclaration()) {
+                this.methodChecker().checkConstructor(member, symbol);
+            }
+
+            if (kind == NodeKinds.propertyDeclaration() || kind == NodeKinds.fieldDeclaration()) {
+                this.checkFieldInit(member, symbol);
+            }
+        }
+    }
+
+    private Void checkFieldInit(Node member, TypeSymbol owner) {
+        Node init = AstQuery.initChild(member);
+
+        if (AstQuery.isNone(init)) {
+            return;
+        }
+
+        List<MemberSymbol> found = this.context.table().findMembers(owner.name(), member.text());
+
+        if (found.length() == 0) {
+            return;
+        }
+
+        String type = this.expressionChecker().typeOf(init, found.get(0).type());
+        this.context.requireAssignable(found.get(0).type(), type, init, "Initializer of '" + member.text() + "'");
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private MethodChecker methodChecker() {
+        return MethodChecker(this.context);
+    }
+}

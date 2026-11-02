@@ -1,0 +1,5 @@
+// expect-abort
+static method<Int> main {
+    String word = "Emvus"
+    return word.substring(3, 9).length()
+}

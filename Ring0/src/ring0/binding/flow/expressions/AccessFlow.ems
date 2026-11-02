@@ -1,0 +1,186 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Member access, calls, indexing and assignment: the places where a null value is used.
+public class AccessFlow {
+    private FlowContext context;
+
+    public AccessFlow(FlowContext flowContext) {
+        this.context = flowContext;
+    }
+
+    // Reports a use of a value that is not known to be non-null.
+    public Void require(Node expression, String state, FlowEnv env, String purpose) {
+        if (NullState.isSafe(state)) {
+            return;
+        }
+
+        String name = AccessFlow.describe(expression);
+
+        if (state == NullState.nullValue()) {
+            this.context.error("'" + name + "' is null; " + purpose, expression);
+            return;
+        }
+
+        this.context.error("'" + name + "' may be null; " + this.remedy(expression, env), expression);
+    }
+
+    // Static analysis cannot trust a repeated read of a mutable property.
+    private String remedy(Node expression, FlowEnv env) {
+        Bool property = expression.kind() == NodeKinds.memberAccess() || (expression.kind() == NodeKinds.nameReference() && !env.has(expression.text()));
+
+        if (property) {
+            return "copy it into a final var and check that instead";
+        }
+
+        return "check it first";
+    }
+
+    public String member(Node node, FlowEnv env, ExpressionFlow flow) {
+        if (node.count() == 0) {
+            return NullState.nonNull();
+        }
+
+        Node object = node.child(0);
+        String objectState = flow.eval(object, env);
+        this.require(object, objectState, env, "it cannot be dereferenced");
+
+        if (this.isReadBeforeInit(object, node.text(), env)) {
+            this.context.error("'" + node.text() + "' is read before it is initialized", node);
+        }
+
+        return this.propertyState(node.text());
+    }
+
+    private Bool isReadBeforeInit(Node object, String name, FlowEnv env) {
+        Bool onThis = object.kind() == NodeKinds.thisReference() || (object.kind() == NodeKinds.nameReference() && object.text() == "this");
+        return onThis && env.has(FlowKinds.fieldKeyPrefix() + name) && env.get(FlowKinds.fieldKeyPrefix() + name) != NullState.nonNull();
+    }
+
+    public String propertyState(String name) {
+        if (this.context.isNullableProperty(name)) {
+            return NullState.maybeNull();
+        }
+
+        return NullState.nonNull();
+    }
+
+    public String call(Node node, FlowEnv env, ExpressionFlow flow) {
+        Node callee = node.child(0);
+
+        if (callee.kind() == NodeKinds.memberAccess()) {
+            this.member(callee, env, flow);
+        }
+
+        // A constructor call names a class, not a value: a property spelled like the class must not be read.
+        Bool constructorName = node.symbolKind() == SymbolKinds.constructor() && callee.kind() == NodeKinds.nameReference();
+
+        if (callee.kind() != NodeKinds.memberAccess() && !constructorName) {
+            flow.eval(callee, env);
+        }
+
+        Int index = 1;
+
+        while (index < node.count()) {
+            Node argument = node.child(index);
+            this.require(argument, flow.eval(argument, env), env, "it is passed to a non-null parameter");
+            index = index + 1;
+        }
+
+        return NullState.nonNull();
+    }
+
+    public String index(Node node, FlowEnv env, ExpressionFlow flow) {
+        Node object = node.child(0);
+        this.require(object, flow.eval(object, env), env, "it cannot be indexed");
+        flow.eval(node.child(1), env);
+        return NullState.nonNull();
+    }
+
+    public String assign(Node node, FlowEnv env, ExpressionFlow flow) {
+        Node target = node.child(0);
+        Node value = node.child(1);
+        String valueState = flow.eval(value, env);
+
+        if (node.text() != "=") {
+            this.require(target, flow.eval(target, env), env, "it cannot be updated");
+            return NullState.nonNull();
+        }
+
+        if (target.kind() == NodeKinds.nameReference()) {
+            this.assignName(target, value, valueState, env);
+            return valueState;
+        }
+
+        if (target.kind() == NodeKinds.memberAccess()) {
+            this.assignMember(target, value, valueState, env, flow);
+            return valueState;
+        }
+
+        flow.eval(target, env);
+        return valueState;
+    }
+
+    private Void assignName(Node target, Node value, String valueState, FlowEnv env) {
+        if (env.has(target.text())) {
+            env.set(target.text(), valueState);
+            return;
+        }
+
+        this.assignProperty(target.text(), value, valueState, env, true);
+    }
+
+    private Void assignMember(Node target, Node value, String valueState, FlowEnv env, ExpressionFlow flow) {
+        Bool onThis = true;
+
+        if (target.count() > 0) {
+            Node object = target.child(0);
+            this.require(object, flow.eval(object, env), env, "it cannot be dereferenced");
+            onThis = object.kind() == NodeKinds.thisReference() || object.text() == "this";
+        }
+
+        this.assignProperty(target.text(), value, valueState, env, onThis);
+    }
+
+    // A property accepts null only if it was declared with `= null`.
+    private Void assignProperty(String name, Node value, String valueState, FlowEnv env, Bool onThis) {
+        String key = FlowKinds.fieldKeyPrefix() + name;
+
+        if (onThis && env.has(key)) {
+            env.set(key, valueState);
+        }
+
+        if (NullState.isSafe(valueState) || this.context.isNullableProperty(name)) {
+            return;
+        }
+
+        this.context.error("'" + AccessFlow.describe(value) + "' may be null; property '" + name + "' does not accept null", value);
+    }
+
+    public static String describe(Node expression) {
+        String kind = expression.kind();
+
+        if (kind == NodeKinds.nameReference()) {
+            return expression.text();
+        }
+
+        if (kind == NodeKinds.nullLiteral()) {
+            return "null";
+        }
+
+        if (kind == NodeKinds.memberAccess() && expression.count() > 0) {
+            return AccessFlow.describe(expression.child(0)) + "." + expression.text();
+        }
+
+        if (kind == NodeKinds.memberAccess()) {
+            return expression.text();
+        }
+
+        if (kind == NodeKinds.callExpression() && expression.count() > 0) {
+            return AccessFlow.describe(expression.child(0)) + "()";
+        }
+
+        return "value";
+    }
+}

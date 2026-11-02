@@ -1,0 +1,73 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+public class AnnotationValidator {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public AnnotationValidator(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void checkParamAnnotations(Node member) {
+        Node params = AstQuery.childOfKind(member, NodeKinds.params());
+        Int index = 0;
+
+        while (index < params.count()) {
+            this.checkAnnotations(params.child(index), SymbolKinds.parameterTarget());
+            index = index + 1;
+        }
+    }
+
+    private Bool isBuiltinAnnotation(String name) {
+        return Names.same(name, "Async") || Names.same(name, "Synchronized") || Names.same(name, "Deprecated");
+    }
+
+    public Void checkAnnotations(Node node, String targetKind) {
+        Int index = 0;
+
+        while (index < node.count()) {
+            Node child = node.child(index);
+            index = index + 1;
+
+            if (child.kind() != NodeKinds.annotation() || this.isBuiltinAnnotation(child.text())) {
+                continue;
+            }
+
+            MemberSymbol macro = this.table.findTopLevel(child.text(), SymbolKinds.macro());
+
+            if (macro.isMissing()) {
+                this.bag.error("Unknown annotation '@" + child.text() + "'", child.line(), child.column());
+                continue;
+            }
+
+            if (!this.targetAllowed(macro.type(), targetKind)) {
+                this.bag.error("Macro '@" + macro.name() + "' cannot be applied to a " + targetKind + " (allowed: " + macro.type() + ")", child.line(), child.column());
+            }
+
+            if (child.count() < macro.requiredCount() || child.count() > macro.paramCount()) {
+                this.bag.error("Macro '@" + macro.name() + "' expects " + macro.paramCount().toString() + " argument(s), found " + child.count().toString(), child.line(), child.column());
+            }
+        }
+    }
+
+    private Bool targetAllowed(String allowed, String target) {
+        List<String> parts = TypeText.splitTop(allowed);
+        Int index = 0;
+
+        while (index < parts.length()) {
+            if (parts.get(index) == SymbolKinds.anyTarget() || parts.get(index) == target) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return parts.length() == 0;
+    }
+}

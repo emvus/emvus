@@ -1,0 +1,4 @@
+// expect: braces are required@3
+method f(Int a) {
+    if (a > 0) return
+}

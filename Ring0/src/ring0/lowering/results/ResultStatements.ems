@@ -1,0 +1,68 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// `return`, `fail` and `success`: all leave the method through ReturnEmitter.
+public class ResultStatements {
+    private LoweringContext context;
+
+    public ResultStatements(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public Bool lower(Node node) {
+        if (node.kind() == "return") {
+            return this.lowerReturn(node);
+        }
+
+        if (!ResultTypes.isResultKind(this.context.function().returnKind())) {
+            this.context.unsupported(node, "'" + node.kind() + "' needs the method to return a Result");
+            return true;
+        }
+
+        if (node.kind() == "fail") {
+            return this.lowerFail(node);
+        }
+
+        return this.lowerSuccess(node);
+    }
+
+    private Bool lowerReturn(Node node) {
+        if (node.count() == 0) {
+            ReturnEmitter.emit(this.context, node, LoweredValue.nothing());
+            return true;
+        }
+
+        LoweredValue value = ExpressionLowerer(this.context).lower(node.child(0));
+
+        if (value.isUsable()) {
+            ReturnEmitter.emit(this.context, node, value);
+        }
+
+        return true;
+    }
+
+    private Bool lowerFail(Node node) {
+        LoweredValue exception = ExpressionLowerer(this.context).lower(node.child(0));
+
+        if (!exception.isUsable()) {
+            return true;
+        }
+
+        LoweredValue result = ResultLowerer(this.context).failure(node, this.context.function().returnKind(), exception);
+        ReturnEmitter.emit(this.context, node, result);
+        return true;
+    }
+
+    private Bool lowerSuccess(Node node) {
+        ResultLowerer results = ResultLowerer(this.context);
+        LoweredValue payload = results.payloadOf(node);
+
+        if (node.count() > 0 && !payload.isUsable()) {
+            return true;
+        }
+
+        ReturnEmitter.emit(this.context, node, results.success(node, this.context.function().returnKind(), payload));
+        return true;
+    }
+}

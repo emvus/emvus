@@ -1,0 +1,172 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Routes control from a switch subject to its arm blocks: tag test for Results, a chain of
+// equality tests for literals.
+public class SwitchDispatch {
+    private LoweringContext context;
+
+    public SwitchDispatch(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    // Emits the tests that route control to the arm blocks.
+    public Bool route(Node node, LoweredValue subject, List<Int> arms, Int join, List<Int> before) {
+        if (ResultTypes.isResultKind(subject.kind())) {
+            return this.dispatchResult(node, subject, arms);
+        }
+
+        return this.dispatchLiteral(node, subject, arms, join, before);
+    }
+
+    private Bool dispatchResult(Node node, LoweredValue subject, List<Int> arms) {
+        Int success = this.findCase(node, 0);
+        Int failure = this.findCase(node, 1);
+        Int fallback = this.findCase(node, 2);
+
+        if (success < 0) {
+            success = fallback;
+        }
+
+        if (failure < 0) {
+            failure = fallback;
+        }
+
+        if (success < 0 || failure < 0) {
+            this.context.unsupported(node, "switch over a Result must handle both success and error");
+            return false;
+        }
+
+        Int flag = ResultLowerer(this.context).isError(node, subject);
+        List<Int> none = List();
+        this.context.ops().condBranch(flag, arms.get(failure), none, arms.get(success), none, this.context.span(node));
+        return true;
+    }
+
+    // Index into arms of the first case with a pattern of the wanted class (0 success,
+    // 1 error, 2 catch-all), or -1.
+    public Int findCase(Node node, Int wanted) {
+        Int index = 1;
+
+        while (index < node.count()) {
+            Node caseNode = node.child(index);
+            Int position = 0;
+
+            while (position < SwitchPatterns.patternCount(caseNode)) {
+                Node pattern = SwitchPatterns.patternAt(caseNode, position);
+
+                if ((wanted == 0 && SwitchPatterns.isSuccess(pattern)) || (wanted == 1 && SwitchPatterns.isError(pattern)) || (wanted == 2 && this.isCatchAllIn(node, pattern))) {
+                    return index - 1;
+                }
+
+                position = position + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return -1;
+    }
+
+    private Bool dispatchLiteral(Node node, LoweredValue subject, List<Int> arms, Int join, List<Int> before) {
+        Int span = this.context.span(node);
+        Int index = 1;
+
+        while (index < node.count()) {
+            Node caseNode = node.child(index);
+            Int position = 0;
+
+            while (position < SwitchPatterns.patternCount(caseNode)) {
+                if (!this.testPattern(node, SwitchPatterns.patternAt(caseNode, position), subject, arms.get(index - 1), span)) {
+                    return false;
+                }
+
+                position = position + 1;
+            }
+
+            index = index + 1;
+        }
+
+        Int fallback = this.findCase(node, 2);
+        List<Int> none = List();
+
+        if (fallback >= 0) {
+            this.context.ops().branchTo(arms.get(fallback), none, span);
+            return true;
+        }
+
+        if (node.symbolName() == "enum") {
+            this.context.ops().failWith(this.context.panicFailure(), span);
+            return true;
+        }
+
+        this.context.ops().branchTo(join, before, span);
+        return true;
+    }
+
+    // A free name that is an entry of the subject's enum is a value test, not a catch-all.
+    private Bool isCatchAllIn(Node switchNode, Node pattern) {
+        return SwitchPatterns.isCatchAll(pattern) && this.entryOrdinal(switchNode, pattern) < 0;
+    }
+
+    // Ordinal of the enum entry a name pattern denotes, -1 when it is not one.
+    private Int entryOrdinal(Node switchNode, Node pattern) {
+        Int enumIndex = this.context.enums().indexOf(switchNode.child(0).type());
+
+        if (enumIndex < 0 || !SwitchPatterns.isCatchAll(pattern)) {
+            return -1;
+        }
+
+        return this.context.enums().ordinalOf(enumIndex, SwitchPatterns.lastSegment(pattern.text()));
+    }
+
+    // One literal test: on a match jump to the arm, otherwise continue in a fresh block.
+    private Bool testPattern(Node switchNode, Node pattern, LoweredValue subject, Int arm, Int span) {
+        if (this.isCatchAllIn(switchNode, pattern)) {
+            return true;
+        }
+
+        LoweredValue literal = this.patternValue(switchNode, pattern, subject, span);
+
+        if (!literal.isUsable()) {
+            return false;
+        }
+
+        if (literal.kind() != subject.kind()) {
+            this.context.unsupported(pattern, "pattern of kind " + literal.kind() + " does not match the " + subject.kind() + " subject");
+            return false;
+        }
+
+        Int match = this.compare(subject, literal, span);
+        Int next = this.context.newBlock();
+        List<Int> none = List();
+        this.context.ops().condBranch(match, arm, none, next, none, span);
+        this.context.enterBlock(next);
+        return true;
+    }
+
+    // The value a pattern compares against: an enum entry name or a literal expression.
+    private LoweredValue patternValue(Node switchNode, Node pattern, LoweredValue subject, Int span) {
+        Int ordinal = this.entryOrdinal(switchNode, pattern);
+
+        if (ordinal >= 0) {
+            return LoweredValue(this.context.ops().constInt(ordinal, span), subject.kind());
+        }
+
+        if (!SwitchPatterns.isLiteral(pattern)) {
+            this.context.unsupported(pattern, "switch pattern '" + pattern.kind() + "' is not available for " + subject.kind());
+            return LoweredValue.unsupported();
+        }
+
+        return ExpressionLowerer(this.context).lower(pattern.child(0));
+    }
+
+    private Int compare(LoweredValue subject, LoweredValue literal, Int span) {
+        if (subject.kind() == "String") {
+            return this.context.collections().textEqual(subject.valueId(), literal.valueId(), span);
+        }
+
+        return this.context.ops().compare("eq", subject.valueId(), literal.valueId(), span);
+    }
+}

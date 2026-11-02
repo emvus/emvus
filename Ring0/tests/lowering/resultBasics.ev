@@ -1,0 +1,27 @@
+// Result as a value: fail, success, ? propagation, ! unwrap and orElse.
+exception NegativeNumberException(Int value)
+
+method<Result<Int, NegativeNumberException>> floorRoot(Int n) {
+    if (n < 0) {
+        fail NegativeNumberException(n)
+    }
+
+    Int r = 0
+
+    while ((r + 1) * (r + 1) <= n) {
+        r++
+    }
+
+    success r
+}
+
+method<Result<Int, NegativeNumberException>> twiceRoot(Int n) {
+    Int r = floorRoot(n)?
+    success r * 2
+}
+
+static method<Int> main {
+    Int a = twiceRoot(49)!
+    Int b = twiceRoot(-3).orElse(100)
+    return a + b
+}

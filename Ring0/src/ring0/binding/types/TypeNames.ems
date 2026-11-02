@@ -1,0 +1,107 @@
+namespace ring0::binding;
+
+// Names of built-in types and type-text markers ("?" is unknown, "var" is still to be inferred).
+public class TypeNames {
+    public TypeNames() {
+    }
+
+    public static String anyType() {
+        return "Any";
+    }
+
+    public static String biFunctionType() {
+        return "BiFunction";
+    }
+
+    public static String booleanType() {
+        return "Boolean";
+    }
+
+    public static String charType() {
+        return "Char";
+    }
+
+    public static String dictionaryType() {
+        return "Dictionary";
+    }
+
+    public static String dynamicType() {
+        return "dynamic";
+    }
+
+    public static String exceptionType() {
+        return "Exception";
+    }
+
+    public static String fiberType() {
+        return "Fiber";
+    }
+
+    public static String floatType() {
+        return "Float";
+    }
+
+    public static String functionType() {
+        return "Function";
+    }
+
+    public static String iIterableType() {
+        return "IIterable";
+    }
+
+    public static String iIteratorType() {
+        return "IIterator";
+    }
+
+    public static String iListType() {
+        return "IList";
+    }
+
+    public static String inferredType() {
+        return "var";
+    }
+
+    public static String intType() {
+        return "Int";
+    }
+
+    public static String listType() {
+        return "List";
+    }
+
+    public static String nullType() {
+        return "Null";
+    }
+
+    public static String resultType() {
+        return "Result";
+    }
+
+    public static String runnableType() {
+        return "Runnable";
+    }
+
+    public static String stringType() {
+        return "String";
+    }
+
+    public static String threadType() {
+        return "Thread";
+    }
+
+    public static String tupleType() {
+        return "Tuple";
+    }
+
+    public static String unknownType() {
+        return "?";
+    }
+
+    public static String virtualThreadType() {
+        return "VirtualThread";
+    }
+
+    public static String voidType() {
+        return "Void";
+    }
+}

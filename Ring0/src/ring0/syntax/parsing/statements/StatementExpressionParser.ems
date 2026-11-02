@@ -1,0 +1,70 @@
+namespace ring0::syntax;
+
+// Expression statements and the glue that lets statements consume trailing cascades.
+//
+//   cascade       [expr, cascade-item+]   fallback shape: a `..` that follows a complete expression
+//                 (e.g. after `x is T`) which the expression parser itself did not absorb
+//   cascade-item  [expr]
+//   init          [expr | cascade]        initializer of local / destructure
+//   assign        [lhs, rhs]              only if ExpressionParser did not handle `=` itself
+public class StatementExpressionParser {
+    private ParserState state;
+
+    public StatementExpressionParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parseExpressionStatement() {
+        Token start = this.state.peek();
+        Node expression = this.absorbCascade(this.parseExpressionWithAssign());
+        Node statement = this.state.nodeAt(start, AstKinds.expressionStatement(), "");
+        statement.add(expression);
+        return statement;
+    }
+
+    // `= value` initializer starting at the already consumed `=` token.
+    public Node parseInitializer(Token equals) {
+        Node init = this.state.nodeAt(equals, AstKinds.initializer(), "");
+        Node value = ExpressionParser(this.state).parse();
+        init.add(this.absorbCascade(value));
+        return init;
+    }
+
+    public Node absorbCascade(Node target) {
+        if (!this.atCascade()) {
+            return target;
+        }
+
+        Node cascade = this.state.nodeAt(this.state.peek(), AstKinds.cascade(), "");
+        cascade.add(target);
+
+        while (this.atCascade()) {
+            Token token = this.state.advance();
+            Node item = this.state.nodeAt(token, AstKinds.cascadeItem(), "");
+            item.add(this.parseExpressionWithAssign());
+            cascade.add(item);
+        }
+
+        return cascade;
+    }
+
+    // `..` that is not the start of the `...` placeholder.
+    private Bool atCascade() {
+        return this.state.checkSymbol("..") && !this.state.peekAt(1).isSymbol(".");
+    }
+
+    // Expression, optionally followed by `= rhs` in case ExpressionParser did not handle the assignment.
+    public Node parseExpressionWithAssign() {
+        Node expression = ExpressionParser(this.state).parse();
+
+        if (!this.state.checkSymbol("=")) {
+            return expression;
+        }
+
+        Token token = this.state.advance();
+        Node assign = this.state.nodeAt(token, AstKinds.assign(), "");
+        assign.add(expression);
+        assign.add(ExpressionParser(this.state).parse());
+        return assign;
+    }
+}

@@ -1,0 +1,18 @@
+// expect-error: returning a borrowed object
+class Box {
+    Int size { get }
+
+    Box(Int size) {
+        this.size = size
+    }
+}
+
+static method<Box> same(Box box) {
+    return box
+}
+
+static method<Int> main {
+    Box box = Box(1)
+    Box other = same(box)
+    return other.size
+}

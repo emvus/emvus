@@ -1,0 +1,67 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Finds the method-table entry of a member by owner class, name and arity. Emvus resolves
+// overloads by arity (the checker's rule), walking up the base chain.
+public class MemberResolver {
+    public MemberResolver() {
+    }
+
+    public static String key(String className, String member, Int arity) {
+        return className + "." + member + "/" + arity.toString();
+    }
+
+    // `class.member/arity` -> `member/arity` (class names contain no dot except the synthetic root).
+    public static String memberPart(String key) {
+        Int index = 0;
+
+        while (index < key.length()) {
+            if (key.charAt(index).toString() == ".") {
+                return key.substring(index + 1, key.length()) + "";
+            }
+
+            index = index + 1;
+        }
+
+        return key + "";
+    }
+
+    // Entry of `name` with `arity` parameters declared in the class or its bases; -1 when absent.
+    public static Int findMethod(LoweringContext context, Int classIndex, String name, Int arity) {
+        Int current = classIndex;
+
+        while (current >= 0) {
+            Int found = context.methods().indexOf(MemberResolver.key(context.classes().nameAt(current), name, arity));
+
+            if (found >= 0) {
+                return found;
+            }
+
+            current = context.classes().parentAt(current);
+        }
+
+        return -1;
+    }
+
+    public static Int findConstructor(LoweringContext context, Int classIndex, Int arity) {
+        return context.methods().indexOf(MemberResolver.key(context.classes().nameAt(classIndex), "new", arity));
+    }
+
+    // Class named by the static type of an expression, -1 when it is not a class.
+    public static Int classOfExpression(LoweringContext context, Node expression) {
+        String type = expression.type();
+
+        if (type.isEmpty() || type == "?") {
+            return -1;
+        }
+
+        String kind = context.kinds().kindOfTypeText(type);
+
+        if (!ClassTable.isClassKind(kind)) {
+            return -1;
+        }
+
+        return context.classes().indexOf(ClassTable.nameOfKind(kind));
+    }
+}

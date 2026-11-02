@@ -1,0 +1,49 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Debug listing of the binder annotations for `--check --types`: one line per annotated node,
+// "line:column kind [text] : type  @ symbolKind symbolName (detail)". Statement nodes without
+// annotations are skipped.
+public class TypeDump {
+    public TypeDump() {
+    }
+
+    public String dump(Node node) {
+        String lines = this.describe(node);
+        Int index = 0;
+
+        while (index < node.count()) {
+            lines = lines + this.dump(node.child(index));
+            index = index + 1;
+        }
+
+        return lines;
+    }
+
+    private String describe(Node node) {
+        if (node.type().isEmpty() && node.symbolKind().isEmpty()) {
+            return "";
+        }
+
+        String line = node.line().toString() + ":" + node.column().toString() + " " + node.kind();
+
+        if (!node.text().isEmpty()) {
+            line = line + " " + node.text();
+        }
+
+        if (!node.type().isEmpty()) {
+            line = line + " : " + node.type();
+        }
+
+        if (!node.symbolKind().isEmpty()) {
+            line = line + " @ " + node.symbolKind() + " " + node.symbolName();
+        }
+
+        if (!node.symbolDetail().isEmpty()) {
+            line = line + " (" + node.symbolDetail() + ")";
+        }
+
+        return line + "\n";
+    }
+}

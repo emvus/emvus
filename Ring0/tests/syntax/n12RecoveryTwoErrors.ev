@@ -1,0 +1,9 @@
+// expect: Expected '(' before condition@4
+// expect: Expected ')' after arguments@9
+method f(Int x) {
+    if x > 0 {
+        return
+    }
+
+    println("a"
+}

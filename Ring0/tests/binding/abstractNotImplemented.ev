@@ -1,0 +1,9 @@
+// expect: does not implement abstract method 'speak'
+package main
+
+interface ISpeaker {
+    method<String> speak
+}
+
+class Dog implements ISpeaker {
+}

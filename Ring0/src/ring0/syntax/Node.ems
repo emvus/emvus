@@ -1,0 +1,115 @@
+namespace ring0::syntax;
+
+// Uniform AST node. Node kinds and their children are documented in ast.md.
+// The binder leaves resolved semantic facts in the annotation channel (type and symbol);
+// the channel is not part of dump(), so syntax goldens stay stable.
+public class Node {
+    private String kindValue;
+    private String textValue;
+    private Int lineValue;
+    private Int columnValue;
+    private List<Node> childList;
+    private String typeValue;
+    private String symbolKindValue;
+    private String symbolNameValue;
+    private String symbolDetailValue;
+
+    public Node(String kind, String text, Int line, Int column) {
+        this.kindValue = kind;
+        this.textValue = text;
+        this.lineValue = line;
+        this.columnValue = column;
+        this.childList = List();
+        this.typeValue = "";
+        this.symbolKindValue = "";
+        this.symbolNameValue = "";
+        this.symbolDetailValue = "";
+    }
+
+    public String kind() {
+        return this.kindValue + "";
+    }
+
+    public String text() {
+        return this.textValue + "";
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    // Static type text written by the binder; "" until the node was checked.
+    public String type() {
+        return this.typeValue + "";
+    }
+
+    public Void setType(String type) {
+        this.typeValue = type + "";
+    }
+
+    // Resolved symbol: kind (see SymbolKinds), original spelling and a kind-specific detail.
+    public String symbolKind() {
+        return this.symbolKindValue + "";
+    }
+
+    public String symbolName() {
+        return this.symbolNameValue + "";
+    }
+
+    public String symbolDetail() {
+        return this.symbolDetailValue + "";
+    }
+
+    public Void bind(String kind, String name, String detail) {
+        this.symbolKindValue = kind + "";
+        this.symbolNameValue = name + "";
+        this.symbolDetailValue = detail + "";
+    }
+
+    public Node add(Node child) {
+        this.childList.add(child);
+        return this;
+    }
+
+    public Int count() {
+        return this.childList.length();
+    }
+
+    public Node child(Int index) {
+        return this.childList.get(index);
+    }
+
+    public Bool kindIs(String kind) {
+        return this.kindValue == kind;
+    }
+
+    public String dump(Int depth) {
+        String pad = "";
+        Int index = 0;
+
+        while (index < depth) {
+            pad = pad + "  ";
+            index = index + 1;
+        }
+
+        String line = pad + this.kindValue;
+
+        if (!this.textValue.isEmpty()) {
+            line = line + " " + this.textValue;
+        }
+
+        line = line + "\n";
+        index = 0;
+
+        while (index < this.childList.length()) {
+            line = line + this.childList.get(index).dump(depth + 1);
+            index = index + 1;
+        }
+
+        return line;
+    }
+}

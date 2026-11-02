@@ -1,0 +1,12 @@
+// Expression switch over Int literals with a catch-all.
+method<Int> rank(Int code) {
+    return switch (code) {
+        1 -> 10
+        2 -> 20
+        unknown -> 0
+    }
+}
+
+static method<Int> main {
+    return rank(1) + rank(2) + rank(9)
+}

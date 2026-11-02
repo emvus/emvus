@@ -1,0 +1,23 @@
+// class with a property, a constructor and mutating methods.
+class Counter {
+    Int count { get, set }
+
+    Counter(Int start) {
+        this.count = start
+    }
+
+    method increment {
+        count = count + 1
+    }
+
+    method<Int> value {
+        return count
+    }
+}
+
+static method<Int> main {
+    Counter counter = Counter(10)
+    counter.increment()
+    counter.increment()
+    return counter.value()
+}

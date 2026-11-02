@@ -1,0 +1,26 @@
+// virtual members with parameters, an inherited member that calls a virtual one.
+abstract class Scaler {
+    abstract method<Int> scale(Int value)
+
+    method<Int> twice(Int value) {
+        return scale(scale(value))
+    }
+}
+
+class Tripler based Scaler {
+    override method<Int> scale(Int value) {
+        return value * 3
+    }
+}
+
+class Shifter based Scaler {
+    override method<Int> scale(Int value) {
+        return value + 10
+    }
+}
+
+static method<Int> main {
+    Scaler first = Tripler()
+    Scaler second = Shifter()
+    return first.twice(2) + second.twice(2)
+}

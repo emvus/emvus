@@ -1,0 +1,129 @@
+namespace ring0::syntax;
+
+// File level.
+//
+// file     children: [package] use* declarations (see DeclMemberParser)
+// package  text="a.b"
+// use      children: use-item (text=full path "std.collections.IList"; optional child alias text=name)
+public class TopLevelParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public TopLevelParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    public Node parseFile() {
+        Node file = Node(AstKinds.file(), "", 1, 1);
+
+        while (!this.state.isAtEnd()) {
+            Int start = this.state.position();
+
+            if (this.state.matchSymbol(";")) {
+                continue;
+            }
+
+            if (this.header.isWord(0, "package")) {
+                file.add(this.parsePackage());
+            }
+
+            if (this.header.isWord(0, "use")) {
+                file.add(this.parseUse());
+            }
+
+            if (this.state.position() == start) {
+                file.add(this.parseMember());
+            }
+
+            if (this.state.position() == start) {
+                this.state.advance();
+            }
+        }
+
+        return file;
+    }
+
+    // One member or top-level element (also used by quote expressions)
+    public Node parseMember() {
+        DeclMemberParser members = DeclMemberParser(this.state);
+        return members.parseMember();
+    }
+
+    private Node parsePackage() {
+        Token keyword = this.state.advance();
+        String name = this.header.parseQualifiedName("Expected package name");
+        this.state.matchSymbol(";");
+        return this.state.nodeAt(keyword, AstKinds.packageDeclaration(), name);
+    }
+
+    // use { a.b.[X, Y], c as D }   or   use a.b.C [as D]
+    private Node parseUse() {
+        Token keyword = this.state.advance();
+        Node use = this.state.nodeAt(keyword, AstKinds.useDeclaration(), "");
+
+        if (!this.state.matchSymbol("{")) {
+            this.parseUseEntry(use);
+            this.state.matchSymbol(";");
+            return use;
+        }
+
+        while (!this.state.checkSymbol("}") && !this.state.isAtEnd()) {
+            this.parseUseEntry(use);
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        this.state.consumeSymbol("}", "Expected '}' after use list");
+        this.state.matchSymbol(";");
+        return use;
+    }
+
+    // `a.b.C [as D]` or a group `a.b.[X, Y as Z]`; a group ends the entry.
+    private Void parseUseEntry(Node use) {
+        Token startToken = this.state.peek();
+        String prefix = this.header.consumeName("Expected name in use declaration").text();
+
+        while (this.state.checkSymbol(".")) {
+            this.state.advance();
+
+            if (this.state.matchSymbol("[")) {
+                this.parseUseGroup(use, prefix);
+                return;
+            }
+
+            prefix = prefix + "." + this.header.consumeName("Expected name after '.' in use declaration").text();
+        }
+
+        Node entry = this.state.nodeAt(startToken, AstKinds.useItem(), prefix);
+        this.parseAlias(entry);
+        use.add(entry);
+    }
+
+    // Items of `prefix.[A, B as C]`; the opening `[` is already consumed.
+    private Void parseUseGroup(Node use, String prefix) {
+        while (!this.state.checkSymbol("]") && !this.state.isAtEnd()) {
+            Token item = this.header.consumeName("Expected name in use group");
+            Node entry = this.state.nodeAt(item, AstKinds.useItem(), prefix + "." + item.text());
+            this.parseAlias(entry);
+            use.add(entry);
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        this.state.consumeSymbol("]", "Expected ']' after use group");
+    }
+
+    private Void parseAlias(Node entry) {
+        if (!this.header.matchWord("as")) {
+            return;
+        }
+
+        Token alias = this.header.consumeName("Expected alias name");
+        entry.add(this.state.nodeAt(alias, AstKinds.alias(), alias.text()));
+    }
+}

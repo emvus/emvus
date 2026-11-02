@@ -1,0 +1,58 @@
+namespace ring0::syntax;
+
+// Parameter lists of methods, constructors, data classes, records, exceptions and macros.
+//
+//   params  children: param (text=name; children: annotation*, modifiers, type node, [default expression])
+public class ParameterParser {
+    private ParserState state;
+    private DeclHeaderParser header;
+
+    public ParameterParser(ParserState parserState) {
+        this.state = parserState;
+        this.header = DeclHeaderParser(parserState);
+    }
+
+    // Parameter list, or an empty params node when no parenthesis follows: declarations may
+    // omit empty parentheses.
+    public Node parseOptionalParams() {
+        if (this.state.checkSymbol("(")) {
+            return this.parseParams();
+        }
+
+        return this.state.node(AstKinds.params(), "");
+    }
+
+    // (Type name [= default], ...); expects "("
+    public Node parseParams() {
+        Node params = this.state.node(AstKinds.params(), "");
+        this.state.consumeSymbol("(", "Expected '(' before parameters");
+
+        while (!this.state.checkSymbol(")") && !this.state.isAtEnd()) {
+            params.add(this.parseParam());
+
+            if (!this.state.matchSymbol(",")) {
+                break;
+            }
+        }
+
+        this.state.consumeSymbol(")", "Expected ')' after parameters");
+        return params;
+    }
+
+    private Node parseParam() {
+        Node holder = this.state.node(AstKinds.holder(), "");
+        this.header.parseAnnotations(holder);
+        Node modifiers = this.header.parseModifiers();
+        Node typeNode = TypeParser(this.state).parse();
+        Token nameToken = this.header.consumeName("Expected parameter name");
+        Node param = this.state.nodeAt(nameToken, AstKinds.param(), nameToken.text());
+        this.header.attach(param, holder, modifiers);
+        param.add(typeNode);
+
+        if (this.state.matchSymbol("=")) {
+            param.add(ExpressionParser(this.state).parse());
+        }
+
+        return param;
+    }
+}

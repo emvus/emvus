@@ -1,0 +1,78 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Member calls on a list receiver: add, get, set, size/length, isEmpty, clear. Higher-order
+// members (map, filter, reduce, forEach) are lowered by ListHigherOrder.
+public class ListMembers {
+    private LoweringContext context;
+
+    public ListMembers(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public LoweredValue call(Node node, LoweredValue list) {
+        String name = node.child(0).text().toLowerCase();
+        Int arguments = node.count() - 1;
+
+        if (name == "add" && arguments == 1) {
+            return this.add(node, list);
+        }
+
+        if (name == "get" && arguments == 1) {
+            return ListLowerer(this.context).read(node, list, ExpressionLowerer(this.context).lower(node.child(1)));
+        }
+
+        if (name == "set" && arguments == 2) {
+            return this.set(node, list);
+        }
+
+        if ((name == "size" || name == "length") && arguments == 0) {
+            return LoweredValue(this.context.collections().length(list.valueId(), this.context.span(node)), "Int");
+        }
+
+        if (name == "isempty" && arguments == 0) {
+            return this.isEmpty(node, list);
+        }
+
+        if (name == "clear" && arguments == 0) {
+            this.context.collections().clear(list.valueId(), this.context.span(node));
+            return LoweredValue.nothing();
+        }
+
+        if (ListHigherOrder.handles(name, arguments)) {
+            return ListHigherOrder(this.context).call(node, list);
+        }
+
+        this.context.unsupported(node, "list member '" + node.child(0).text() + "' with " + arguments.toString() + " arguments is not available in this lowering");
+        return LoweredValue.unsupported();
+    }
+
+    private LoweredValue add(Node node, LoweredValue list) {
+        LoweredValue element = ExpressionLowerer(this.context).lower(node.child(1));
+
+        if (!element.isUsable() || !ListLowerer(this.context).push(node.child(1), list.valueId(), ListTable.elementKindOf(list.kind()), element)) {
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue.nothing();
+    }
+
+    private LoweredValue set(Node node, LoweredValue list) {
+        LoweredValue position = ExpressionLowerer(this.context).lower(node.child(1));
+        LoweredValue element = ExpressionLowerer(this.context).lower(node.child(2));
+
+        if (!position.isUsable() || !element.isUsable() || !ListLowerer(this.context).write(node, list, position, element)) {
+            return LoweredValue.unsupported();
+        }
+
+        return LoweredValue.nothing();
+    }
+
+    private LoweredValue isEmpty(Node node, LoweredValue list) {
+        Int span = this.context.span(node);
+        Int length = this.context.collections().length(list.valueId(), span);
+        Int zero = this.context.ops().constInt(0, span);
+        return LoweredValue(this.context.ops().compare("eq", length, zero, span), "Bool");
+    }
+}

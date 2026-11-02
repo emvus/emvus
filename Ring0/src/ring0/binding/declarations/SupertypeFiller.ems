@@ -1,0 +1,109 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// based/implements of a declaration: checks the kind of each supertype and records it.
+public class SupertypeFiller {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public SupertypeFiller(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public Void fillSupertypes(Node decl, TypeSymbol symbol, List<String> scope) {
+        this.fillBased(decl, symbol, scope);
+
+        if (decl.kind() == NodeKinds.exceptionDeclaration() && symbol.bases().length() == 0) {
+            symbol.addBase(TypeNames.exceptionType());
+        }
+
+        this.fillImplements(decl, symbol, scope);
+    }
+
+    private Void fillBased(Node decl, TypeSymbol symbol, List<String> scope) {
+        Node based = AstQuery.childOfKind(decl, NodeKinds.based());
+        Bool isInterface = decl.kind() == NodeKinds.interfaceDeclaration();
+
+        if (based.count() > 1 && !isInterface) {
+            this.bag.error("'" + decl.text() + "' can have only one base type; use 'implements' for interfaces", decl.line(), decl.column());
+        }
+
+        Int index = 0;
+
+        while (index < based.count()) {
+            Node typeNode = based.child(index);
+            index = index + 1;
+            String type = this.resolver.resolve(typeNode, scope);
+            TypeSymbol target = this.table.findType(TypeText.base(type));
+
+            if (target.isMissing()) {
+                continue;
+            }
+
+            if (isInterface) {
+                this.addInterfaceBase(decl, symbol, target, typeNode, type);
+                continue;
+            }
+
+            this.checkClassBase(decl, target, typeNode);
+            symbol.addBase(type);
+        }
+    }
+
+    private Void addInterfaceBase(Node decl, TypeSymbol symbol, TypeSymbol target, Node typeNode, String type) {
+        if (target.kind() != NodeKinds.interfaceDeclaration()) {
+            this.bag.error("Interface '" + decl.text() + "' can only be based on interfaces, but '" + target.name() + "' is a " + target.kind(), typeNode.line(), typeNode.column());
+        }
+
+        symbol.addInterface(type);
+    }
+
+    private Void checkClassBase(Node decl, TypeSymbol target, Node typeNode) {
+        if (target.kind() == NodeKinds.interfaceDeclaration()) {
+            this.bag.error("'" + decl.text() + "' cannot be based on interface '" + target.name() + "'; use 'implements'", typeNode.line(), typeNode.column());
+        }
+
+        if (target.kind() == NodeKinds.enumDeclaration() || target.kind() == NodeKinds.recordDeclaration()) {
+            this.bag.error("'" + decl.text() + "' cannot be based on " + target.kind() + " '" + target.name() + "'", typeNode.line(), typeNode.column());
+        }
+
+        if (decl.kind() == NodeKinds.exceptionDeclaration() && !this.isExceptionLike(target)) {
+            this.bag.error("Exception '" + decl.text() + "' must be based on an exception, found '" + target.name() + "'", typeNode.line(), typeNode.column());
+        }
+    }
+
+    private Bool isExceptionLike(TypeSymbol target) {
+        if (target.kind() == NodeKinds.exceptionDeclaration() || target.isOpaque()) {
+            return true;
+        }
+
+        return this.table.isSubtype(target.name(), TypeNames.exceptionType());
+    }
+
+    private Void fillImplements(Node decl, TypeSymbol symbol, List<String> scope) {
+        Node implementsNode = AstQuery.childOfKind(decl, NodeKinds.implementsClause());
+        Int index = 0;
+
+        while (index < implementsNode.count()) {
+            Node typeNode = implementsNode.child(index);
+            index = index + 1;
+            String type = this.resolver.resolve(typeNode, scope);
+            TypeSymbol target = this.table.findType(TypeText.base(type));
+
+            if (target.isMissing()) {
+                continue;
+            }
+
+            if (target.kind() != NodeKinds.interfaceDeclaration() && !target.isOpaque()) {
+                this.bag.error("'" + decl.text() + "' cannot implement " + target.kind() + " '" + target.name() + "'; use 'based' for base classes", typeNode.line(), typeNode.column());
+            }
+
+            symbol.addInterface(type);
+        }
+    }
+}

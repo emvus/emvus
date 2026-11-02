@@ -1,0 +1,189 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+// Walks statements in order and keeps the environment of the current program point.
+public class StatementFlow {
+    private FlowContext context;
+    private ExpressionFlow expressions;
+
+    public StatementFlow(FlowContext flowContext, ExpressionFlow expressionFlow) {
+        this.context = flowContext;
+        this.expressions = expressionFlow;
+    }
+
+    public Void flowStatement(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.block()) {
+            this.flowBlock(node, env);
+            return;
+        }
+
+        if (kind == NodeKinds.local()) {
+            this.flowLocal(node, env);
+            return;
+        }
+
+        if (kind == NodeKinds.ifStatement()) {
+            this.flowIf(node, env);
+            return;
+        }
+
+        if (kind == NodeKinds.whileStatement() || kind == NodeKinds.forStatement() || kind == NodeKinds.foreachStatement()) {
+            LoopFlow(this.context, this.expressions, this).flowLoop(node, env);
+            return;
+        }
+
+        this.flowSimple(node, env);
+    }
+
+    private Void flowBlock(Node block, FlowEnv env) {
+        Int index = 0;
+
+        while (index < block.count()) {
+            this.flowStatement(block.child(index), env);
+            index = index + 1;
+        }
+    }
+
+    private Void flowSimple(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.returnStatement() || kind == NodeKinds.successStatement()) {
+            this.flowResult(node, env);
+            return;
+        }
+
+        if (kind == NodeKinds.failStatement()) {
+            this.expressions.eval(node.child(0), env);
+            env.kill();
+            return;
+        }
+
+        if (kind == NodeKinds.breakStatement()) {
+            this.context.addBreak(env);
+            env.kill();
+            return;
+        }
+
+        if (kind == NodeKinds.continueStatement()) {
+            this.context.addContinue(env);
+            env.kill();
+            return;
+        }
+
+        this.flowOther(node, env);
+    }
+
+    private Void flowOther(Node node, FlowEnv env) {
+        String kind = node.kind();
+
+        if (kind == NodeKinds.switchNode()) {
+            SwitchFlow(this.context, this.expressions).evalSwitch(node, env, true);
+            return;
+        }
+
+        if (kind == NodeKinds.destructure()) {
+            this.flowDestructure(node, env);
+            return;
+        }
+
+        if (kind == NodeKinds.placeholder() || kind == NodeKinds.empty()) {
+            return;
+        }
+
+        if (kind == NodeKinds.cascade()) {
+            this.expressions.eval(node, env);
+            return;
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            this.expressions.eval(node.child(index), env);
+            index = index + 1;
+        }
+    }
+
+    // A returned or successful value must be non-null: no method returns a nullable type.
+    private Void flowResult(Node node, FlowEnv env) {
+        if (node.count() > 0) {
+            Node value = node.child(0);
+            String state = this.expressions.eval(value, env);
+            this.expressions.accessFlow().require(value, state, env, "a non-null value must be returned");
+        }
+
+        this.context.addExit(env);
+        env.kill();
+    }
+
+    private Void flowLocal(Node node, FlowEnv env) {
+        Node init = AstQuery.childOfKind(node, NodeKinds.initializer());
+
+        if (AstQuery.isNone(init)) {
+            env.set(node.text(), this.uninitializedState(node));
+            return;
+        }
+
+        String state = this.expressions.eval(init.child(0), env);
+        env.set(node.text(), state);
+    }
+
+    // A declared reference local without value is null until assigned.
+    private String uninitializedState(Node local) {
+        Node type = AstQuery.typeChild(local);
+
+        if (AstQuery.isNone(type) || type.kind() == NodeKinds.varType() || PropertyFacts.isPrimitive(type.text())) {
+            return NullState.nonNull();
+        }
+
+        return NullState.nullValue();
+    }
+
+    private Void flowDestructure(Node node, FlowEnv env) {
+        Node init = AstQuery.childOfKind(node, NodeKinds.initializer());
+
+        if (!AstQuery.isNone(init)) {
+            Node source = init.child(0);
+            this.expressions.accessFlow().require(source, this.expressions.eval(source, env), env, "it cannot be unpacked");
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            Node child = node.child(index);
+
+            if (child.kind() == NodeKinds.binding()) {
+                env.set(child.text(), NullState.nonNull());
+            }
+
+            index = index + 1;
+        }
+    }
+
+    private Void flowIf(Node node, FlowEnv env) {
+        Node condition = node.child(0);
+        this.expressions.eval(condition, env);
+        FlowEnv thenEnv = env.copy();
+        this.expressions.conditionRefiner().refine(condition, thenEnv, true);
+        FlowEnv elseEnv = env.copy();
+        this.expressions.conditionRefiner().refine(condition, elseEnv, false);
+        this.flowStatement(node.child(1), thenEnv);
+
+        if (node.count() > 2) {
+            this.flowElse(node.child(2), elseEnv);
+        }
+
+        env.becomeJoin(thenEnv, elseEnv);
+    }
+
+    private Void flowElse(Node elseNode, FlowEnv env) {
+        if (elseNode.kind() == FlowKinds.elseBranch() && elseNode.count() > 0) {
+            this.flowStatement(elseNode.child(0), env);
+            return;
+        }
+
+        this.flowStatement(elseNode, env);
+    }
+}

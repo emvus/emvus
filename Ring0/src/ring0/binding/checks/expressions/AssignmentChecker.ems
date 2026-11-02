@@ -1,0 +1,126 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class AssignmentChecker {
+    private CheckContext context;
+
+    public AssignmentChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    // Checks that the expression is a writable target (not final, not read-only).
+    public Void checkAssignable(Node target) {
+        if (target.kind() == NodeKinds.nameReference()) {
+            if (this.context.scope().has(target.text()) && this.context.scope().isFinal(target.text())) {
+                this.context.report(target, "Cannot assign to final '" + target.text() + "'");
+            }
+
+            if (!this.context.scope().has(target.text())) {
+                MemberSymbol variable = this.context.table().findTopLevel(target.text(), SymbolKinds.variable());
+
+                if (!variable.isMissing() && variable.isFinal()) {
+                    this.context.report(target, "Cannot assign to final '" + target.text() + "'");
+                }
+
+                if (variable.isMissing() && !this.context.currentType().isEmpty()) {
+                    this.checkPropertyWrite(this.context.thisType(), target.text(), target, true);
+                }
+            }
+
+            return;
+        }
+
+        if (target.kind() == NodeKinds.memberAccess()) {
+            Bool onThis = target.child(0).kind() == NodeKinds.thisReference() || (target.child(0).kind() == NodeKinds.nameReference() && target.child(0).text() == "this");
+            String receiver = this.typeOfQuiet(target.child(0));
+            this.checkPropertyWrite(receiver, target.text(), target, onThis);
+        }
+    }
+
+    // Type of an expression without repeating diagnostics; the expression was already checked.
+    private String typeOfQuiet(Node node) {
+        this.context.setSilent(this.context.silent() + 1);
+        String type = this.expressionChecker().typeOf(node, "");
+        this.context.setSilent(this.context.silent() - 1);
+        return type;
+    }
+
+    private Void checkPropertyWrite(String receiver, String name, Node at, Bool viaThis) {
+        if (TypeText.isUnknown(receiver) || receiver == TypeNames.dynamicType() || TypeText.isTypeReference(receiver)) {
+            return;
+        }
+
+        List<MemberSymbol> found = this.memberLookup().candidates(receiver, name);
+
+        if (found.length() == 0) {
+            return;
+        }
+
+        MemberSymbol member = found.get(0);
+
+        if (member.kind() == NodeKinds.methodDeclaration()) {
+            this.context.report(at, "Cannot assign to method '" + name + "'");
+            return;
+        }
+
+        if (member.isReadOnly() && !(this.context.inConstructor() && viaThis && Names.same(member.owner(), this.context.currentType()))) {
+            this.context.report(at, "Property '" + name + "' is read-only");
+        }
+    }
+
+    private Bool isReceiverName(Node target) {
+        if (target.kind() != NodeKinds.nameReference() || this.context.cascadeReceiver().isEmpty() || this.context.scope().has(target.text())) {
+            return false;
+        }
+
+        List<MemberSymbol> found = this.memberLookup().candidates(this.context.cascadeReceiver(), target.text());
+        return found.length() > 0 && found.get(0).kind() != NodeKinds.methodDeclaration();
+    }
+
+    public String typeOfAssign(Node node) {
+        Node target = node.child(0);
+        String op = node.text();
+        String targetType = TypeNames.unknownType();
+
+        if (this.isReceiverName(target)) {
+            targetType = this.memberLookup().candidates(this.context.cascadeReceiver(), target.text()).get(0).type();
+            this.checkPropertyWrite(this.context.cascadeReceiver(), target.text(), target, false);
+        }
+
+        if (!this.isReceiverName(target)) {
+            targetType = this.expressionChecker().typeOf(target, "");
+            this.checkAssignable(target);
+        }
+
+        String valueType = this.expressionChecker().typeOf(node.child(1), targetType);
+
+        if (op == "=") {
+            this.context.requireAssignable(targetType, valueType, node.child(1), "Assignment");
+            return targetType;
+        }
+
+        // Compound assignment: += is also valid for String.
+        if (!this.context.isLoose(targetType) && !this.context.isLoose(valueType)) {
+            Bool ok = TypeText.isNumeric(targetType) && TypeText.isNumeric(valueType);
+
+            if (op == "+=" && targetType == TypeNames.stringType()) {
+                ok = true;
+            }
+
+            if (!ok) {
+                this.context.report(node, "Operator '" + op + "' cannot be applied to '" + targetType + "' and '" + valueType + "'");
+            }
+        }
+
+        return targetType;
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private MemberLookup memberLookup() {
+        return MemberLookup(this.context);
+    }
+}

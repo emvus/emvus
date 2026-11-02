@@ -1,0 +1,7 @@
+// expect-abort
+// Int.MIN / -1 overflows: checked arithmetic aborts instead of wrapping.
+static method<Int> main {
+    Int minimum = -9223372036854775807 - 1
+    Int divisor = -1
+    return minimum / divisor
+}

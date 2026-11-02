@@ -1,0 +1,67 @@
+namespace ring0::syntax;
+
+public class LexerCursor {
+    private String source;
+    private Int indexValue;
+    private Int lineValue;
+    private Int columnValue;
+
+    public LexerCursor(String text) {
+        this.source = text;
+        this.indexValue = 0;
+        this.lineValue = 1;
+        this.columnValue = 1;
+    }
+
+    public Bool isAtEnd() {
+        return this.indexValue >= this.source.length();
+    }
+
+    public Int index() {
+        return this.indexValue;
+    }
+
+    public Int line() {
+        return this.lineValue;
+    }
+
+    public Int column() {
+        return this.columnValue;
+    }
+
+    public String slice(Int start, Int end) {
+        return this.source.substring(start, end);
+    }
+
+    public String peekText() {
+        return this.peekAt(0);
+    }
+
+    public String peekNextText() {
+        return this.peekAt(1);
+    }
+
+    public String peekAt(Int offset) {
+        Int position = this.indexValue + offset;
+
+        if (position >= this.source.length()) {
+            return "";
+        }
+
+        return this.source.charAt(position).toString();
+    }
+
+    public String advanceText() {
+        String value = this.peekText();
+        this.indexValue = this.indexValue + 1;
+
+        if (value == "\n") {
+            this.lineValue = this.lineValue + 1;
+            this.columnValue = 1;
+            return value;
+        }
+
+        this.columnValue = this.columnValue + 1;
+        return value;
+    }
+}

@@ -1,0 +1,153 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class LocalChecker {
+    private CheckContext context;
+
+    public LocalChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void checkLocal(Node stmt) {
+        Node typeNode = AstQuery.typeChild(stmt);
+        Bool isFinal = AstQuery.isFinal(stmt);
+        Node init = AstQuery.childOfKind(stmt, NodeKinds.initializer());
+        Node valueNode = this.statementChecker().firstChild(init);
+
+        String declared = TypeNames.inferredType();
+
+        if (!AstQuery.isNone(typeNode)) {
+            declared = this.context.resolver().resolve(typeNode, this.context.typeParamNames());
+        }
+
+        if (declared == TypeNames.inferredType()) {
+            if (AstQuery.isNone(valueNode)) {
+                this.context.report(stmt, "'var' requires an initializer");
+                this.declare(stmt, TypeNames.unknownType(), isFinal);
+                return;
+            }
+
+            String inferred = this.expressionChecker().typeOf(valueNode, "");
+
+            if (inferred == TypeNames.nullType()) {
+                this.context.report(stmt, "Cannot infer a type for '" + stmt.text() + "' from 'null'");
+                inferred = TypeNames.unknownType();
+            }
+
+            if (inferred == TypeNames.voidType()) {
+                this.context.report(stmt, "Cannot assign a Void value to '" + stmt.text() + "'");
+                inferred = TypeNames.unknownType();
+            }
+
+            this.declare(stmt, inferred, isFinal);
+            return;
+        }
+
+        if (!AstQuery.isNone(valueNode)) {
+            String found = this.expressionChecker().typeOf(valueNode, declared);
+            this.context.requireAssignable(declared, found, valueNode, "Initializer of '" + stmt.text() + "'");
+        }
+
+        this.declare(stmt, declared, isFinal);
+    }
+
+    // Declares the local and records its type and spelling on the declaring node.
+    private Void declare(Node at, String type, Bool isFinal) {
+        at.setType(type + "");
+        at.bind(SymbolKinds.local(), at.text(), "");
+        this.context.declareLocal(at.text(), type, isFinal, at);
+    }
+
+    public Void checkDestructure(Node stmt) {
+        Node init = AstQuery.childOfKind(stmt, NodeKinds.initializer());
+        String source = TypeNames.unknownType();
+
+        if (init.count() > 0) {
+            source = this.expressionChecker().typeOf(init.child(0), "");
+        }
+
+        List<String> elements = this.elementTypes(source);
+        Int bindings = 0;
+        Int index = 0;
+
+        while (index < stmt.count()) {
+            if (stmt.child(index).kind() == NodeKinds.binding() || stmt.child(index).kind() == NodeKinds.wildcard()) {
+                bindings = bindings + 1;
+            }
+
+            index = index + 1;
+        }
+
+        if (elements.length() > 0 && elements.length() != bindings) {
+            this.context.report(stmt, "Destructuring expects " + elements.length().toString() + " element(s) but has " + bindings.toString() + " binding(s)");
+        }
+
+        Int position = 0;
+        index = 0;
+
+        while (index < stmt.count()) {
+            Node child = stmt.child(index);
+            index = index + 1;
+
+            if (child.kind() != NodeKinds.binding() && child.kind() != NodeKinds.wildcard()) {
+                continue;
+            }
+
+            if (child.kind() == NodeKinds.binding()) {
+                String type = TypeNames.unknownType();
+
+                if (elements.length() == bindings && position < elements.length()) {
+                    type = elements.get(position) + "";
+                }
+
+                this.declare(child, type, AstQuery.isFinal(stmt));
+            }
+
+            position = position + 1;
+        }
+    }
+
+    // Element types of a tuple or the data fields of a data class/record (empty if unknown).
+    private List<String> elementTypes(String type) {
+        if (TypeText.isTuple(type)) {
+            return TypeText.args(type);
+        }
+
+        List<String> result = List();
+        TypeSymbol symbol = this.context.table().findType(TypeText.base(type));
+
+        if (symbol.isMissing() || (symbol.kind() != NodeKinds.dataClass() && symbol.kind() != NodeKinds.recordDeclaration())) {
+            return result;
+        }
+
+        Int index = 0;
+
+        while (index < symbol.members().length()) {
+            MemberSymbol member = symbol.members().get(index);
+
+            if (member.kind() == NodeKinds.constructorDeclaration()) {
+                Int paramIndex = 0;
+
+                while (paramIndex < member.paramCount()) {
+                    result.add(member.paramType(paramIndex));
+                    paramIndex = paramIndex + 1;
+                }
+
+                return result;
+            }
+
+            index = index + 1;
+        }
+
+        return result;
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+
+    private StatementChecker statementChecker() {
+        return StatementChecker(this.context);
+    }
+}

@@ -1,0 +1,218 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class OperatorChecker {
+    private CheckContext context;
+
+    public OperatorChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public String typeOfPropagate(Node node) {
+        String operand = this.expressionChecker().typeOf(node.child(0), "");
+
+        if (TypeText.isUnknown(operand) || operand == TypeNames.dynamicType()) {
+            return TypeNames.unknownType();
+        }
+
+        if (!TypeText.isResult(operand)) {
+            this.context.report(node, "'?' requires a Result value, found '" + operand + "'");
+            return TypeNames.unknownType();
+        }
+
+        if (!this.context.collecting()) {
+            if (!TypeText.isResult(this.context.returnType())) {
+                this.context.report(node, "'?' can only be used in a method that returns Result<T, E>");
+            }
+
+            if (TypeText.isResult(this.context.returnType())) {
+                String errorType = TypeText.resultError(operand);
+                String methodError = TypeText.resultError(this.context.returnType());
+
+                if (!this.context.rules().assignable(methodError, errorType)) {
+                    this.context.report(node, "Error type '" + errorType + "' of '?' does not match the method's error type '" + methodError + "'");
+                }
+            }
+        }
+
+        return TypeText.resultValue(operand);
+    }
+
+    public String typeOfUnwrap(Node node) {
+        String operand = this.expressionChecker().typeOf(node.child(0), "");
+
+        if (TypeText.isUnknown(operand) || operand == TypeNames.dynamicType()) {
+            return TypeNames.unknownType();
+        }
+
+        if (!TypeText.isResult(operand)) {
+            this.context.report(node, "'!' requires a Result value, found '" + operand + "'");
+            return TypeNames.unknownType();
+        }
+
+        return TypeText.resultValue(operand);
+    }
+
+    public String typeOfIncrement(Node node) {
+        String operand = this.expressionChecker().typeOf(node.child(0), "");
+        this.assignmentChecker().checkAssignable(node.child(0));
+
+        if (!TypeText.isUnknown(operand) && operand != TypeNames.dynamicType() && !TypeText.isNumeric(operand) && !this.context.typeParamNames().contains(operand)) {
+            this.context.report(node, "Operator '" + node.text() + "' requires a numeric operand, found '" + operand + "'");
+        }
+
+        return operand;
+    }
+
+    public String typeOfUnary(Node node) {
+        String op = node.text();
+        String operand = this.expressionChecker().typeOf(node.child(0), "");
+
+        if (TypeText.isUnknown(operand) || operand == TypeNames.dynamicType() || this.context.typeParamNames().contains(operand)) {
+            if (op == "!") {
+                return TypeNames.booleanType();
+            }
+
+            return operand;
+        }
+
+        if (op == "!") {
+            if (operand != TypeNames.booleanType()) {
+                this.context.report(node, "Operator '!' requires Boolean, found '" + operand + "'");
+            }
+
+            return TypeNames.booleanType();
+        }
+
+        if (op == "++" || op == "--") {
+            this.assignmentChecker().checkAssignable(node.child(0));
+        }
+
+        if (!TypeText.isNumeric(operand)) {
+            this.context.report(node, "Operator '" + op + "' requires a numeric operand, found '" + operand + "'");
+            return TypeNames.unknownType();
+        }
+
+        return operand;
+    }
+
+    public String typeOfBinary(Node node) {
+        String op = node.text();
+        String left = this.expressionChecker().typeOf(node.child(0), "");
+        String right = this.expressionChecker().typeOf(node.child(1), "");
+
+        if (op == "&&" || op == "||") {
+            this.requireBooleanOperand(node.child(0), op, left);
+            this.requireBooleanOperand(node.child(1), op, right);
+            return TypeNames.booleanType();
+        }
+
+        Bool loose = this.context.isLoose(left) || this.context.isLoose(right);
+
+        if (op == "==" || op == "!=") {
+            this.checkComparable(node, left, right, loose);
+            return TypeNames.booleanType();
+        }
+
+        if (op == "<" || op == ">" || op == "<=" || op == ">=") {
+            this.checkOrdered(node, op, left, right, loose);
+            return TypeNames.booleanType();
+        }
+
+        return this.arithmeticType(node, op, left, right, loose);
+    }
+
+    private Void requireBooleanOperand(Node operand, String op, String type) {
+        if (this.context.isLoose(type) || type == TypeNames.booleanType()) {
+            return;
+        }
+
+        this.context.report(operand, "Operator '" + op + "' requires Boolean, found '" + type + "'");
+    }
+
+    private Void checkComparable(Node node, String left, String right, Bool loose) {
+        if (loose || left == TypeNames.nullType() || right == TypeNames.nullType()) {
+            return;
+        }
+
+        TypeRules rules = this.context.rules();
+
+        if (rules.assignable(left, right) || rules.assignable(right, left) || this.isCharAndString(left, right)) {
+            return;
+        }
+
+        this.context.report(node, "Cannot compare '" + left + "' with '" + right + "'");
+    }
+
+    private Bool isCharAndString(String left, String right) {
+        String chars = TypeNames.charType();
+        String text = TypeNames.stringType();
+        return (left == chars && right == text) || (left == text && right == chars);
+    }
+
+    private Void checkOrdered(Node node, String op, String left, String right, Bool loose) {
+        Bool numbers = TypeText.isNumeric(left) && TypeText.isNumeric(right);
+        Bool strings = left == TypeNames.stringType() && right == TypeNames.stringType();
+
+        if (loose || numbers || strings) {
+            return;
+        }
+
+        this.context.report(node, "Operator '" + op + "' cannot be applied to '" + left + "' and '" + right + "'");
+    }
+
+    private String arithmeticType(Node node, String op, String left, String right, Bool loose) {
+        if (op == "+" && (left == TypeNames.stringType() || right == TypeNames.stringType())) {
+            return TypeNames.stringType();
+        }
+
+        if (loose) {
+            return this.looseResult(left, right);
+        }
+
+        if (!TypeText.isNumeric(left) || !TypeText.isNumeric(right)) {
+            this.context.report(node, "Operator '" + op + "' cannot be applied to '" + left + "' and '" + right + "'");
+            return TypeNames.unknownType();
+        }
+
+        if (left == TypeNames.floatType() || right == TypeNames.floatType()) {
+            return TypeNames.floatType();
+        }
+
+        return TypeNames.intType();
+    }
+
+    private String looseResult(String left, String right) {
+        if (left == TypeNames.dynamicType() || right == TypeNames.dynamicType()) {
+            return TypeNames.dynamicType();
+        }
+
+        return TypeNames.unknownType();
+    }
+
+    public String typeOfTernary(Node node, String expected) {
+        this.expressionChecker().requireBoolean(node.child(0), "Condition of '?:'");
+        String a = this.expressionChecker().typeOf(node.child(1), expected);
+        String b = this.expressionChecker().typeOf(node.child(2), expected);
+
+        if (this.context.rules().assignable(a, b)) {
+            return a;
+        }
+
+        if (this.context.rules().assignable(b, a)) {
+            return b;
+        }
+
+        this.context.report(node, "Branches of '?:' have incompatible types '" + a + "' and '" + b + "'");
+        return TypeNames.unknownType();
+    }
+
+    private AssignmentChecker assignmentChecker() {
+        return AssignmentChecker(this.context);
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

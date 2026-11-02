@@ -1,0 +1,11 @@
+// expect: 'text' may be null; check it first
+package main
+
+class Holder {
+    String text { get, set } = null
+}
+
+method<String> read(Holder holder) {
+    final var text = holder.text
+    return text
+}

@@ -1,0 +1,21 @@
+// Instances of a generic class are list elements: List<Box<Int>>.
+class Box where T {
+    T value { get }
+
+    Box(T value) {
+        this.value = value
+    }
+}
+
+static method<Int> main {
+    List<Box<Int>> boxes = []
+    boxes.add(Box(4))
+    boxes.add(Box(6))
+    Int sum = 0
+
+    for (Box<Int> b in boxes) {
+        sum = sum + b.value
+    }
+
+    return sum
+}

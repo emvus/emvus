@@ -1,0 +1,48 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Decides before a body is emitted whether it needs the function-level owner scope: text
+// temporaries and objects are both owned by it, and it must begin in the entry block so that
+// it dominates every allocation.
+public class ScopeUsage {
+    public ScopeUsage() {
+    }
+
+    public static Bool isNeeded(LoweringContext context, Node node) {
+        if (TextUsage.isUsedIn(node)) {
+            return true;
+        }
+
+        if (node.kind() == "lambda" || (node.kind() == "list-literal" && ListTable.isListText(node.type()))) {
+            return true;
+        }
+
+        if (node.kind() == "call" && ScopeUsage.producesObject(context, node)) {
+            return true;
+        }
+
+        Int index = 0;
+
+        while (index < node.count()) {
+            if (ScopeUsage.isNeeded(context, node.child(index))) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    // A call whose static type is a class creates or returns an owned object.
+    private static Bool producesObject(LoweringContext context, Node call) {
+        String type = call.type();
+
+        if (type.isEmpty() || type == "?") {
+            return false;
+        }
+
+        return RefKinds.isReference(context.kinds().kindOfTypeText(type));
+    }
+}

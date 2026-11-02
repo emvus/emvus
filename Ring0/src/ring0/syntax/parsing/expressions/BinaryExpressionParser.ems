@@ -1,0 +1,132 @@
+namespace ring0::syntax;
+
+// Binary operator levels from `||` down to `*`, left associative. Every level is a
+// parse-operand-then-fold pair so precedence is visible in the call chain.
+public class BinaryExpressionParser {
+    private ParserState state;
+
+    public BinaryExpressionParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parseOr() {
+        return this.parseOrRest(this.parseAnd());
+    }
+
+    private Node parseOrRest(Node left) {
+        if (!this.state.checkSymbol("||")) {
+            return left;
+        }
+
+        Token op = this.state.advance();
+        Node right = this.parseAnd();
+        return this.parseOrRest(this.binary(op, left, right));
+    }
+
+    private Node parseAnd() {
+        return this.parseAndRest(this.parseEquality());
+    }
+
+    private Node parseAndRest(Node left) {
+        if (!this.state.checkSymbol("&&")) {
+            return left;
+        }
+
+        Token op = this.state.advance();
+        Node right = this.parseEquality();
+        return this.parseAndRest(this.binary(op, left, right));
+    }
+
+    private Node parseEquality() {
+        return this.parseEqualityRest(this.parseRelational());
+    }
+
+    private Node parseEqualityRest(Node left) {
+        if (!(this.state.checkSymbol("==") || this.state.checkSymbol("!="))) {
+            return left;
+        }
+
+        Token op = this.state.advance();
+        Node right = this.parseRelational();
+        return this.parseEqualityRest(this.binary(op, left, right));
+    }
+
+    private Node parseRelational() {
+        return this.parseRelationalRest(this.parseAdditive());
+    }
+
+    private Node parseRelationalRest(Node left) {
+        Token token = this.state.peek();
+
+        if (this.isComparison(token)) {
+            this.state.advance();
+            Node right = this.parseAdditive();
+            return this.parseRelationalRest(this.binary(token, left, right));
+        }
+
+        if (token.isWord("is") || token.isWord("as")) {
+            return this.parseRelationalRest(this.parseTypeTest(token, left));
+        }
+
+        return left;
+    }
+
+    private Bool isComparison(Token token) {
+        return token.isSymbol("<") || token.isSymbol(">") || token.isSymbol("<=") || token.isSymbol(">=");
+    }
+
+    // `x is T` / `x as T`: the node kind is the keyword itself.
+    private Node parseTypeTest(Token keyword, Node left) {
+        this.state.advance();
+        Node typeNode = TypeParser(this.state).parse();
+        String kind = AstKinds.isCheck();
+
+        if (keyword.isWord("as")) {
+            kind = AstKinds.asCast();
+        }
+
+        Node test = this.state.nodeAt(keyword, kind, "");
+        test.add(left);
+        test.add(typeNode);
+        return test;
+    }
+
+    private Node parseAdditive() {
+        return this.parseAdditiveRest(this.parseMultiplicative());
+    }
+
+    private Node parseAdditiveRest(Node left) {
+        if (!(this.state.checkSymbol("+") || this.state.checkSymbol("-"))) {
+            return left;
+        }
+
+        Token op = this.state.advance();
+        Node right = this.parseMultiplicative();
+        return this.parseAdditiveRest(this.binary(op, left, right));
+    }
+
+    private Node parseMultiplicative() {
+        return this.parseMultiplicativeRest(this.parseOperand());
+    }
+
+    private Node parseMultiplicativeRest(Node left) {
+        if (!(this.state.checkSymbol("*") || this.state.checkSymbol("/") || this.state.checkSymbol("%"))) {
+            return left;
+        }
+
+        Token op = this.state.advance();
+        Node right = this.parseOperand();
+        return this.parseMultiplicativeRest(this.binary(op, left, right));
+    }
+
+    private Node parseOperand() {
+        return UnaryPostfixParser(this.state).parseUnary();
+    }
+
+    private Node binary(Token op, Node left, Node right) {
+        Node node = this.state.nodeAt(op, AstKinds.binary(), op.text());
+        node.add(left);
+        node.add(right);
+        return node;
+    }
+}

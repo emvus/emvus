@@ -1,0 +1,107 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+// Shared state of one null-flow run: diagnostics, nullable-property facts and the
+// environments captured at break, continue and return statements.
+public class FlowContext {
+    private DiagnosticBag bag;
+    private Int silentDepth;
+    private List<String> nullableNames;
+    private List<FlowEnv> breakList;
+    private List<FlowEnv> continueList;
+    private List<FlowEnv> exitList;
+
+    public FlowContext(DiagnosticBag diagnostics) {
+        this.bag = diagnostics;
+        this.silentDepth = 0;
+        this.nullableNames = List();
+        this.breakList = List();
+        this.continueList = List();
+        this.exitList = List();
+    }
+
+    // Errors are suppressed while a loop body is analysed only to learn its effect.
+    public Void error(String message, Node at) {
+        if (this.silentDepth > 0) {
+            return;
+        }
+
+        this.bag.error(message, at.line(), at.column());
+    }
+
+    public Void beginSilent() {
+        this.silentDepth = this.silentDepth + 1;
+    }
+
+    public Void endSilent() {
+        this.silentDepth = this.silentDepth - 1;
+    }
+
+    public Void addNullableProperty(String name) {
+        this.nullableNames.add(Names.lower(name));
+    }
+
+    public Bool isNullableProperty(String name) {
+        String key = Names.lower(name);
+        Int index = 0;
+
+        while (index < this.nullableNames.length()) {
+            if (this.nullableNames.get(index) == key) {
+                return true;
+            }
+
+            index = index + 1;
+        }
+
+        return false;
+    }
+
+    public Int breakCount() {
+        return this.breakList.length();
+    }
+
+    public Void addBreak(FlowEnv env) {
+        this.breakList.add(env.copy());
+    }
+
+    public List<FlowEnv> takeBreaksFrom(Int mark) {
+        return FlowContext.takeFrom(this.breakList, mark);
+    }
+
+    public Int continueCount() {
+        return this.continueList.length();
+    }
+
+    public Void addContinue(FlowEnv env) {
+        this.continueList.add(env.copy());
+    }
+
+    public List<FlowEnv> takeContinuesFrom(Int mark) {
+        return FlowContext.takeFrom(this.continueList, mark);
+    }
+
+    public Int exitCount() {
+        return this.exitList.length();
+    }
+
+    public Void addExit(FlowEnv env) {
+        this.exitList.add(env.copy());
+    }
+
+    public List<FlowEnv> takeExitsFrom(Int mark) {
+        return FlowContext.takeFrom(this.exitList, mark);
+    }
+
+    private static List<FlowEnv> takeFrom(List<FlowEnv> source, Int mark) {
+        List<FlowEnv> taken = List();
+
+        while (source.length() > mark) {
+            taken.add(source.get(mark));
+            source.removeAt(mark);
+        }
+
+        return taken;
+    }
+}

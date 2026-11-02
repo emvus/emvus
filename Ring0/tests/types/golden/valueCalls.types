@@ -1,0 +1,29 @@
+6:20 assign = : Int
+6:14 member power : Int @ property power (Engine)
+6:9 name this : Engine @ local this
+6:22 name power : Int @ parameter power
+14:21 assign = : Engine
+14:14 member engine : Engine @ property engine (Car)
+14:9 name this : Car @ local this
+14:29 call : Engine @ constructor Engine (Engine|0|)
+14:30 name power : Int @ parameter power
+19:5 local twice : Function<Int,Int> @ local twice
+19:17 lambda : Function<Int,Int>
+19:30 binary * : Int
+19:28 name n : Int @ parameter n
+19:32 int-literal 2 : Int @ literal int-literal
+20:17 call : Int @ value twice
+20:12 name twice : Function<Int,Int> @ local twice
+20:18 name x : Int @ parameter x
+24:5 local pairs : List<[Int,Int]> @ local pairs
+24:30 list-literal : List<[Int,Int]> @ literal list-literal
+25:14 call : Void @ method add (List|0|)
+25:5 name pairs : List<[Int,Int]> @ local pairs
+25:15 list-literal : [Int,Int] @ literal list-literal
+25:16 int-literal 1 : Int @ literal int-literal
+25:19 int-literal 2 : Int @ literal int-literal
+26:5 local car : Car @ local car
+26:18 call : Car @ constructor Car (Car|0|)
+26:19 int-literal 3 : Int @ literal int-literal
+
+check ok

@@ -1,0 +1,15 @@
+// A list of value records: `[]` takes its element type from the declaration.
+record Point(Int x, Int y)
+
+static method<Int> main {
+    List<Point> ps = []
+    ps.add(Point(1, 2))
+    ps.add(Point(3, 4))
+    Int sum = 0
+
+    for (Point p in ps) {
+        sum = sum + p.x * p.y
+    }
+
+    return sum + ps.get(1).y
+}

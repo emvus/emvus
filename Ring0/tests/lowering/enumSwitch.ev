@@ -1,0 +1,19 @@
+// enum values are ordinals; a switch expression over every entry needs no catch-all.
+enum Color {
+    RED,
+    GREEN,
+    BLUE
+}
+
+static method<Int> weight(Color color) {
+    return switch (color) {
+        RED -> 1
+        GREEN -> 10
+        BLUE -> 100
+    }
+}
+
+static method<Int> main {
+    Color chosen = Color.GREEN
+    return weight(Color.BLUE) + weight(chosen) + weight(Color.RED)
+}

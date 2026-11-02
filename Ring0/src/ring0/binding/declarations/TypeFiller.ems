@@ -1,0 +1,180 @@
+namespace ring0::binding;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Node;
+
+public class TypeFiller {
+    private SymbolTable table;
+    private DiagnosticBag bag;
+    private TypeResolver resolver;
+
+    public TypeFiller(SymbolTable symbols, DiagnosticBag diagnostics) {
+        this.table = symbols;
+        this.bag = diagnostics;
+        this.resolver = TypeResolver(symbols, diagnostics);
+    }
+
+    public List<String> typeParamNames(Node decl) {
+        List<String> names = List();
+        Node whereNode = AstQuery.childOfKind(decl, NodeKinds.whereClause());
+        Int index = 0;
+
+        while (index < whereNode.count()) {
+            names.add(whereNode.child(index).text());
+            index = index + 1;
+        }
+
+        return names;
+    }
+
+    public String boundsText(Node typeParam, List<String> scope) {
+        String text = "";
+        Int index = 0;
+
+        while (index < typeParam.count()) {
+            if (index > 0) {
+                text = text + "&";
+            }
+
+            text = text + this.resolver.resolve(typeParam.child(index), scope);
+            index = index + 1;
+        }
+
+        return text;
+    }
+
+    public Void fillType(Node decl) {
+        TypeSymbol symbol = this.table.findType(decl.text());
+
+        if (symbol.isMissing() || symbol.line() != decl.line()) {
+            return;
+        }
+
+        List<String> scope = this.typeParamNames(decl);
+        Node whereNode = AstQuery.childOfKind(decl, NodeKinds.whereClause());
+        Int tp = 0;
+
+        while (tp < whereNode.count()) {
+            symbol.addTypeParam(whereNode.child(tp).text(), this.boundsText(whereNode.child(tp), scope));
+            tp = tp + 1;
+        }
+
+        this.supertypeFiller().fillSupertypes(decl, symbol, scope);
+        this.fillParams(decl, symbol, scope);
+
+        if (decl.kind() == NodeKinds.enumDeclaration()) {
+            this.fillEnum(decl, symbol);
+        }
+
+        Node body = AstQuery.childOfKind(decl, NodeKinds.body());
+        Bool hasConstructor = false;
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node member = body.child(index);
+
+            if (member.kind() == NodeKinds.constructorDeclaration()) {
+                hasConstructor = true;
+            }
+
+            this.memberCollector().addMember(member, symbol, scope);
+            index = index + 1;
+        }
+
+        if ((decl.kind() == NodeKinds.classDeclaration()) && !hasConstructor) {
+            symbol.addMember(MemberSymbol(decl.text(), SymbolKinds.constructor(), decl.text(), decl.text()));
+        }
+
+        if (decl.kind() == NodeKinds.exceptionDeclaration() && AstQuery.isNone(AstQuery.childOfKind(decl, NodeKinds.params()))) {
+            MemberSymbol constructor = MemberSymbol(decl.text(), SymbolKinds.constructor(), decl.text(), decl.text());
+            constructor.addParam("message", TypeNames.stringType(), true);
+            symbol.addMember(constructor);
+        }
+    }
+
+    // data class, record, exception: fields in the header
+    private Void fillParams(Node decl, TypeSymbol symbol, List<String> scope) {
+        Node params = AstQuery.childOfKind(decl, NodeKinds.params());
+
+        if (AstQuery.isNone(params)) {
+            return;
+        }
+
+        MemberSymbol constructor = MemberSymbol(decl.text(), SymbolKinds.constructor(), decl.text(), decl.text());
+        constructor.setPosition(decl.line(), decl.column());
+        Bool sawDefault = false;
+        List<String> seen = List();
+        Int index = 0;
+
+        while (index < params.count()) {
+            Node param = params.child(index);
+            Node typeNode = AstQuery.typeChild(param);
+            String type = TypeNames.unknownType();
+
+            if (!AstQuery.isNone(typeNode)) {
+                type = this.resolver.resolve(typeNode, scope);
+            }
+
+            Bool hasDefault = AstQuery.hasDefaultValue(param);
+
+            if (hasDefault) {
+                sawDefault = true;
+            }
+
+            if (!hasDefault && sawDefault) {
+                this.bag.error("Parameter '" + param.text() + "' without default value cannot follow a parameter with a default value", param.line(), param.column());
+            }
+
+            if (seen.contains(Names.lower(param.text()))) {
+                this.bag.error("Duplicate parameter '" + param.text() + "'", param.line(), param.column());
+            }
+
+            seen.add(Names.lower(param.text()));
+            constructor.addParam(param.text(), type, hasDefault);
+            MemberSymbol property = MemberSymbol(param.text(), SymbolKinds.property(), type, decl.text());
+            property.setReadOnly(true);
+            property.setPosition(param.line(), param.column());
+            symbol.addMember(property);
+            index = index + 1;
+        }
+
+        symbol.addMember(constructor);
+    }
+
+    private Void fillEnum(Node decl, TypeSymbol symbol) {
+        Node body = AstQuery.childOfKind(decl, NodeKinds.body());
+        Int index = 0;
+
+        while (index < body.count()) {
+            Node entry = body.child(index);
+
+            if (entry.kind() == NodeKinds.enumEntry()) {
+                if (symbol.entries().contains(entry.text())) {
+                    this.bag.error("Duplicate enum entry '" + entry.text() + "'", entry.line(), entry.column());
+                }
+
+                symbol.addEntry(entry.text());
+                MemberSymbol member = MemberSymbol(entry.text(), SymbolKinds.entry(), decl.text(), decl.text());
+                member.setStatic(true);
+                member.setReadOnly(true);
+                symbol.addMember(member);
+            }
+
+            index = index + 1;
+        }
+
+        MemberSymbol values = MemberSymbol("values", SymbolKinds.method(), "List<" + decl.text() + ">", decl.text());
+        values.setStatic(true);
+        symbol.addMember(values);
+        symbol.addMember(MemberSymbol("name", SymbolKinds.method(), TypeNames.stringType(), decl.text()));
+        symbol.addMember(MemberSymbol("ordinal", SymbolKinds.method(), TypeNames.intType(), decl.text()));
+    }
+
+    private MemberCollector memberCollector() {
+        return MemberCollector(this.table, this.bag);
+    }
+
+    private SupertypeFiller supertypeFiller() {
+        return SupertypeFiller(this.table, this.bag);
+    }
+}

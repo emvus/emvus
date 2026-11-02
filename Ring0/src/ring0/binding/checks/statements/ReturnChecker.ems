@@ -1,0 +1,107 @@
+namespace ring0::binding;
+
+use ring0::syntax::Node;
+
+public class ReturnChecker {
+    private CheckContext context;
+
+    public ReturnChecker(CheckContext checkContext) {
+        this.context = checkContext;
+    }
+
+    public Void checkReturn(Node stmt) {
+        if (this.context.collecting()) {
+            if (stmt.count() > 0) {
+                String type = this.expressionChecker().typeOf(stmt.child(0), "");
+
+                if (this.context.collected().isEmpty()) {
+                    this.context.setCollected(type);
+                }
+            }
+
+            return;
+        }
+
+        if (stmt.count() == 0) {
+            if (this.context.returnType() != TypeNames.voidType() && !this.context.returnType().isEmpty() && !TypeText.isUnknown(this.context.returnType())) {
+                this.context.report(stmt, "Missing return value; method returns '" + this.context.returnType() + "'");
+            }
+
+            return;
+        }
+
+        String found = this.expressionChecker().typeOf(stmt.child(0), this.context.returnType());
+
+        if (this.context.returnType() == TypeNames.voidType()) {
+            this.context.report(stmt, "A Void method cannot return a value");
+            return;
+        }
+
+        if (this.context.returnType().isEmpty()) {
+            return;
+        }
+
+        if (TypeText.isResult(this.context.returnType()) && !TypeText.isResult(found) && !TypeText.isUnknown(found) && found != TypeNames.dynamicType()) {
+            this.context.report(stmt.child(0), "Method returns '" + this.context.returnType() + "'; use 'success' to return a value, found '" + found + "'");
+            return;
+        }
+
+        this.context.requireAssignable(this.context.returnType(), found, stmt.child(0), "Return value");
+    }
+
+    public Void checkFail(Node stmt) {
+        String type = TypeNames.unknownType();
+
+        if (stmt.count() > 0) {
+            type = this.expressionChecker().typeOf(stmt.child(0), "");
+        }
+
+        if (this.context.collecting()) {
+            return;
+        }
+
+        if (!TypeText.isResult(this.context.returnType())) {
+            this.context.report(stmt, "'fail' requires the enclosing method to return Result<T, E>");
+            return;
+        }
+
+        String errorType = TypeText.resultError(this.context.returnType());
+
+        if (!this.context.rules().assignable(errorType, type)) {
+            this.context.report(stmt, "'fail' value of type '" + type + "' is not assignable to error type '" + errorType + "'");
+        }
+    }
+
+    public Void checkSuccess(Node stmt) {
+        String type = TypeNames.unknownType();
+
+        if (stmt.count() > 0) {
+            String valueType = TypeText.resultValue(this.context.returnType());
+
+            if (!TypeText.isResult(this.context.returnType())) {
+                valueType = "";
+            }
+
+            type = this.expressionChecker().typeOf(stmt.child(0), valueType);
+        }
+
+        if (this.context.collecting()) {
+            return;
+        }
+
+        if (!TypeText.isResult(this.context.returnType())) {
+            this.context.report(stmt, "'success' requires the enclosing method to return Result<T, E>");
+            return;
+        }
+
+        String valueType = TypeText.resultValue(this.context.returnType());
+
+        if (!this.context.rules().assignable(valueType, type)) {
+            this.context.report(stmt, "'success' value of type '" + type + "' is not assignable to '" + valueType + "'");
+        }
+    }
+
+    private ExpressionChecker expressionChecker() {
+        return ExpressionChecker(this.context);
+    }
+}

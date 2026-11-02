@@ -1,0 +1,80 @@
+{
+  "name": "emvus-lang",
+  "displayName": "Emvus Language Support",
+  "description": "Syntax highlighting, snippets, completion, auto-imports and a language server for the Emvus language (.ev).",
+  "version": "0.1.0",
+  "publisher": "emerald",
+  "license": "Apache-2.0",
+  "engines": { "vscode": "^1.85.0" },
+  "categories": ["Programming Languages", "Snippets", "Linters"],
+  "keywords": ["emvus", "ev", "language server", "lsp"],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "languages": [
+      {
+        "id": "emvus",
+        "aliases": ["Emvus", "emvus"],
+        "extensions": [".ev"],
+        "configuration": "./language-configuration.json",
+        "icon": { "light": "./media/icon.svg", "dark": "./media/icon.svg" }
+      }
+    ],
+    "grammars": [
+      { "language": "emvus", "scopeName": "source.emvus", "path": "./syntaxes/emvus.tmLanguage.json" }
+    ],
+    "snippets": [{ "language": "emvus", "path": "./snippets/emvus.json" }],
+    "commands": [
+      { "command": "emvus.restartServer", "title": "Emvus: Restart Language Server" },
+      { "command": "emvus.organizeImports", "title": "Emvus: Organize Imports" },
+      { "command": "emvus.runChecker", "title": "Emvus: Run External Checker" }
+    ],
+    "configuration": {
+      "title": "Emvus",
+      "properties": {
+        "emvus.sourceRoots": {
+          "type": "array", "items": { "type": "string" }, "default": ["."],
+          "description": "Folders (relative to the workspace folder) whose .ev files are indexed."
+        },
+        "emvus.completion.autoImport": {
+          "type": "boolean", "default": true,
+          "description": "Suggest types from other packages and insert the 'use' declaration automatically."
+        },
+        "emvus.diagnostics.unusedImports": {
+          "type": "boolean", "default": true,
+          "description": "Report unused 'use' imports as hints."
+        },
+        "emvus.checker.path": {
+          "type": "string", "default": "",
+          "description": "Optional external checker binary (the Ring0 build). It is run as '<path> <file.ev> --check'; lines like 'error <line>: <message>' become diagnostics."
+        },
+        "emvus.checker.checkOnSave": {
+          "type": "boolean", "default": false,
+          "description": "Run the external checker on save."
+        },
+        "emvus.trace.server": {
+          "type": "string", "enum": ["off", "messages", "verbose"], "default": "off",
+          "description": "Trace the communication between VS Code and the Emvus language server."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node esbuild.mjs && node --test test/",
+    "package": "npm run build && vsce package --no-dependencies",
+    "vscode:prepublish": "node esbuild.mjs --production"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.5.0",
+    "vscode-languageclient": "^9.0.1",
+    "vscode-languageserver": "^9.0.1",
+    "vscode-languageserver-textdocument": "^1.0.12"
+  }
+}

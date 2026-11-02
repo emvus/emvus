@@ -1,0 +1,58 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// Every function exit goes through here so the open scopes are closed on all paths.
+// Primitive and Void returns need closed owner scopes; a String result is copied into a
+// fresh owned list that leaves the function with `returnOwned` (a borrowed parameter or a
+// local cannot be returned directly); an object must be an owned reference, which `returnOwned`
+// hands to the caller after closing the remaining scopes itself.
+public class ReturnEmitter {
+    public ReturnEmitter() {
+    }
+
+    public static Void emit(LoweringContext context, Node at, LoweredValue value) {
+        Int span = context.span(at);
+        Int scope = context.scopes().functionScope();
+
+        if (value.kind() == "String") {
+            ReturnEmitter.emitText(context, value.valueId(), scope, span);
+            return;
+        }
+
+        if (RefKinds.isReference(value.kind())) {
+            ReturnEmitter.emitObject(context, at, value, span);
+            return;
+        }
+
+        ReturnEmitter.closeScopes(context, span);
+        context.ops().returnValue(value.valueId(), span);
+    }
+
+    // Closes every open scope innermost-first without changing the lowering-time stack: other
+    // control-flow paths still own the same scopes.
+    public static Void closeScopes(LoweringContext context, Int span) {
+        Int position = context.scopes().count() - 1;
+
+        while (position >= 0) {
+            context.ops().scopeEnd(context.scopes().at(position), span);
+            position = position - 1;
+        }
+    }
+
+    private static Void emitObject(LoweringContext context, Node at, LoweredValue value, Int span) {
+        if (value.isBorrowed()) {
+            context.unsupported(at, "returning a borrowed object (this, a parameter, a field or a view) needs shared ownership; Sublang can transfer only an owned reference (backend requirement: shared/escaping object references or an explicit clone)");
+            return;
+        }
+
+        context.ops().returnOwned(value.valueId(), span);
+    }
+
+    private static Void emitText(LoweringContext context, Int source, Int scope, Int span) {
+        Int zero = context.ops().constInt(0, span);
+        Int length = context.collections().length(source, span);
+        Int copy = context.collections().textSlice(context.textListType(), source, zero, length, scope, span);
+        context.ops().returnOwned(copy, span);
+    }
+}

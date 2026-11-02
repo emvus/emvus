@@ -1,0 +1,31 @@
+// Generic methods are monomorphized per instantiation: List<Int>, Int, Float.
+method<T> first(List<T> items) where T {
+    return items.get(0)
+}
+
+method<T> pick(T a, T b, Boolean left) where T {
+    if (left) {
+        return a
+    }
+
+    return b
+}
+
+method<T> biggest(T a, T b) where T: Comparable<T> {
+    return a.compareTo(b) > 0 ? a : b
+}
+
+static method<Int> main {
+    List<Int> xs = [7, 8]
+    Int a = first(xs)
+    Int b = pick(1, 2, false)
+    Float f = pick(1.5, 2.5, true)
+    Int c = biggest(3, 9)
+    Float g = biggest(2.5, 1.5)
+
+    if (g > f) {
+        return a * 100 + b * 10 + c
+    }
+
+    return 0
+}

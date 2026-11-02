@@ -1,0 +1,399 @@
+namespace ring0::binding;
+
+// AST node kinds (see ast.md); centralised so comparisons cannot contain typos.
+public class NodeKinds {
+    public NodeKinds() {
+    }
+
+    public static String accessor() {
+        return "accessor";
+    }
+
+    public static String accessors() {
+        return "accessors";
+    }
+
+    public static String alias() {
+        return "alias";
+    }
+
+    public static String annotation() {
+        return "annotation";
+    }
+
+    public static String asCast() {
+        return "as";
+    }
+
+    public static String assign() {
+        return "assign";
+    }
+
+    public static String based() {
+        return "based";
+    }
+
+    public static String binary() {
+        return "binary";
+    }
+
+    public static String binding() {
+        return "binding";
+    }
+
+    public static String block() {
+        return "block";
+    }
+
+    public static String body() {
+        return "body";
+    }
+
+    public static String boolLiteral() {
+        return "bool-literal";
+    }
+
+    public static String breakStatement() {
+        return "break";
+    }
+
+    public static String callExpression() {
+        return "call";
+    }
+
+    public static String cascade() {
+        return "cascade";
+    }
+
+    public static String cascadeItem() {
+        return "cascade-item";
+    }
+
+    public static String cascadeSection() {
+        return "cascade-section";
+    }
+
+    public static String caseNode() {
+        return "case";
+    }
+
+    public static String classDeclaration() {
+        return "class";
+    }
+
+    public static String condition() {
+        return "condition";
+    }
+
+    public static String constructorDeclaration() {
+        return "constructor";
+    }
+
+    public static String continueStatement() {
+        return "continue";
+    }
+
+    public static String dataClass() {
+        return "data-class";
+    }
+
+    public static String destructure() {
+        return "destructure";
+    }
+
+    public static String dictEntry() {
+        return "dict-entry";
+    }
+
+    public static String dictLiteral() {
+        return "dict-literal";
+    }
+
+    public static String empty() {
+        return "empty";
+    }
+
+    public static String enumDeclaration() {
+        return "enum";
+    }
+
+    public static String enumEntry() {
+        return "enum-entry";
+    }
+
+    public static String errorNode() {
+        return "error";
+    }
+
+    public static String exceptionDeclaration() {
+        return "exception";
+    }
+
+    public static String expressionStatement() {
+        return "expr-stmt";
+    }
+
+    public static String failStatement() {
+        return "fail";
+    }
+
+    public static String fieldDeclaration() {
+        return "field";
+    }
+
+    public static String file() {
+        return "file";
+    }
+
+    public static String floatLiteral() {
+        return "float-literal";
+    }
+
+    public static String forStatement() {
+        return "for";
+    }
+
+    public static String foreachStatement() {
+        return "foreach";
+    }
+
+    public static String genericRef() {
+        return "generic-ref";
+    }
+
+    public static String ifStatement() {
+        return "if";
+    }
+
+    public static String implementsClause() {
+        return "implements";
+    }
+
+    public static String indexAccess() {
+        return "index";
+    }
+
+    public static String initializer() {
+        return "init";
+    }
+
+    public static String intLiteral() {
+        return "int-literal";
+    }
+
+    public static String interfaceDeclaration() {
+        return "interface";
+    }
+
+    public static String isCheck() {
+        return "is";
+    }
+
+    public static String lambda() {
+        return "lambda";
+    }
+
+    public static String listLiteral() {
+        return "list-literal";
+    }
+
+    public static String local() {
+        return "local";
+    }
+
+    public static String macroDeclaration() {
+        return "macro";
+    }
+
+    public static String memberAccess() {
+        return "member";
+    }
+
+    public static String methodDeclaration() {
+        return "method";
+    }
+
+    public static String modifier() {
+        return "modifier";
+    }
+
+    public static String modifiers() {
+        return "modifiers";
+    }
+
+    public static String nameReference() {
+        return "name";
+    }
+
+    public static String none() {
+        return "none";
+    }
+
+    public static String nullLiteral() {
+        return "null-literal";
+    }
+
+    public static String packageDeclaration() {
+        return "package";
+    }
+
+    public static String param() {
+        return "param";
+    }
+
+    public static String params() {
+        return "params";
+    }
+
+    public static String pattern() {
+        return "pattern";
+    }
+
+    public static String patternError() {
+        return "pattern-error";
+    }
+
+    public static String patternLiteral() {
+        return "pattern-literal";
+    }
+
+    public static String patternName() {
+        return "pattern-name";
+    }
+
+    public static String patternSuccess() {
+        return "pattern-success";
+    }
+
+    public static String patternValue() {
+        return "pattern-value";
+    }
+
+    public static String patterns() {
+        return "patterns";
+    }
+
+    public static String placeholder() {
+        return "placeholder";
+    }
+
+    public static String postfix() {
+        return "postfix";
+    }
+
+    public static String propagate() {
+        return "propagate";
+    }
+
+    public static String propertyDeclaration() {
+        return "property";
+    }
+
+    public static String quote() {
+        return "quote";
+    }
+
+    public static String recordDeclaration() {
+        return "record";
+    }
+
+    public static String returnStatement() {
+        return "return";
+    }
+
+    public static String returnType() {
+        return "return-type";
+    }
+
+    public static String splice() {
+        return "splice";
+    }
+
+    public static String stringLiteral() {
+        return "string";
+    }
+
+    public static String successStatement() {
+        return "success";
+    }
+
+    public static String superCall() {
+        return "super-call";
+    }
+
+    public static String switchNode() {
+        return "switch";
+    }
+
+    public static String target() {
+        return "target";
+    }
+
+    public static String targets() {
+        return "targets";
+    }
+
+    public static String task() {
+        return "task";
+    }
+
+    public static String ternary() {
+        return "ternary";
+    }
+
+    public static String thisReference() {
+        return "this";
+    }
+
+    public static String tupleType() {
+        return "tuple-type";
+    }
+
+    public static String typeNode() {
+        return "type";
+    }
+
+    public static String typeParam() {
+        return "typeparam";
+    }
+
+    public static String unary() {
+        return "unary";
+    }
+
+    public static String unwrap() {
+        return "unwrap";
+    }
+
+    public static String update() {
+        return "update";
+    }
+
+    public static String useDeclaration() {
+        return "use";
+    }
+
+    public static String useItem() {
+        return "use-item";
+    }
+
+    public static String varType() {
+        return "var";
+    }
+
+    public static String variableDeclaration() {
+        return "variable";
+    }
+
+    public static String whereClause() {
+        return "where";
+    }
+
+    public static String whileStatement() {
+        return "while";
+    }
+
+    public static String wildcard() {
+        return "wildcard";
+    }
+}

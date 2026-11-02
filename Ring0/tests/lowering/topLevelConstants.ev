@@ -1,0 +1,25 @@
+// Literal top-level constants are inlined at every use; locals never capture a constant's own names.
+final var BASE = 10
+final var SCALE = BASE * 4
+final var OFFSET = -3
+final var LIMIT = SCALE + OFFSET
+final var ENABLED = true
+final var RATIO = 0.5
+
+static method<Int> shadowed(Int base) {
+    return base + SCALE
+}
+
+static method<Int> main {
+    Int total = LIMIT + shadowed(1)
+
+    if (ENABLED) {
+        total = total + 1
+    }
+
+    if (RATIO < 1.0) {
+        total = total + 100
+    }
+
+    return total
+}

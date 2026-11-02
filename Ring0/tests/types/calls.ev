@@ -1,0 +1,33 @@
+// Annotations for generic calls, overload numbers and constructors.
+class Box where T {
+    T item { get }
+
+    Box(T item) {
+        this.item = item
+    }
+
+    method<T> take {
+        return item
+    }
+}
+
+method<T> first(List<T> list) where T {
+    return list.get(0)
+}
+
+method<Int> size(String text) {
+    return text.length()
+}
+
+method<Int> size(Int a, Int b) {
+    return a + b
+}
+
+method run {
+    List<Int> numbers = [1, 2, 3]
+    Int head = first(numbers)
+    Int total = size(1, 2)
+    Int chars = size("abc")
+    Box<String> box = Box("hi")
+    String got = box.take()
+}

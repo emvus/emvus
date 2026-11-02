@@ -1,0 +1,92 @@
+namespace ring0::syntax;
+
+// Patterns of an expression switch.
+//
+//   patterns         [pattern | pattern-literal ...]
+//   pattern          text=name (dotted), children: binding*   e.g. `success(value)`, `error(Type e)`, `RANK.ADMIN`
+//   pattern-literal  [literal expression]
+//   binding          text=name, optional [type]
+public class SwitchPatternParser {
+    private ParserState state;
+
+    public SwitchPatternParser(ParserState parserState) {
+        this.state = parserState;
+    }
+
+    public Node parsePattern() {
+        Token token = this.state.peek();
+
+        if (token.isString() || token.isNumber() || token.isFloat() || token.isSymbol("-")) {
+            Node literal = this.state.nodeAt(token, AstKinds.patternLiteral(), "");
+            literal.add(UnaryPostfixParser(this.state).parseUnary());
+            return literal;
+        }
+
+        if (!token.isName()) {
+            this.state.errorHere("Expected switch pattern");
+            return this.state.nodeAt(token, AstKinds.pattern(), "");
+        }
+
+        this.state.advance();
+        Node pattern = this.state.nodeAt(token, AstKinds.pattern(), this.parseDottedName(token));
+
+        if (this.state.matchSymbol("(")) {
+            this.parseBindings(pattern);
+            this.state.consumeSymbol(")", "Expected ')' after pattern bindings");
+        }
+
+        return pattern;
+    }
+
+    // `first` is already consumed; qualified names continue with `.name`.
+    private String parseDottedName(Token first) {
+        String name = first.text();
+
+        while (this.state.checkSymbol(".") && this.state.peekAt(1).isName()) {
+            this.state.advance();
+            name = name + "." + this.state.advance().text();
+        }
+
+        return name;
+    }
+
+    private Void parseBindings(Node pattern) {
+        if (this.state.checkSymbol(")")) {
+            return;
+        }
+
+        Bool more = true;
+
+        while (more) {
+            Int before = this.state.position();
+            pattern.add(this.parseBinding());
+            more = this.state.position() != before && this.state.matchSymbol(",");
+        }
+    }
+
+    // `Type name` or just `name`: try the typed form speculatively, fall back to a bare name.
+    private Node parseBinding() {
+        Token first = this.state.peek();
+        Int start = this.state.position();
+        this.state.beginSpeculation();
+        Node typeNode = TypeParser(this.state).parse();
+        Bool ok = this.state.endSpeculation();
+
+        if (ok && this.state.peek().isName()) {
+            Token name = this.state.advance();
+            Node binding = this.state.nodeAt(name, AstKinds.binding(), name.text());
+            binding.add(typeNode);
+            return binding;
+        }
+
+        this.state.seek(start);
+
+        if (!first.isName()) {
+            this.state.errorHere("Expected binding name");
+            return this.state.nodeAt(first, AstKinds.binding(), "");
+        }
+
+        this.state.advance();
+        return this.state.nodeAt(first, AstKinds.binding(), first.text());
+    }
+}

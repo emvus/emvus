@@ -1,0 +1,26 @@
+// Annotations for switch exhaustiveness kinds on enum, Boolean and catch-all subjects.
+enum Rank {
+    MEMBER,
+    ADMIN
+}
+
+method<String> label(Rank rank) {
+    return switch (rank) {
+        MEMBER -> "m"
+        ADMIN -> "a"
+    }
+}
+
+method<Int> flag(Boolean on) {
+    return switch (on) {
+        true -> 1
+        false -> 0
+    }
+}
+
+method<Int> number(String text) {
+    return switch (text) {
+        "one" -> 1
+        unknown -> 0
+    }
+}
