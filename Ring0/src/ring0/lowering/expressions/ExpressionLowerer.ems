@@ -164,8 +164,27 @@ public class ExpressionLowerer {
             return ObjectMembers(this.context).readField(node, receiver, node.text());
         }
 
-        this.context.unsupported(node, "unknown variable '" + node.text() + "' (top-level constants need backend support)");
-        return LoweredValue.unsupported();
+        return this.lowerConstant(node);
+    }
+
+    // A top-level constant is inlined: its initializer is lowered where the name is read, with
+    // locals hidden so the initializer's own names can only mean other constants.
+    private LoweredValue lowerConstant(Node node) {
+        Int index = this.context.constants().indexOf(node.text());
+
+        if (index < 0) {
+            this.context.unsupported(node, "unknown variable '" + node.text() + "'");
+            return LoweredValue.unsupported();
+        }
+
+        if (!this.context.constants().isUsableAt(index)) {
+            return LoweredValue.unsupported();
+        }
+
+        this.context.enterConstant();
+        LoweredValue value = this.lower(this.context.constants().initializerAt(index));
+        this.context.leaveConstant();
+        return value;
     }
 
     private LoweredValue lowerLiteral(Node node) {
@@ -191,6 +210,11 @@ public class ExpressionLowerer {
 
     private LoweredValue lowerName(Node node) {
         VariableEnv env = this.context.env();
+
+        if (this.context.inConstant()) {
+            return this.lowerConstant(node);
+        }
+
         Int index = env.indexOf(node.text());
 
         if (index < 0) {

@@ -1,5 +1,6 @@
 namespace ring0::lowering;
 
+use ring0::binding::AstQuery;
 use ring0::syntax::Node;
 
 // First pass over the file: registers records, classes, enums and top-level methods in the
@@ -17,6 +18,22 @@ public class DeclarationCollector {
 
         while (index < file.count()) {
             this.collectDeclaration(file.child(index));
+            index = index + 1;
+        }
+
+        this.reportConstantProblems();
+    }
+
+    // Constants refer to each other in any order, so they are judged after the whole file is seen.
+    private Void reportConstantProblems() {
+        this.context.constants().validate();
+        Int index = 0;
+
+        while (index < this.context.constants().count()) {
+            if (!this.context.constants().isUsableAt(index)) {
+                this.context.unsupported(this.context.constants().declarationAt(index), this.context.constants().problemAt(index));
+            }
+
             index = index + 1;
         }
     }
@@ -48,6 +65,11 @@ public class DeclarationCollector {
             return;
         }
 
+        if (kind == "variable") {
+            this.collectVariable(node);
+            return;
+        }
+
         if (kind != "method") {
             this.context.unsupported(node, "top-level '" + kind + "' needs backend support that is not available (see docs/lowering.md)");
             return;
@@ -59,6 +81,21 @@ public class DeclarationCollector {
         }
 
         this.context.methods().add(node);
+    }
+
+    // Only `final var NAME = <constant expression>` is lowered (inlined); see ConstantTable.
+    private Void collectVariable(Node node) {
+        if (!AstQuery.isFinal(node) || AstQuery.isNone(AstQuery.initChild(node))) {
+            this.context.unsupported(node, "top-level variable '" + node.text() + "' needs static storage unless it is final with an initializer (backend requirement)");
+            return;
+        }
+
+        if (this.context.constants().indexOf(node.text()) >= 0) {
+            this.context.unsupported(node, "constant '" + node.text() + "' is declared twice (names are case-insensitive)");
+            return;
+        }
+
+        this.context.constants().add(node);
     }
 
     public static Bool containsKind(Node node, String kind) {

@@ -5,6 +5,7 @@ namespace ring0::lowering;
 use ring0::lowering::ClassTable;
 use ring0::lowering::ClassFields;
 use ring0::lowering::EnumTable;
+use ring0::lowering::ConstantTable;
 use ring0::lowering::InterfaceLinks;
 use ring0::lowering::DispatchTable;
 use ring0::lowering::ClassDeclarer;

@@ -25,6 +25,8 @@ public class LoweringContext {
     private MethodTable methodTable;
     private ClassTable classTable;
     private EnumTable enumTable;
+    private ConstantTable constantTable;
+    private Int constantDepth;
     private DispatchTable dispatchTable;
     private Int classIndex;
     private RecordTable recordTable;
@@ -51,6 +53,8 @@ public class LoweringContext {
         this.methodTable = MethodTable();
         this.classTable = ClassTable();
         this.enumTable = EnumTable();
+        this.constantTable = ConstantTable();
+        this.constantDepth = 0;
         this.dispatchTable = DispatchTable();
         this.classIndex = -1;
         this.recordTable = RecordTable();
@@ -102,6 +106,24 @@ public class LoweringContext {
 
     public EnumTable enums() {
         return this.enumTable;
+    }
+
+    public ConstantTable constants() {
+        return this.constantTable;
+    }
+
+    // True while a constant's initializer is being lowered at a use site: names in it refer to
+    // other constants only, never to the locals of the function that happens to read it.
+    public Bool inConstant() {
+        return this.constantDepth > 0;
+    }
+
+    public Void enterConstant() {
+        this.constantDepth = this.constantDepth + 1;
+    }
+
+    public Void leaveConstant() {
+        this.constantDepth = this.constantDepth - 1;
     }
 
     public DispatchTable dispatch() {

@@ -45,7 +45,7 @@ sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostic
 - [x] 59 lowering fixtures green with Flow and Optimind on
 - [ ] `println`/`print`/`Process.args()` on the runtime IR
 - [ ] Byte-wise text operations (`charAt`, `substring`, `indexOf`) once byte versus character is decided
-- [ ] Literal top-level constants
+- [x] Literal top-level constants (Int, Bool, Float; inlined, see `lowering.md`; String constants and static fields still wait for G7 storage)
 - [ ] Nullable and Option lowering (Int, Bool, Float payloads first)
 
 ### Language decisions

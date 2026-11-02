@@ -1,0 +1,6 @@
+// expect-error: needs static storage unless it is final
+var counter = 1
+
+static method<Int> main {
+    return counter
+}

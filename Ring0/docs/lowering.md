@@ -48,7 +48,7 @@ commit frontend changes before testing against them.
 | `enum` (entries only) and `switch` over enums | lowers now | entries are Int ordinals (kind `Enum:<name>`); a switch that names every entry needs no catch-all; enum members (methods, properties) are blocked |
 | `panic(...)` | lowers now | abort failure; the message cannot be printed (no output channel) |
 | `println` / `print` | blocked | backend requirement: output primitive (see below) |
-| Top-level `final var` constants | blocked | not implemented in this stage (literal constants could be inlined) |
+| Top-level `final var` constants of Int, Bool, Float | lowers now | inlined at every use (`ConstantTable`): literals, unary `-` `!`, constants declared above, binary operators except `/ % && \|\|`; an overflow aborts where the constant is used. Locals never capture a constant's own names. Other top-level variables and String or computed constants are diagnosed (static storage, backend requirement G7) |
 | Null, nullable flow values | blocked | backend requirement: nullable reference or an Option layout; the checker already enforces null safety |
 | `class` with fields, properties (`{ get, set }`, initializers), constructors, methods, `static` members, `this`, bare member names | lowers now | one Sublang class per Emvus class, all derived from the synthetic root `emvus.Object` (tag field); see "Objects" below |
 | `based` single inheritance, `: super(...)`, `abstract`, `override`, inherited members | lowers now | base constructors are inlined into the derived constructor; inherited methods are compiled once per class |
@@ -62,7 +62,7 @@ commit frontend changes before testing against them.
 | Virtual members that write through `this` or an object parameter | blocked | backend requirement: mutable views for `class.upcast` / `class.downcast` |
 | Virtual members that return `String` or an object | blocked | backend requirement: a scope operand on `call.virtual` |
 | `super.method()` calls | blocked | needs a mutable upcast view of `this` |
-| Static fields | blocked | no module-level storage in Sublang |
+| Static fields and mutable top-level variables | blocked | no module-level storage in Sublang |
 | `List<T>` with T in Int, Bool, Float, records, tuples, classes: literal, `[]`, `add`, `get`/`xs[i]`, `set`, `xs[i] = v`, `+=`, `++`, `size()`/`length()`, `isEmpty()`, `clear()`, `for (T x in xs)` | lowers now | owned `Ref<List<E>>` in the function's owner scope, reference semantics (aliases share the list); see "Lists" |
 | `List` of String, of lists, of function values | blocked | backend requirement: reference elements in lists |
 | `List` as a class field | blocked | backend requirement: list-typed class fields |
@@ -278,7 +278,7 @@ a virtual call is blocked by the missing scope operand on `call.virtual`.
 
 ```text
 ring0/lowering/                ProgramLowerer, LoweringContext, LoweredValue, WireExport, LoweringPrelude
-ring0/lowering/program/        DeclarationCollector
+ring0/lowering/program/        DeclarationCollector, ConstantTable
 ring0/lowering/state/          ScopeStack, ConstructionState, FunctionState, RetainedPool, RetainedText
 ring0/lowering/generics/       TypeBindings, GenericDecls, GenericKinds, InstanceDiscovery
 ring0/lowering/lambdas/        FunctionTypes, FunctionTypeDiscovery, LambdaClasses, LambdaCaptures, LambdaTable,
