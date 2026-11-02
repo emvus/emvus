@@ -107,8 +107,12 @@ The checker already enforces null safety, so the lowering can use a plain layout
 - a nullable class or text reference as a pair (presence flag + reference) in a value record, or
 - an `Option<T>` value record monomorphized per payload, as `Result<T,E>` already is.
 
-This needs G3 for reference payloads; for `Int`/`Bool`/`Float` payloads Ring0 could lower
-nullable values today without backend changes.
+Only reference types can be null: `TypeRules.assignable` rejects `null` for numeric types, `Boolean`,
+`Char` and `Void` (`Int x = null` fails with `expected 'Int', found 'Null'`), and Ring0 has no
+`Option` type. So there is no primitive-payload step Ring0 could do on its own; the nullable
+values that exist (String, class and list references) need G3 first. A selfhost compiler that
+wants an optional `Int` today uses a sentinel value, or a user-defined generic data class with a
+presence flag (`data class Maybe(Bool present, T value) where T`), which the lowering accepts.
 
 ### G6: map layout (backend or library)
 

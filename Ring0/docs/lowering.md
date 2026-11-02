@@ -49,7 +49,7 @@ commit frontend changes before testing against them.
 | `panic(...)` | lowers now | abort failure; the message cannot be printed (no output channel) |
 | `println` / `print` | blocked | backend requirement: output primitive (see below) |
 | Top-level `final var` constants of Int, Bool, Float | lowers now | inlined at every use (`ConstantTable`): literals, unary `-` `!`, constants declared above, binary operators except `/ % && \|\|`; an overflow aborts where the constant is used. Locals never capture a constant's own names. Other top-level variables and String or computed constants are diagnosed (static storage, backend requirement G7) |
-| Null, nullable flow values | blocked | backend requirement: nullable reference or an Option layout; the checker already enforces null safety |
+| Null, nullable flow values | blocked | only references can be null (the checker rejects `null` for Int, Bool, Float); backend requirement: a nullable reference layout, which needs reference fields (G3). The checker already enforces null safety |
 | `class` with fields, properties (`{ get, set }`, initializers), constructors, methods, `static` members, `this`, bare member names | lowers now | one Sublang class per Emvus class, all derived from the synthetic root `emvus.Object` (tag field); see "Objects" below |
 | `based` single inheritance, `: super(...)`, `abstract`, `override`, inherited members | lowers now | base constructors are inlined into the derived constructor; inherited methods are compiled once per class |
 | `interface`, `implements`, interface-typed variables, parameters and calls | lowers now | closed-world dispatch groups over the root class (`call.virtual`) |

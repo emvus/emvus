@@ -46,7 +46,7 @@ sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostic
 - [ ] `println`/`print`/`Process.args()` on the runtime IR
 - [ ] Byte-wise text operations (`charAt`, `substring`, `indexOf`) once byte versus character is decided
 - [x] Literal top-level constants (Int, Bool, Float; inlined, see `lowering.md`; String constants and static fields still wait for G7 storage)
-- [ ] Nullable and Option lowering (Int, Bool, Float payloads first)
+- [ ] Nullable reference lowering (String, classes, lists; needs G3). `Int`, `Bool` and `Float` cannot be null in the checker (`TypeRules.assignable`), so there is no primitive-payload step; an `Option<T>` library type is a separate language decision
 
 ### Language decisions
 
@@ -66,7 +66,7 @@ sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostic
 
 - [ ] G3 reference fields in records, lists and tuples
 - [ ] G4 shared references
-- [ ] G5 Option
+- [ ] G5 absence: nullable references (depends on G3)
 - [ ] G6 Map
 - [ ] G7 static fields
 - [ ] Sublang `emit-llvm` crash on `tests/lowering/backendCrash.ev` (reported, not ours)
