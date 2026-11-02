@@ -44,13 +44,14 @@ sandbox, one at a time; code follows Pureline 1.3; comments, docs and diagnostic
 - [x] Lists, generics (monomorphized), lambdas, `map`/`filter`/`reduce`/`forEach`
 - [x] 59 lowering fixtures green with Flow and Optimind on
 - [ ] `println`/`print`/`Process.args()` on the runtime IR
-- [ ] Byte-wise text operations (`charAt`, `substring`, `indexOf`) once byte versus character is decided
+- [x] Byte-wise `byteAt` and `substring` (bytes, decision 1); `charAt` is reserved
+- [ ] `indexOf` (needs a generated search helper)
 - [x] Literal top-level constants (Int, Bool, Float; inlined, see `lowering.md`; String constants and static fields still wait for G7 storage)
 - [ ] Nullable reference lowering (String, classes, lists; needs G3). `Int`, `Bool` and `Float` cannot be null in the checker (`TypeRules.assignable`), so there is no primitive-payload step; an `Option<T>` library type is a separate language decision
 
 ### Language decisions
 
-- [ ] `String` operations count UTF-8 bytes or characters
+- [x] `String` operations count UTF-8 bytes (`languageDecisions.md`, decision 1: bytes now, `byteAt`, characters later)
 - [ ] `main` exit code contract (the entry prints `main`'s Int today)
 - [ ] Which Emvus subset is the stable input of Ring1
 

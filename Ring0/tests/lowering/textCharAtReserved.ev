@@ -1,0 +1,6 @@
+// expect-error: String.charAt is reserved
+static method<Int> main {
+    String word = "Emvus"
+    Char first = word.charAt(0)
+    return 0
+}

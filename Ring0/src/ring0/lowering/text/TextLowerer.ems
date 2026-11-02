@@ -110,17 +110,71 @@ public class TextLowerer {
         return LoweredValue(different, "Bool");
     }
 
-    // `receiver.length()` counts UTF-8 bytes (Emvus does not yet define character length).
+    // String members. Indexes and lengths count UTF-8 bytes (docs/languageDecisions.md, decision 1):
+    // `length()`, `byteAt(i)` and `substring(start, end)` with `end` exclusive. Out-of-range
+    // indexes abort, like list access.
     public LoweredValue memberCall(Node node, LoweredValue receiver) {
         Node member = node.child(0);
+        String name = member.text();
 
-        if (member.text() != "length" || node.count() != 1) {
-            this.context.unsupported(node, "String member '" + member.text() + "' needs backend text operations that are not available");
+        if (name == "length" && node.count() == 1) {
+            Int id = this.context.collections().length(receiver.valueId(), this.context.span(node));
+            return LoweredValue(id, "Int");
+        }
+
+        if (name == "byteAt" && node.count() == 2) {
+            return this.byteAt(node, receiver);
+        }
+
+        if (name == "substring" && node.count() == 3) {
+            return this.substring(node, receiver);
+        }
+
+        if (name == "charAt") {
+            this.context.unsupported(node, "String.charAt is reserved until characters are defined: use byteAt(index), which returns the UTF-8 byte as an Int (docs/languageDecisions.md, decision 1)");
             return LoweredValue.unsupported();
         }
 
-        Int id = this.context.collections().length(receiver.valueId(), this.context.span(node));
-        return LoweredValue(id, "Int");
+        this.context.unsupported(node, "String member '" + name + "' needs backend text operations that are not available");
+        return LoweredValue.unsupported();
+    }
+
+    private LoweredValue byteAt(Node node, LoweredValue receiver) {
+        LoweredValue index = this.intArgument(node, 1);
+
+        if (!index.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+        Int octet = this.context.collections().get(receiver.valueId(), index.valueId(), span);
+        return LoweredValue(this.context.collections().byteToInt(octet, span), "Int");
+    }
+
+    // Copy of the bytes [start, end). A negative length or an end past the text aborts in text.slice.
+    private LoweredValue substring(Node node, LoweredValue receiver) {
+        LoweredValue start = this.intArgument(node, 1);
+        LoweredValue end = this.intArgument(node, 2);
+
+        if (!start.isUsable() || !end.isUsable()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+        Int length = this.context.ops().intBinary("int.sub", end.valueId(), start.valueId(), "trap", this.context.integerFailure(), span);
+        Int slice = this.context.collections().textSlice(this.context.textListType(), receiver.valueId(), start.valueId(), length, this.context.scopes().functionScope(), span);
+        return LoweredValue(slice, "String");
+    }
+
+    private LoweredValue intArgument(Node call, Int position) {
+        LoweredValue value = ExpressionLowerer(this.context).lower(call.child(position));
+
+        if (value.isUsable() && value.kind() != "Int") {
+            this.context.unsupported(call.child(position), "String index must be an Int, found " + value.kind());
+            return LoweredValue.unsupported();
+        }
+
+        return value;
     }
 
     // Copies `source` into the text cell `cell` (value semantics for assignment).

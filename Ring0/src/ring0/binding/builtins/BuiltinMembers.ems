@@ -43,6 +43,7 @@ public class BuiltinMembers {
         lines.add("String.indexOf(String):Int");
         lines.add("String.substring(Int,Int):String");
         lines.add("String.charAt(Int):Char");
+        lines.add("String.byteAt(Int):Int");
         lines.add("String.replace(String,String):String");
         lines.add("String.split(String):List<String>");
         lines.add("String.repeat(Int):String");
