@@ -91,9 +91,10 @@ static method<Int> tupleElement(String source, List<Int> nodes, List<Int> types,
 static method<Int> bindMember(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
     Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, node, NODE_FIRST_CHILD), TYPE_UNKNOWN)
     Int row = NO_SYMBOL
+    Int plain = plainType(source, types, receiver)
 
-    if (typeField(types, receiver, TYPE_KIND) == KIND_NAMED) {
-        row = lookupMember(source, symbols, state, receiver, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_PROPERTY, ROW_FIELD, NO_SYMBOL)
+    if (typeField(types, plain, TYPE_KIND) == KIND_NAMED) {
+        row = lookupMember(source, symbols, state, plain, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_PROPERTY, ROW_FIELD, NO_SYMBOL)
     }
 
     if (typeField(types, receiver, TYPE_KIND) == KIND_TYPE_OBJECT) {
@@ -110,7 +111,22 @@ static method<Int> bindMember(String source, List<Int> nodes, List<Int> types, L
         return TYPE_UNKNOWN
     }
 
-    return annotateSymbol(annotations, symbols, node, row)
+    return annotateMemberOf(source, nodes, types, symbols, annotations, state, node, row, receiver)
+}
+
+// A property of a generic type has the type its declaration gives with the receiver's type arguments.
+static method<Int> annotateMemberOf(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int row, Int receiver) {
+    Int owner = classRow(symbols, state, symbolField(symbols, row, SYMBOL_OWNER))
+    List<Int> call = newCall(NO_NODE, NO_NODE, NO_TYPE)
+
+    if (owner != NO_SYMBOL) {
+        call[CALL_TYPE_HOLDER] = symbolField(symbols, owner, SYMBOL_NODE)
+    }
+
+    seedFromReceiver(types, call, receiver)
+    Int type = substitute(source, nodes, types, call, symbolField(symbols, row, SYMBOL_TYPE))
+    annotateSymbolAs(annotations, symbols, node, row, type)
+    return type
 }
 
 // Every exception has a `message`.

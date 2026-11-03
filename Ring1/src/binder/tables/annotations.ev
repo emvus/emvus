@@ -41,6 +41,7 @@ final var OWNER_LIST = -3
 final var OWNER_RESULT = -4
 final var OWNER_FIBER = -5
 final var OWNER_EXCEPTION = -6
+final var OWNER_COMPARABLE = -7
 // Annotation type of a statement, which has no type of its own but still carries a symbol.
 final var TYPE_STATEMENT = -2
 

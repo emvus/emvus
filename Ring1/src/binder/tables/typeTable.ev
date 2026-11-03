@@ -31,6 +31,8 @@ final var KIND_DICTIONARY = 13
 final var KIND_FIBER = 14
 final var KIND_FUNCTION = 15
 final var KIND_BIFUNCTION = 16
+// The type arguments of a call, printed without a name: `Int,Float`.
+final var KIND_ARGUMENTS = 17
 
 // The first rows are the built-in types, so their ids equal their kinds.
 final var TYPE_UNKNOWN = 0
@@ -195,7 +197,7 @@ static method<String> typeText(String source, List<Int> types, Int type) {
         return "List<" + typeText(source, types, typeField(types, type, TYPE_ELEMENT)) + ">"
     }
 
-    if (kind == KIND_APPLIED || kind == KIND_TUPLE || kind == KIND_DICTIONARY || kind == KIND_FIBER || kind == KIND_FUNCTION || kind == KIND_BIFUNCTION) {
+    if (kind == KIND_APPLIED || kind == KIND_TUPLE || kind == KIND_DICTIONARY || kind == KIND_FIBER || kind == KIND_FUNCTION || kind == KIND_BIFUNCTION || kind == KIND_ARGUMENTS) {
         return argumentsText(source, types, type)
     }
 

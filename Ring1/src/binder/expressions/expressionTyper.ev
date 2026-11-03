@@ -102,8 +102,9 @@ static method<Int> bindName(String source, List<Int> nodes, List<Int> types, Lis
     Int length = nodeField(nodes, node, NODE_TEXT_LENGTH)
 
     if (state[BINDER_CLASS] != NO_TYPE && spanIs(source, start, length, "this")) {
-        annotate(annotations, node, state[BINDER_CLASS], REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
-        return state[BINDER_CLASS]
+        Int self = selfType(source, nodes, types, symbols, state, state[BINDER_CLASS])
+        annotate(annotations, node, self, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
+        return self
     }
 
     Int row = lookupLocal(source, symbols, state, start, length)
@@ -144,7 +145,10 @@ static method<Int> bindTypeName(String source, List<Int> types, List<Int> symbol
 }
 
 static method<Int> annotateSymbol(List<Int> annotations, List<Int> symbols, Int node, Int row) {
-    Int type = symbolField(symbols, row, SYMBOL_TYPE)
+    return annotateSymbolAs(annotations, symbols, node, row, symbolField(symbols, row, SYMBOL_TYPE))
+}
+
+static method<Int> annotateSymbolAs(List<Int> annotations, List<Int> symbols, Int node, Int row, Int type) {
     Int owner = OWNER_NONE
 
     if (symbolField(symbols, row, SYMBOL_OWNER) != NO_TYPE && symbolField(symbols, row, SYMBOL_ROW_KIND) != ROW_METHOD) {

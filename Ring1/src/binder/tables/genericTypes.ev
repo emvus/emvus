@@ -96,6 +96,10 @@ static method<String> argumentsText(String source, List<Int> types, Int type) {
         text = text + typeText(source, types, typeArgument(types, type, position))
     }
 
+    if (typeField(types, type, TYPE_KIND) == KIND_ARGUMENTS) {
+        return text
+    }
+
     if (typeField(types, type, TYPE_KIND) == KIND_TUPLE) {
         return "[" + text + "]"
     }

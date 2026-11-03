@@ -94,7 +94,7 @@ static method<String> symbolText(String source, List<Int> nodes, List<Int> types
     }
 
     if (symbol == REFERENCE_CONSTRUCTOR) {
-        return " @ constructor " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|)"
+        return " @ constructor " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|" + argumentText(source, types, annotations, node) + ")"
     }
 
     if (symbol == REFERENCE_LITERAL) {
@@ -148,6 +148,10 @@ static method<String> ownerText(String source, List<Int> types, Int owner) {
 
     if (owner == OWNER_STRING) {
         return "String"
+    }
+
+    if (owner == OWNER_COMPARABLE) {
+        return "Comparable"
     }
 
     if (owner == OWNER_EXCEPTION) {
