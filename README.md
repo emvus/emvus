@@ -14,26 +14,31 @@ Native code comes from [Sublang](https://github.com/emvus/sub-lang) (LLVM) and a
 
 ## The compiler binary: `emvusc`
 
+There are two Emvus compilers, and both are called `emvusc`: the one in `Ring0/` is written in Emerald, the one in
+`Ring1/` in Emvus itself (it is not a command line tool yet, see below).
+
 ```bash
-NOVUSC=<path to novusc> scripts/buildEmvusc.sh <emerald-kit> <sub-lang-checkout>   # builds dist/emvusc-<version>/
-dist/emvusc-*/emvusc helpers.ev main.ev -o demo && ./demo      # several files form one program
-dist/emvusc-*/emvusc --run main.ev
-dist/emvusc-*/emvusc --emit-llvm main.ev                       # or --emit-wire
-scripts/checkEmvusc.sh dist/emvusc-*/emvusc                    # smoke test of the package
-scripts/installEmvusc.sh dist/emvusc-*                         # installs to ~/.local/bin/emvusc (or give a prefix)
+scripts/buildEmvusc.sh <emerald-kit> <sub-lang-checkout>        # builds dist/emvusc-<version>/emvusc
+dist/emvusc-*/emvusc helpers.ev main.ev -o demo.ll              # several files form one program
+clang demo.ll -o demo && ./demo
+dist/emvusc-*/emvusc --emit-wire main.ev -o main.sublang-wire   # the Sublang wire file instead
+scripts/checkEmvusc.sh dist/emvusc-*/emvusc                     # smoke test
+scripts/installEmvusc.sh dist/emvusc-*                          # installs to ~/.local/bin/emvusc (or give a prefix)
 ```
 
-The package holds three native binaries: `emvusc` (the driver, written in [Novus](https://github.com/ezTxmMC/novus)),
-`ring0-lower` and `sublang` (both written in Emerald). They need only libc; at run time the driver calls `clang`
-(or `EMVUSC_CC`). Building the package needs the Emerald kit, a sub-lang checkout, `novusc` and a C compiler. Versions are `0.1.0-indev.<first 8 characters of the commit>`,
-written by `scripts/stampVersion.sh`.
+`emvusc` is one native binary (it needs only libc): parser, checker, lowering and the Sublang backend are
+linked in, and it writes LLVM text. Turning that text into a program is `clang`'s step, because neither Emerald
+nor Emvus can start a process. Building it needs the Emerald kit, a sub-lang checkout and python3. The build uses a
+copy of the kit whose runtime keeps released memory alive, the workaround for a use-after-free in the
+Emerald-built Sublang backend (see `scripts/buildEmvusc.sh`). Versions are
+`0.1.0-indev.<first 8 characters of the commit>`, written by `scripts/stampVersion.sh`.
 
 What the compiled programs can do today: integers, floats, booleans, text (`+`, `length`, `byteAt`,
 `substring`, `indexOf`), lists, records, data classes, enums, classes with inheritance and interfaces,
 generics, lambdas, `Result` with `switch`, top-level constants. The program prints the `Int` its `main`
 returns. Not yet: `println`, files, arguments, dictionaries, tasks, `null` on references (they need
-Sublang runtime support, see `Ring0/docs/plan.md`). `emvusc` stays the compiler you use: its frontend is
-Ring0 until Sublang can read files and take arguments, which a compiler written in Emvus needs.
+Sublang runtime support, see `Ring0/docs/plan.md`). The Emvus `emvusc` in `Ring1/` becomes a command line tool
+when Sublang can read files, take arguments and write output, which a compiler written in Emvus needs.
 
 ## Contributing
 

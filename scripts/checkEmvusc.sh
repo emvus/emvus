@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Smoke test of an emvusc package: compiles small programs and compares what they print with what is expected.
+# Smoke test of the emvusc binary: compiles small programs to LLVM text, builds them with clang and compares
+# what they print with what is expected.
 # Usage: scripts/checkEmvusc.sh <emvusc-binary>
 set -euo pipefail
 EMVUSC="$(realpath "$1")"
@@ -9,7 +10,7 @@ status=0
 check() {
     local name="$1" expected="$2" source="$3"
     printf '%s\n' "$source" > "$WORK/$name.ev"
-    if "$EMVUSC" "$WORK/$name.ev" -o "$WORK/$name" > "$WORK/$name.log" 2>&1 && [[ "$("$WORK/$name")" == "$expected" ]]; then
+    if "$EMVUSC" "$WORK/$name.ev" -o "$WORK/$name.ll" > "$WORK/$name.log" 2>&1 && clang -O2 -w "$WORK/$name.ll" -o "$WORK/$name" >> "$WORK/$name.log" 2>&1 && [[ "$("$WORK/$name")" == "$expected" ]]; then
         echo "ok   $name"
     else
         echo "FAIL $name: $(head -1 "$WORK/$name.log")"
