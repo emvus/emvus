@@ -1,0 +1,204 @@
+package main
+
+import io
+import os
+import path
+
+// emvusc: the Emvus compiler driver. Emvus source -> ring0-lower (parse, bind, lower to a Sublang wire
+// file) -> sublang (LLVM text) -> C compiler -> executable. The two tools sit next to this binary.
+
+define class Options {
+    private final array files: get
+    private final string output: get
+    private final string stop: get
+    private final bool run: get
+    private final bool keep: get
+    private final string optimization: get
+
+    construct(array files, string output, string stop, bool run, bool keep, string optimization) {
+        this.files = files
+        this.output = output
+        this.stop = stop
+        this.run = run
+        this.keep = keep
+        this.optimization = optimization
+    }
+}
+
+method usage(): string {
+    var text = "usage: emvusc [options] <file.ev>...\n\n"
+    text = text + "  -o <path>       output (default: the stem of the first file)\n"
+    text = text + "  --emit-wire     stop after the Sublang wire file (<path>.sublang-wire)\n"
+    text = text + "  --emit-llvm     stop after the LLVM text (<path>.ll)\n"
+    text = text + "  --run           run the executable after building it\n"
+    text = text + "  -O<0|1|2|3>     optimization level of the C compiler (default -O2)\n"
+    text = text + "  --keep          keep the intermediate files next to the output\n"
+    text = text + "  --version       print the version\n"
+    text = text + "  -h, --help      print this text\n\n"
+    text = text + "Several files form one program, in the order given. The executable prints the Int that\n"
+    text = text + "`main` returns; `println` and file access are not available yet. EMVUSC_CC picks the C compiler.\n"
+    return text
+}
+
+method fail(string message): integer {
+    io.writeErr(message + "\n")
+    return 1
+}
+
+// The directory that holds this binary and the tools next to it.
+method home(): string {
+    return path.dirname(os.realpath("/proc/self/exe"))
+}
+
+method parse(array<string> arguments): Options {
+    var files = []
+    var output = ""
+    var stop = ""
+    var run = false
+    var keep = false
+    var optimization = "-O2"
+    var index = 0
+    while (index < arguments.length()) {
+        var argument = arguments[index]
+        index = index + 1
+        if (argument == "-o") {
+            output = arguments[index]
+            index = index + 1
+            continue
+        }
+
+        if (argument == "--emit-wire" || argument == "--emit-llvm") {
+            stop = argument.substring(7, argument.length())
+            continue
+        }
+
+        if (argument == "--run") {
+            run = true
+            continue
+        }
+
+        if (argument == "--keep") {
+            keep = true
+            continue
+        }
+
+        if (argument == "-O0" || argument == "-O1" || argument == "-O2" || argument == "-O3") {
+            optimization = argument
+            continue
+        }
+
+        files.append(argument)
+    }
+
+    return Options(files, output, stop, run, keep, optimization)
+}
+
+method quoted(array<string> parts): string {
+    var command = ""
+    for (part in parts) {
+        command = command + " " + os.shellQuote(part)
+    }
+
+    return command
+}
+
+// Runs a command; on failure prints what it said and returns false.
+method step(string title, string command, string logPath): bool {
+    var result = os.run(command + " 2>&1")
+    if (result["code"] == 0) {
+        return true
+    }
+
+    io.writeErr(title + ":\n")
+    io.writeErr(result["output"] + "\n")
+    os.writeFile(logPath, result["output"])
+    return false
+}
+
+method build(Options options, string work): integer {
+    var directory = home()
+    var wire = work + "/program.sublang-wire"
+    var llvm = work + "/program.ll"
+    var output = options.output()
+    if (output == "") {
+        output = path.stem(options.files()[0])
+    }
+
+    var lowering = os.run(os.shellQuote(directory + "/ring0-lower") + quoted(options.files()) + " " + os.shellQuote(wire) + " 2>&1")
+    if (lowering["code"] != 0 || !os.exists(wire)) {
+        io.writeErr(lowering["output"] + "\n")
+        return 1
+    }
+
+    if (options.stop() == "wire") {
+        os.copy(wire, output + ".sublang-wire")
+        return 0
+    }
+
+    // The Emerald-built Sublang frees memory it still uses on larger programs ("Emerald Flow allocation
+    // failed"); keeping released allocations alive avoids it, and the compiler is a short-lived process.
+    os.setEnv("EMERALD_FLOW_BOOTSTRAP", "1")
+    if (!step("emvusc: Sublang rejected the program", os.shellQuote(directory + "/sublang") + " emit-llvm " + os.shellQuote(wire) + " " + os.shellQuote(llvm) + " auto on", work + "/sublang.log")) {
+        return 1
+    }
+
+    if (options.stop() == "llvm") {
+        os.copy(llvm, output + ".ll")
+        return 0
+    }
+
+    var compiler = os.envOr("EMVUSC_CC", os.envOr("CC", "clang"))
+    if (!step("emvusc: the C compiler failed", os.shellQuote(compiler) + " " + options.optimization() + " -w " + os.shellQuote(llvm) + " -o " + os.shellQuote(output), work + "/cc.log")) {
+        return 1
+    }
+
+    if (options.keep()) {
+        os.copy(wire, output + ".sublang-wire")
+        os.copy(llvm, output + ".ll")
+    }
+
+    return 0
+}
+
+method main(array<string> arguments) {
+    for (argument in arguments) {
+        if (argument == "-h" || argument == "--help") {
+            print usage()
+            return 0
+        }
+
+        if (argument == "--version") {
+            print os.readFile(home() + "/VERSION")
+            return 0
+        }
+    }
+
+    var options = parse(arguments)
+    if (options.files().length() == 0) {
+        return fail(usage())
+    }
+
+    for (file in options.files()) {
+        if (!os.isFile(file)) {
+            return fail("emvusc: no such file: " + file)
+        }
+    }
+
+    var work = os.temp() + "/emvusc-" + os.pid()
+    os.mkdir(work)
+    var code = build(options, work)
+    if (!options.keep()) {
+        os.removeAll(work)
+    }
+
+    if (code != 0 || options.stop() != "" || !options.run()) {
+        return code
+    }
+
+    var output = options.output()
+    if (output == "") {
+        output = path.stem(options.files()[0])
+    }
+
+    return os.exec(os.shellQuote(os.realpath(output)))
+}
