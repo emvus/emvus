@@ -1,0 +1,540 @@
+// Ring1 lexer, version 0: written in the Ring1 subset (docs: Ring0/docs/languageDecisions.md, decision 3).
+//
+// State is passed in lists instead of objects:
+//   tokens  five Ints per token: kind, start, length, line, column
+//   cursor  position, line, start of the current line
+// A token is a span of the source: start and length are UTF-8 byte offsets and columns count bytes.
+// A string token spans the raw text including both quotes; unescaping is not part of the lexer.
+// Lexical errors are tokens of their own kind (Ring0 reports them as diagnostics instead).
+// Valid input yields the same kinds, spans, lines and columns as Ring0's lexer for ASCII sources.
+
+final var TOKEN_EOF = 0
+final var TOKEN_IDENTIFIER = 1
+final var TOKEN_KEYWORD = 2
+final var TOKEN_NUMBER = 3
+final var TOKEN_FLOAT = 4
+final var TOKEN_STRING = 5
+final var TOKEN_SYMBOL = 6
+final var TOKEN_UNEXPECTED = 8
+final var TOKEN_UNTERMINATED_STRING = 9
+final var TOKEN_UNTERMINATED_COMMENT = 10
+
+final var TOKEN_STRIDE = 5
+final var CURSOR_POSITION = 0
+final var CURSOR_LINE = 1
+final var CURSOR_LINE_START = 2
+final var NO_BYTE = -1
+
+final var BYTE_TAB = 9
+final var BYTE_NEWLINE = 10
+final var BYTE_RETURN = 13
+final var BYTE_SPACE = 32
+final var BYTE_BANG = 33
+final var BYTE_QUOTE = 34
+final var BYTE_DOLLAR = 36
+final var BYTE_PERCENT = 37
+final var BYTE_AMPERSAND = 38
+final var BYTE_OPEN_PAREN = 40
+final var BYTE_CLOSE_PAREN = 41
+final var BYTE_STAR = 42
+final var BYTE_PLUS = 43
+final var BYTE_MINUS = 45
+final var BYTE_DOT = 46
+final var BYTE_SLASH = 47
+final var BYTE_ZERO = 48
+final var BYTE_NINE = 57
+final var BYTE_LESS = 60
+final var BYTE_EQUALS = 61
+final var BYTE_GREATER = 62
+final var BYTE_UPPER_A = 65
+final var BYTE_UPPER_E = 69
+final var BYTE_UPPER_Z = 90
+final var BYTE_BACKSLASH = 92
+final var BYTE_UNDERSCORE = 95
+final var BYTE_LOWER_A = 97
+final var BYTE_LOWER_E = 101
+final var BYTE_LOWER_Z = 122
+final var BYTE_OPEN_BRACE = 123
+final var BYTE_PIPE = 124
+final var BYTE_CLOSE_BRACE = 125
+
+// ---------------------------------------------------------------
+// Cursor
+// ---------------------------------------------------------------
+
+static method<Int> peek(String source, List<Int> cursor, Int ahead) {
+    Int position = cursor[CURSOR_POSITION] + ahead
+
+    if (position >= source.length()) {
+        return NO_BYTE
+    }
+
+    return source.byteAt(position)
+}
+
+// Callers make sure the cursor is not at the end.
+static method advance(String source, List<Int> cursor) {
+    Int position = cursor[CURSOR_POSITION]
+
+    if (source.byteAt(position) == BYTE_NEWLINE) {
+        cursor[CURSOR_LINE] = cursor[CURSOR_LINE] + 1
+        cursor[CURSOR_LINE_START] = position + 1
+    }
+
+    cursor[CURSOR_POSITION] = position + 1
+}
+
+static method<Int> columnAt(List<Int> cursor) {
+    return cursor[CURSOR_POSITION] - cursor[CURSOR_LINE_START] + 1
+}
+
+static method emit(List<Int> tokens, Int kind, Int start, Int length, Int line, Int column) {
+    tokens.add(kind)
+    tokens.add(start)
+    tokens.add(length)
+    tokens.add(line)
+    tokens.add(column)
+}
+
+// ---------------------------------------------------------------
+// Byte classes
+// ---------------------------------------------------------------
+
+static method<Bool> isDigit(Int value) {
+    return value >= BYTE_ZERO && value <= BYTE_NINE
+}
+
+static method<Bool> isLetter(Int value) {
+    return (value >= BYTE_UPPER_A && value <= BYTE_UPPER_Z) || (value >= BYTE_LOWER_A && value <= BYTE_LOWER_Z)
+}
+
+static method<Bool> isIdentifierStart(Int value) {
+    return isLetter(value) || value == BYTE_UNDERSCORE
+}
+
+static method<Bool> isIdentifierPart(Int value) {
+    return isIdentifierStart(value) || isDigit(value)
+}
+
+static method<Bool> isWhitespace(Int value) {
+    return value == BYTE_SPACE || value == BYTE_TAB || value == BYTE_RETURN || value == BYTE_NEWLINE
+}
+
+// ---------------------------------------------------------------
+// Keywords
+// ---------------------------------------------------------------
+
+static method<Bool> isKeyword(String word) {
+    return isDeclarationKeyword(word) || isModifierKeyword(word) || isControlKeyword(word) || isValueKeyword(word)
+}
+
+static method<Bool> isDeclarationKeyword(String word) {
+    return word == "package" || word == "use" || word == "var" || word == "dynamic" || word == "enum" || word == "record" || word == "class" || word == "interface" || word == "exception" || word == "method" || word == "macro"
+}
+
+static method<Bool> isModifierKeyword(String word) {
+    return word == "final" || word == "static" || word == "abstract" || word == "override" || word == "private" || word == "protected" || word == "public" || word == "scoped"
+}
+
+static method<Bool> isControlKeyword(String word) {
+    return word == "if" || word == "while" || word == "for" || word == "in" || word == "switch" || word == "return" || word == "fail" || word == "break" || word == "continue"
+}
+
+static method<Bool> isValueKeyword(String word) {
+    return word == "true" || word == "false" || word == "null" || word == "this" || word == "super" || word == "is" || word == "as" || word == "fiber" || word == "virtual" || word == "thread"
+}
+
+// ---------------------------------------------------------------
+// Trivia
+// ---------------------------------------------------------------
+
+// Whitespace and comments produce no token. Returns true when something was skipped.
+static method<Bool> skipTrivia(String source, List<Int> cursor, List<Int> tokens) {
+    Int current = peek(source, cursor, 0)
+    Int following = peek(source, cursor, 1)
+
+    if (isWhitespace(current)) {
+        advance(source, cursor)
+        return true
+    }
+
+    if (current == BYTE_SLASH && following == BYTE_SLASH) {
+        skipLineComment(source, cursor)
+        return true
+    }
+
+    if (current == BYTE_SLASH && following == BYTE_STAR) {
+        skipBlockComment(source, cursor, tokens)
+        return true
+    }
+
+    return false
+}
+
+static method skipLineComment(String source, List<Int> cursor) {
+    while (peek(source, cursor, 0) != NO_BYTE && peek(source, cursor, 0) != BYTE_NEWLINE) {
+        advance(source, cursor)
+    }
+}
+
+static method skipBlockComment(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    advance(source, cursor)
+    advance(source, cursor)
+
+    while (peek(source, cursor, 0) != NO_BYTE) {
+        if (peek(source, cursor, 0) == BYTE_STAR && peek(source, cursor, 1) == BYTE_SLASH) {
+            advance(source, cursor)
+            advance(source, cursor)
+            return
+        }
+
+        advance(source, cursor)
+    }
+
+    emit(tokens, TOKEN_UNTERMINATED_COMMENT, start, cursor[CURSOR_POSITION] - start, line, column)
+}
+
+// ---------------------------------------------------------------
+// Identifiers and numbers
+// ---------------------------------------------------------------
+
+static method lexIdentifier(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+
+    while (isIdentifierPart(peek(source, cursor, 0))) {
+        advance(source, cursor)
+    }
+
+    Int end = cursor[CURSOR_POSITION]
+    Int kind = TOKEN_IDENTIFIER
+
+    if (isKeyword(source.substring(start, end))) {
+        kind = TOKEN_KEYWORD
+    }
+
+    emit(tokens, kind, start, end - start, line, column)
+}
+
+static method skipDigits(String source, List<Int> cursor) {
+    while (isDigit(peek(source, cursor, 0))) {
+        advance(source, cursor)
+    }
+}
+
+// A `.` only starts a fraction when a digit follows, so `1..x` and `1.method()` stay intact.
+static method<Bool> startsFraction(String source, List<Int> cursor) {
+    return peek(source, cursor, 0) == BYTE_DOT && isDigit(peek(source, cursor, 1))
+}
+
+// An `e` without digits behind it is not an exponent: it belongs to the next token.
+static method<Bool> startsExponent(String source, List<Int> cursor) {
+    Int current = peek(source, cursor, 0)
+
+    if (current != BYTE_LOWER_E && current != BYTE_UPPER_E) {
+        return false
+    }
+
+    Int after = peek(source, cursor, 1)
+    Bool signed = after == BYTE_PLUS || after == BYTE_MINUS
+    return isDigit(after) || (signed && isDigit(peek(source, cursor, 2)))
+}
+
+static method skipExponent(String source, List<Int> cursor) {
+    advance(source, cursor)
+    Int sign = peek(source, cursor, 0)
+
+    if (sign == BYTE_PLUS || sign == BYTE_MINUS) {
+        advance(source, cursor)
+    }
+
+    skipDigits(source, cursor)
+}
+
+static method lexNumber(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    Int kind = TOKEN_NUMBER
+    skipDigits(source, cursor)
+
+    if (startsFraction(source, cursor)) {
+        advance(source, cursor)
+        skipDigits(source, cursor)
+        kind = TOKEN_FLOAT
+    }
+
+    if (startsExponent(source, cursor)) {
+        skipExponent(source, cursor)
+        kind = TOKEN_FLOAT
+    }
+
+    emit(tokens, kind, start, cursor[CURSOR_POSITION] - start, line, column)
+}
+
+// ---------------------------------------------------------------
+// Strings
+// ---------------------------------------------------------------
+
+static method lexString(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    advance(source, cursor)
+
+    while (peek(source, cursor, 0) != NO_BYTE && peek(source, cursor, 0) != BYTE_QUOTE) {
+        Int current = peek(source, cursor, 0)
+
+        if (current == BYTE_BACKSLASH) {
+            skipEscape(source, cursor)
+            continue
+        }
+
+        if (current == BYTE_DOLLAR && opensInterpolation(peek(source, cursor, 1))) {
+            skipInterpolation(source, cursor)
+            continue
+        }
+
+        advance(source, cursor)
+    }
+
+    if (peek(source, cursor, 0) == NO_BYTE) {
+        emit(tokens, TOKEN_UNTERMINATED_STRING, start, cursor[CURSOR_POSITION] - start, line, column)
+        return
+    }
+
+    advance(source, cursor)
+    emit(tokens, TOKEN_STRING, start, cursor[CURSOR_POSITION] - start, line, column)
+}
+
+static method<Bool> opensInterpolation(Int value) {
+    return value == BYTE_OPEN_BRACE || value == BYTE_OPEN_PAREN
+}
+
+// The backslash and the byte it escapes.
+static method skipEscape(String source, List<Int> cursor) {
+    advance(source, cursor)
+
+    if (peek(source, cursor, 0) != NO_BYTE) {
+        advance(source, cursor)
+    }
+}
+
+// `${...}` or `$(...)` is skipped verbatim, including nested brackets and string literals.
+static method skipInterpolation(String source, List<Int> cursor) {
+    advance(source, cursor)
+    Int open = peek(source, cursor, 0)
+    advance(source, cursor)
+    Int close = BYTE_CLOSE_BRACE
+
+    if (open == BYTE_OPEN_PAREN) {
+        close = BYTE_CLOSE_PAREN
+    }
+
+    Int depth = 1
+
+    while (peek(source, cursor, 0) != NO_BYTE && depth > 0) {
+        Int value = peek(source, cursor, 0)
+        advance(source, cursor)
+
+        if (value == open) {
+            depth = depth + 1
+        }
+
+        if (value == close) {
+            depth = depth - 1
+        }
+
+        if (value == BYTE_QUOTE) {
+            skipQuotedRemainder(source, cursor)
+        }
+    }
+}
+
+// Rest of a string literal nested inside an interpolation; the opening quote is consumed.
+static method skipQuotedRemainder(String source, List<Int> cursor) {
+    while (peek(source, cursor, 0) != NO_BYTE && peek(source, cursor, 0) != BYTE_QUOTE) {
+        Int inner = peek(source, cursor, 0)
+        advance(source, cursor)
+
+        if (inner == BYTE_BACKSLASH && peek(source, cursor, 0) != NO_BYTE) {
+            advance(source, cursor)
+        }
+    }
+
+    if (peek(source, cursor, 0) != NO_BYTE) {
+        advance(source, cursor)
+    }
+}
+
+// ---------------------------------------------------------------
+// Symbols
+// ---------------------------------------------------------------
+
+static method<String> singleSymbols() {
+    return "(){}[];,.=+-*/%!<>@$:?&|"
+}
+
+static method<Bool> isThreeByteSymbol(Int first, Int second, Int third) {
+    return first == BYTE_DOT && second == BYTE_DOT && third == BYTE_DOT
+}
+
+// -> == != <= >= += -= *= /= %= && || ++ -- ..
+static method<Bool> isTwoByteSymbol(Int first, Int second) {
+    if (second == BYTE_EQUALS) {
+        return first == BYTE_EQUALS || first == BYTE_BANG || first == BYTE_LESS || first == BYTE_GREATER || first == BYTE_PLUS || first == BYTE_MINUS || first == BYTE_STAR || first == BYTE_SLASH || first == BYTE_PERCENT
+    }
+
+    if (first == BYTE_MINUS && second == BYTE_GREATER) {
+        return true
+    }
+
+    return first == second && (first == BYTE_AMPERSAND || first == BYTE_PIPE || first == BYTE_PLUS || first == BYTE_MINUS || first == BYTE_DOT)
+}
+
+static method<Bool> isSingleSymbol(String source, List<Int> cursor) {
+    Int position = cursor[CURSOR_POSITION]
+    return singleSymbols().indexOf(source.substring(position, position + 1)) >= 0
+}
+
+// Longest match first: `...`, then two-byte symbols, then single bytes.
+static method<Int> symbolLength(String source, List<Int> cursor) {
+    Int first = peek(source, cursor, 0)
+    Int second = peek(source, cursor, 1)
+
+    if (isThreeByteSymbol(first, second, peek(source, cursor, 2))) {
+        return 3
+    }
+
+    if (isTwoByteSymbol(first, second)) {
+        return 2
+    }
+
+    if (isSingleSymbol(source, cursor)) {
+        return 1
+    }
+
+    return 0
+}
+
+static method lexSymbol(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    Int length = symbolLength(source, cursor)
+    Int kind = TOKEN_SYMBOL
+    Int consumed = length
+
+    if (length == 0) {
+        kind = TOKEN_UNEXPECTED
+        consumed = 1
+    }
+
+    for (Int step = 0; step < consumed; step++) {
+        advance(source, cursor)
+    }
+
+    emit(tokens, kind, start, consumed, line, column)
+}
+
+// ---------------------------------------------------------------
+// Driver
+// ---------------------------------------------------------------
+
+static method scanToken(String source, List<Int> cursor, List<Int> tokens) {
+    Int current = peek(source, cursor, 0)
+
+    if (isIdentifierStart(current)) {
+        lexIdentifier(source, cursor, tokens)
+        return
+    }
+
+    if (isDigit(current)) {
+        lexNumber(source, cursor, tokens)
+        return
+    }
+
+    if (current == BYTE_QUOTE) {
+        lexString(source, cursor, tokens)
+        return
+    }
+
+    lexSymbol(source, cursor, tokens)
+}
+
+static method tokenize(String source, List<Int> cursor, List<Int> tokens) {
+    while (peek(source, cursor, 0) != NO_BYTE) {
+        if (skipTrivia(source, cursor, tokens)) {
+            continue
+        }
+
+        scanToken(source, cursor, tokens)
+    }
+
+    emit(tokens, TOKEN_EOF, cursor[CURSOR_POSITION], 0, cursor[CURSOR_LINE], columnAt(cursor))
+}
+
+static method<List<Int>> lexSource(String source) {
+    List<Int> cursor = [0, 1, 0]
+    List<Int> tokens = []
+    tokenize(source, cursor, tokens)
+    return tokens
+}
+
+// ---------------------------------------------------------------
+// Self test: main returns the number of failed cases, 0 means all passed.
+// `expected` holds a kind and a length per token.
+// ---------------------------------------------------------------
+
+static method<Int> expectTokens(String source, List<Int> expected) {
+    List<Int> tokens = lexSource(source)
+    Int count = expected.size() / 2
+
+    if (tokens.size() != count * TOKEN_STRIDE) {
+        return 1
+    }
+
+    for (Int index = 0; index < count; index++) {
+        if (tokens[index * TOKEN_STRIDE] != expected[index * 2] || tokens[index * TOKEN_STRIDE + 2] != expected[index * 2 + 1]) {
+            return 1
+        }
+    }
+
+    return 0
+}
+
+static method<Int> expectPosition(String source, Int index, Int line, Int column) {
+    List<Int> tokens = lexSource(source)
+
+    if (tokens[index * TOKEN_STRIDE + 3] != line || tokens[index * TOKEN_STRIDE + 4] != column) {
+        return 1
+    }
+
+    return 0
+}
+
+static method<Int> main {
+    Int failed = 0
+    failed = failed + expectTokens("", [0, 0])
+    failed = failed + expectTokens("foo bar", [1, 3, 1, 3, 0, 0])
+    failed = failed + expectTokens("if x1 == 42", [2, 2, 1, 2, 6, 2, 3, 2, 0, 0])
+    failed = failed + expectTokens("1.5e3 1..x", [4, 5, 3, 1, 6, 2, 1, 1, 0, 0])
+    failed = failed + expectTokens("a // c\n/* b */ b", [1, 1, 1, 1, 0, 0])
+    failed = failed + expectPosition("a // c\n/* b */ b", 1, 2, 9)
+    failed = failed + expectPosition("a\nb", 1, 2, 1)
+    failed = failed + expectTokens("\"a\\nb\"", [5, 6, 0, 0])
+    failed = failed + expectTokens("\"v" + "$" + "{x + 1}\"", [5, 11, 0, 0])
+    failed = failed + expectTokens("\"v" + "$" + "{f(\"}\")}\"", [5, 12, 0, 0])
+    failed = failed + expectTokens("\"abc", [9, 4, 0, 0])
+    failed = failed + expectTokens("#", [8, 1, 0, 0])
+    failed = failed + expectTokens("/* x", [10, 4, 0, 0])
+    failed = failed + expectTokens("x ... y", [1, 1, 6, 3, 1, 1, 0, 0])
+    failed = failed + expectTokens("a<=b", [1, 1, 6, 2, 1, 1, 0, 0])
+    failed = failed + expectTokens("iff true", [1, 3, 2, 4, 0, 0])
+    failed = failed + expectTokens("_a1", [1, 3, 0, 0])
+    return failed
+}

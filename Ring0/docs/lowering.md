@@ -265,6 +265,11 @@ a virtual call is blocked by the missing scope operand on `call.virtual`.
    generic function-typed Result payload, which depends on item 2.
 8. **Enum values** are expressible as Int tags in the frontend (planned), but need a distinct type to
    keep Emvus' type safety visible in the IR.
+10. **Module budget.** Sublang's initial budget allows 32 functions per module (wire format and
+   `SUBLANG-B003`), 64 blocks per function, 4096 values per function and 32768 spans. The Ring1 lexer v0
+   lowers to 44 functions (40 of its own, 4 generated text helpers) and verifies, but its wire export
+   fails with `SUBLANG-W001 count budget exceeded`. Ring0 does not merge functions to fit: a self-hosted
+   compiler needs far more than 32. Backend requirement: raise or remove the function budget.
 9. **Backend defect (reproducible): `emit-llvm` aborts** with `Emerald Flow allocation failed (...)`
    for `tests/lowering/backendCrash.ev`: an owned call result (`greet(...)`), two calls of the
    in-place text helpers and a branch on `text.equal` in one function. It aborts with `--flow=off`
