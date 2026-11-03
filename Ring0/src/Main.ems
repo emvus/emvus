@@ -5,15 +5,21 @@ use ring0::diagnostic::DiagnosticBag;
 use ring0::syntax::Lexer;
 use ring0::syntax::Node;
 use ring0::syntax::SourceSet;
+use ring0::Version;
 use ring0::syntax::Token;
 use Std::Io::File;
 use Std::Process::Process;
 
 // Ring0: bootstrap compiler for Emvus, written in Emerald.
-// Usage: ring0 <file.ev>... [--tokens | --ast | --check [--types]]
+// Usage: ring0 <file.ev>... [--tokens | --ast | --check [--types]] | ring0 --version
 // Several files form one program; --tokens reads the first file only.
 main() {
     List<String> args = Process.args();
+
+    if (args.length() == 1 && args.get(0) == "--version") {
+        println(Version.product());
+        return;
+    }
 
     Int sources = SourceSet.leadingSources(args);
 

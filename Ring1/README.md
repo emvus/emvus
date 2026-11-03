@@ -103,7 +103,7 @@ error on anything else. It replaces constants by their values (like Ring0's lowe
 | `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
 | Parser, lexer and tests together | check ok; lowers to 201 functions, verifier: structure and semantics valid |
-| Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
+| Wire export | **blocked** (Sublang builds again, the limit remains): Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
 | Self tests on Emerald (translated) | lexer 17 of 17, parser 5 of 5, corpus 131 of 131 cases pass; a deliberately wrong expectation fails as it should |
 | Native run of the self tests through Sublang | not done (needs the wire export and a working Sublang backend) |
 

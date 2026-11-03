@@ -43,6 +43,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [x] Classes, inheritance, interfaces, `is`/`as`, `scoped var`, cascade
 - [x] Lists, generics (monomorphized), lambdas, `map`/`filter`/`reduce`/`forEach`
 - [x] 59 lowering fixtures green with Flow and Optimind on
+- [x] all 67 lowering fixtures run natively through Sublang (Low IR route) and match their expected output, aborts and errors: `scripts/checkLoweringNative.sh`
 - [ ] `println`/`print`/`Process.args()` on the runtime IR
 - [x] Byte-wise `byteAt` and `substring` (bytes, decision 1); `charAt` is reserved
 - [x] `indexOf` (generated search helper `emvus.text.indexOf`; lowered to wire, not yet run natively)
@@ -70,7 +71,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [ ] G5 absence: nullable references (depends on G3)
 - [ ] G6 Map
 - [ ] G7 static fields
-- [ ] Sublang module budget of 32 functions (the Ring1 lexer v0 needs 45)
+- [ ] Sublang module budget of 32 functions (Ring1 has 266 functions); Sublang itself builds again since `src/sublang/low/target/` was reconstructed
 - [ ] Sublang `emit-llvm` crash on `tests/lowering/backendCrash.ev` (reported, not ours)
 
 ### Self-hosting

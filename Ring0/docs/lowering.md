@@ -19,6 +19,11 @@ scripts/checkLowering.sh                                           # all fixture
 `optimind:`, `effects:` and `lowering:` lines of the pipeline plan (`<binary>.plan`).
 `RING0_FLOW` and `RING0_OPTIMIND` override the defaults (`on`, `on`) for bisecting.
 
+Native run without Docker: `scripts/checkLoweringNative.sh <ring0-lower> <sublang> <work-dir>` lowers every
+fixture, lets `sublang emit-llvm` write LLVM, builds it with clang and compares the program output (all 67
+pass). It needs a `sublang` binary built from `sub-lang`; `ring0 --version` and `sublang --version` report
+`0.1.0-indev.<first 8 characters of the commit>`, stamped by `scripts/stampVersion.sh`.
+
 Setup on a fresh machine: `scripts/sandbox/build.sh` builds the image `emerald-selfhost-sandbox`
 (LLVM 22 libraries, clang 22, gcc, diffutils; needs network once). The scripts expect the Emerald
 root as `$RING0_EMERALD_ROOT` with `emerald-stable/emerald-compiler` next to `stdlib/` and `runtime/`
