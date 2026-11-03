@@ -50,8 +50,10 @@ final var OPERATION_SECOND_TARGET = 11
 final var OPERATION_TRUE_ARGUMENTS = 12
 final var OPERATION_OWNERSHIP = 13
 final var OPERATION_SCOPE = 14
-final var OPERATION_OPERAND_COUNT = 15
-final var OPERATION_HEADER_SIZE = 16
+final var OPERATION_TEXT_START = 15
+final var OPERATION_TEXT_LENGTH = 16
+final var OPERATION_OPERAND_COUNT = 17
+final var OPERATION_HEADER_SIZE = 18
 
 // Every operand is a pair: the value and how the operation uses it.
 final var MODE_VALUE = 0
@@ -80,6 +82,12 @@ final var OP_LIST_SET = 17
 final var OP_LIST_LENGTH = 18
 final var OP_SCOPE_BEGIN = 19
 final var OP_SCOPE_END = 20
+final var OP_CONST_STRING = 21
+final var OP_TEXT_FROM_STR = 22
+final var OP_TEXT_CONCAT = 23
+final var OP_TEXT_SLICE = 24
+final var OP_TEXT_EQUAL = 25
+final var OP_BYTE_TO_INT = 26
 
 final var PREDICATE_NONE = 0
 final var PREDICATE_LESS = 1
@@ -109,6 +117,10 @@ final var LOWER_STATE_SIZE = 14
 final var WIRE_VOID = 1
 final var WIRE_BOOL = 2
 final var WIRE_INT = 3
+final var WIRE_BYTE = 9
+final var WIRE_LIST_BYTE = 10
+final var WIRE_STRING = 11
+final var WIRE_STRING_CONSTANT = 12
 final var NO_VALUE = 0
 final var NO_BLOCK = 0
 // An environment row names a variable by the start of its declaration and holds its current value.
@@ -126,10 +138,10 @@ static method<Int> newValue(List<Int> ir, List<Int> state, Int type) {
     return state[LOWER_VALUES]
 }
 
-// A list is a reference to an owned object: it dominates every block after its creation and is not
+// A list or a string is a reference to an owned object: it dominates every block after its creation and is not
 // passed around as a block parameter, so the variables a block carries are the ones that are not lists.
 static method<Bool> isCarried(List<Int> env, Int row) {
-    return !isListWire(env[row * ENV_STRIDE + ENV_TYPE])
+    return !isListWire(env[row * ENV_STRIDE + ENV_TYPE]) && env[row * ENV_STRIDE + ENV_TYPE] != WIRE_STRING
 }
 
 // Adds a block whose parameters are fresh values for the carried variables among the first `count`
@@ -184,6 +196,15 @@ static method addOperation(List<Int> ir, List<Int> state, Int code, Int result, 
     ir.add(0)
     ir.add(0)
     ir.add(0)
+    ir.add(0)
+    ir.add(0)
+}
+
+// A string constant is the span of its content in the source text.
+static method setText(List<Int> ir, List<Int> state, Int start, Int length) {
+    Int operation = state[LOWER_LAST_OPERATION]
+    ir[operation + OPERATION_TEXT_START] = start
+    ir[operation + OPERATION_TEXT_LENGTH] = length
 }
 
 // Marks the last operation as producing an owned value in the function's scope.

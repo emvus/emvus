@@ -121,7 +121,7 @@ static method lowerAssign(String source, List<Int> nodes, List<Int> annotations,
     Int row = variableRow(nodes, annotations, env, state, target)
     Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, target, NODE_NEXT_SIBLING))
 
-    if (row < 0 || value == NO_VALUE) {
+    if (row < 0 || value == NO_VALUE || isReferenceWire(env[row * ENV_STRIDE + ENV_TYPE])) {
         markUnsupported(nodes, state, assign)
         return
     }
@@ -302,7 +302,7 @@ static method lowerReturn(String source, List<Int> nodes, List<Int> annotations,
 
 // A list leaves the function owned when it is a local or a call result; a borrowed parameter cannot.
 static method<Int> returnMode(List<Int> nodes, List<Int> annotations, List<Int> state, Int value) {
-    if (!isListWire(wireType(state, annotationField(annotations, value, ANNOTATION_TYPE)))) {
+    if (!isReferenceWire(wireType(state, annotationField(annotations, value, ANNOTATION_TYPE)))) {
         return MODE_VALUE
     }
 

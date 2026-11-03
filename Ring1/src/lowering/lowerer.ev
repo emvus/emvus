@@ -151,6 +151,10 @@ static method declareParameters(String source, List<Int> nodes, List<Int> types,
 }
 
 static method<Int> parameterMode(List<Int> functions, Int row, Int position, Int type) {
+    if (type == WIRE_STRING) {
+        return MODE_BORROW_READ
+    }
+
     if (!isListWire(type)) {
         return MODE_VALUE
     }
@@ -165,9 +169,9 @@ static method<Int> parameterMode(List<Int> functions, Int row, Int position, Int
 // A function that creates a list owns it in a scope: a list literal or a call that returns a list.
 static method<Bool> needsScope(List<Int> nodes, List<Int> annotations, List<Int> state, Int node) {
     Int kind = nodeField(nodes, node, NODE_KIND)
-    Bool creates = kind == NODE_LIST_LITERAL || (kind == NODE_CALL && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_NONE)
+    Bool creates = kind == NODE_LIST_LITERAL || kind == NODE_STRING || kind == NODE_BINARY || kind == NODE_CALL
 
-    if (creates && isListWire(wireType(state, annotationField(annotations, node, ANNOTATION_TYPE)))) {
+    if (creates && isReferenceWire(wireType(state, annotationField(annotations, node, ANNOTATION_TYPE)))) {
         return true
     }
 

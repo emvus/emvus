@@ -1,7 +1,7 @@
 package ring1.lowering
 
 // One operation as a line of canonical text. Every attribute is written, in the order the grammar fixes.
-static method<String> operationText(List<Int> ir, Int record, Int number) {
+static method<String> operationText(String source, List<Int> ir, Int record, Int number) {
     Int code = ir[record + OPERATION_CODE]
     Int result = ir[record + OPERATION_RESULT]
     Int type = ir[record + OPERATION_TYPE]
@@ -12,7 +12,7 @@ static method<String> operationText(List<Int> ir, Int record, Int number) {
 
     String text = "    op id=" + intText(number) + " opcode=\"" + opcodeText(code) + "\" span=" + "1" + " result=" + intText(result) + " type=" + intText(type)
     text = text + " ownership=\"" + ownershipText(ir[record + OPERATION_OWNERSHIP]) + "\" ref=" + intText(ir[record + OPERATION_REFERENCE]) + " scope=" + intText(ir[record + OPERATION_SCOPE]) + " overflow=\"" + overflowText(code) + "\" predicate=\"" + predicateText(ir[record + OPERATION_PREDICATE]) + "\" fpmode=\"\" effect=" + intText(effectOf(code))
-    text = text + " int=" + intText(ir[record + OPERATION_INT]) + " bool=" + boolText(ir[record + OPERATION_BOOL]) + " bits=0 text=\"\" operands=" + operandList(ir, record, false) + " modes=" + operandList(ir, record, true) + " targets=" + targetList(ir, record) + " trueargs=" + intText(ir[record + OPERATION_TRUE_ARGUMENTS]) + "\n"
+    text = text + " int=" + intText(ir[record + OPERATION_INT]) + " bool=" + boolText(ir[record + OPERATION_BOOL]) + " bits=0 text=\"" + escapedText(source, ir[record + OPERATION_TEXT_START], ir[record + OPERATION_TEXT_LENGTH]) + "\" operands=" + operandList(ir, record, false) + " modes=" + operandList(ir, record, true) + " targets=" + targetList(ir, record) + " trueargs=" + intText(ir[record + OPERATION_TRUE_ARGUMENTS]) + "\n"
     return text
 }
 
@@ -102,6 +102,10 @@ static method<String> opcodeText(Int code) {
 
     if (code == OP_RETURN) {
         return "return"
+    }
+
+    if (code >= OP_CONST_STRING) {
+        return textOpcodeText(code)
     }
 
     if (code >= OP_LIST_NEW) {
@@ -213,4 +217,94 @@ static method<String> listOpcodeText(Int code) {
     }
 
     return "scope.end"
+}
+
+static method<String> textOpcodeText(Int code) {
+    if (code == OP_CONST_STRING) {
+        return "const.string"
+    }
+
+    if (code == OP_TEXT_FROM_STR) {
+        return "text.from_str"
+    }
+
+    if (code == OP_TEXT_CONCAT) {
+        return "text.concat"
+    }
+
+    if (code == OP_TEXT_SLICE) {
+        return "text.slice"
+    }
+
+    if (code == OP_TEXT_EQUAL) {
+        return "text.equal"
+    }
+
+    return "byte.to_int"
+}
+
+final var BACKSLASH_BYTE = 92
+final var QUOTE_BYTE = 34
+final var HEX_BASE = 16
+final var NEWLINE_LETTER = 110
+final var TAB_LETTER = 116
+final var RETURN_LETTER = 114
+final var PRINTABLE_FIRST = 32
+final var PRINTABLE_END = 127
+
+// The content of a string literal in canonical text: escapes of the source are decoded, then every byte
+// that is not printable ASCII (and the quote and backslash) is written as an escape again.
+static method<String> escapedText(String source, Int start, Int length) {
+    String text = ""
+    Int index = 0
+
+    while (index < length) {
+        Int position = start + index
+        Int byte = source.byteAt(position)
+
+        if (byte == BACKSLASH_BYTE && index + 1 < length) {
+            index = index + 1
+            byte = decodedEscape(source.byteAt(start + index))
+            position = start + index
+        }
+
+        text = text + escapedByte(source, position, byte)
+        index = index + 1
+    }
+
+    return text
+}
+
+static method<Int> decodedEscape(Int letter) {
+    if (letter == NEWLINE_LETTER) {
+        return 10
+    }
+
+    if (letter == TAB_LETTER) {
+        return 9
+    }
+
+    if (letter == RETURN_LETTER) {
+        return 13
+    }
+
+    return letter
+}
+
+// `position` is where the byte stands in the source, which is how a printable byte becomes a string.
+static method<String> escapedByte(String source, Int position, Int byte) {
+    if (byte == BACKSLASH_BYTE) {
+        return "\\\\"
+    }
+
+    if (byte == QUOTE_BYTE) {
+        return "\\\""
+    }
+
+    if (byte >= PRINTABLE_FIRST && byte < PRINTABLE_END && source.byteAt(position) == byte) {
+        return source.substring(position, position + 1)
+    }
+
+    String digits = "0123456789abcdef"
+    return "\\x" + digits.substring(byte / HEX_BASE, byte / HEX_BASE + 1) + digits.substring(byte % HEX_BASE, byte % HEX_BASE + 1)
 }

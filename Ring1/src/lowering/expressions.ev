@@ -25,6 +25,11 @@ static method<Bool> isListWire(Int wire) {
     return wire == WIRE_REF_LIST_INT || wire == WIRE_REF_LIST_BOOL
 }
 
+// Lists and strings are references to owned objects.
+static method<Bool> isReferenceWire(Int wire) {
+    return isListWire(wire) || wire == WIRE_STRING
+}
+
 // Fills the type map: every binder type that has a wire type gets it.
 static method buildTypeMap(List<Int> types, List<Int> state) {
     for (Int type = 0; type < typeCount(types); type++) {
@@ -45,6 +50,10 @@ static method<Int> wireOf(List<Int> types, Int type) {
 
     if (type == TYPE_VOID) {
         return WIRE_VOID
+    }
+
+    if (type == TYPE_STRING) {
+        return WIRE_STRING
     }
 
     if (kind == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == TYPE_INT) {
@@ -83,6 +92,10 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
 
     if (kind == NODE_CALL) {
         return lowerCall(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_STRING) {
+        return lowerStringLiteral(source, nodes, ir, state, node)
     }
 
     if (kind == NODE_LIST_LITERAL) {
@@ -189,6 +202,10 @@ static method<Int> lowerBinary(String source, List<Int> nodes, List<Int> annotat
 
     if (left == NO_VALUE || right == NO_VALUE) {
         return NO_VALUE
+    }
+
+    if (annotationField(annotations, first, ANNOTATION_TYPE) == TYPE_STRING) {
+        return lowerTextOperator(source, nodes, ir, state, node, left, right)
     }
 
     Int code = arithmeticCode(source, nodes, node)
@@ -306,6 +323,10 @@ static method<Int> lowerShortCircuit(String source, List<Int> nodes, List<Int> a
 static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
     Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
 
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_STRING) {
+        return lowerStringMember(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
     if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
         return lowerListMember(source, nodes, annotations, ir, env, functions, state, node, callee)
     }
@@ -341,7 +362,7 @@ static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotatio
 
     addOperation(ir, state, OP_CALL, result, returnType, row + 1, 0, false, PREDICATE_NONE)
 
-    if (isListWire(returnType)) {
+    if (isReferenceWire(returnType)) {
         setOwned(ir, state)
     }
 
@@ -359,8 +380,12 @@ static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotatio
 
 // A list argument is lent to the callee for reading, or for writing when the callee changes it.
 static method<Int> argumentMode(List<Int> annotations, List<Int> functions, List<Int> state, Int argument, Int row, Int position) {
-    if (!isListWire(wireType(state, annotationField(annotations, argument, ANNOTATION_TYPE)))) {
+    if (!isReferenceWire(wireType(state, annotationField(annotations, argument, ANNOTATION_TYPE)))) {
         return MODE_VALUE
+    }
+
+    if (wireType(state, annotationField(annotations, argument, ANNOTATION_TYPE)) == WIRE_STRING) {
+        return MODE_BORROW_READ
     }
 
     if (functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] == 1) {
@@ -541,4 +566,112 @@ static method<Bool> hasNoValue(List<Int> values) {
     }
 
     return false
+}
+
+// A string literal is a constant that is copied into an owned byte list.
+static method<Int> lowerStringLiteral(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node) {
+    if (nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
+    addOperation(ir, state, OP_CONST_STRING, constant, WIRE_STRING_CONSTANT, 0, 0, false, PREDICATE_NONE)
+    setText(ir, state, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+    Int text = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_TEXT_FROM_STR, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperand(ir, state, constant)
+    return text
+}
+
+// `a + b`, `a == b` and `a != b` on strings.
+static method<Int> lowerTextOperator(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node, Int left, Int right) {
+    if (nodeIs(source, nodes, node, "+")) {
+        Int joined = newValue(ir, state, WIRE_STRING)
+        addOperation(ir, state, OP_TEXT_CONCAT, joined, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+        setOwned(ir, state)
+        addOperandMode(ir, state, left, MODE_BORROW_READ)
+        addOperandMode(ir, state, right, MODE_BORROW_READ)
+        return joined
+    }
+
+    if (!nodeIs(source, nodes, node, "==") && !nodeIs(source, nodes, node, "!=")) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int same = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_TEXT_EQUAL, same, WIRE_BOOL, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, left, MODE_BORROW_READ)
+    addOperandMode(ir, state, right, MODE_BORROW_READ)
+
+    if (nodeIs(source, nodes, node, "==")) {
+        return same
+    }
+
+    Int falseValue = constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, false)
+    Int different = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, different, WIRE_BOOL, 0, 0, false, PREDICATE_EQUAL)
+    addOperand(ir, state, same)
+    addOperand(ir, state, falseValue)
+    return different
+}
+
+// `text.length()`, `text.byteAt(i)` and `text.substring(from, to)`.
+static method<Int> lowerStringMember(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int text = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, callee, NODE_FIRST_CHILD))
+    List<Int> arguments = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    if (text == NO_VALUE || hasNoValue(arguments)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, callee, "length") && arguments.size() == 0) {
+        return emitListLength(ir, state, text)
+    }
+
+    if (nodeIs(source, nodes, callee, "byteAt") && arguments.size() == 1) {
+        return emitByteAt(ir, state, text, arguments[0])
+    }
+
+    if (nodeIs(source, nodes, callee, "substring") && arguments.size() == 2) {
+        return emitSubstring(ir, state, text, arguments[0], arguments[1])
+    }
+
+    markUnsupported(nodes, state, node)
+    return NO_VALUE
+}
+
+static method<Int> emitByteAt(List<Int> ir, List<Int> state, Int text, Int index) {
+    Int byte = newValue(ir, state, WIRE_BYTE)
+    addOperation(ir, state, OP_LIST_GET, byte, WIRE_BYTE, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, text, MODE_BORROW_READ)
+    addOperand(ir, state, index)
+    Int value = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_BYTE_TO_INT, value, WIRE_INT, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, byte)
+    return value
+}
+
+// The slice takes a start and a length, so the length is `to - from`.
+static method<Int> emitSubstring(List<Int> ir, List<Int> state, Int text, Int from, Int to) {
+    Int length = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_SUBTRACT, length, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, to)
+    addOperand(ir, state, from)
+    Int slice = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_TEXT_SLICE, slice, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperandMode(ir, state, text, MODE_BORROW_READ)
+    addOperand(ir, state, from)
+    addOperand(ir, state, length)
+    return slice
 }
