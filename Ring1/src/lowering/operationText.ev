@@ -108,6 +108,14 @@ static method<String> opcodeText(Int code) {
         return "list.clear"
     }
 
+    if (code == OP_TEXT_APPEND) {
+        return "text.append"
+    }
+
+    if (code == OP_BYTE_FROM_INT) {
+        return "byte.from_int"
+    }
+
     if (code == OP_RECORD_MAKE) {
         return "record.make"
     }
@@ -304,6 +312,14 @@ static method<String> escapedText(String source, Int start, Int length) {
 
     if (start == TEXT_LINE_FEED) {
         return "\\n"
+    }
+
+    if (start == TEXT_TRUE) {
+        return "true"
+    }
+
+    if (start == TEXT_FALSE) {
+        return "false"
     }
 
     while (index < length) {

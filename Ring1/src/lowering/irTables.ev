@@ -96,6 +96,8 @@ final var OP_FLOAT_MULTIPLY = 31
 final var OP_FLOAT_DIVIDE = 32
 final var OP_RECORD_MAKE = 33
 final var OP_RECORD_GET = 34
+final var OP_TEXT_APPEND = 35
+final var OP_BYTE_FROM_INT = 36
 
 // A Float multiplied by this constant, -1.0, is negated.
 final var MINUS_ONE_BITS = -4616189618054758400
@@ -105,7 +107,7 @@ final var TEXT_LINE_FEED = -1
 
 // Function 1 of every module copies one text into another; the functions of the program follow it.
 final var TEXT_ASSIGN_FUNCTION = 1
-final var FIRST_USER_FUNCTION = 2
+final var FIRST_USER_FUNCTION = 4
 
 // Functions that have no name in the source are recognized by their name start.
 final var NAME_ENTRY = -1

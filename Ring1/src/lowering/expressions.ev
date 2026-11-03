@@ -151,7 +151,7 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
     }
 
     if (kind == NODE_STRING) {
-        return lowerStringLiteral(source, nodes, ir, state, node)
+        return lowerStringLiteral(source, nodes, annotations, ir, env, functions, state, node)
     }
 
     if (kind == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_PROPERTY) {
@@ -650,10 +650,9 @@ static method<Bool> hasNoValue(List<Int> values) {
 }
 
 // A string literal is a constant that is copied into an owned byte list.
-static method<Int> lowerStringLiteral(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node) {
+static method<Int> lowerStringLiteral(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
     if (nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE) {
-        markUnsupported(nodes, state, node)
-        return NO_VALUE
+        return lowerInterpolation(source, nodes, annotations, ir, env, functions, state, node)
     }
 
     Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
@@ -928,4 +927,13 @@ static method<Int> floatPredicate(String source, List<Int> nodes, Int node) {
     }
 
     return PREDICATE_NONE
+}
+
+// A new owned text made from one operand: a copy of a constant (text.from_str), a file, an argument, ...
+static method<Int> emitTextResult(List<Int> ir, List<Int> state, Int code, Int operand, Int mode) {
+    Int text = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, code, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperandMode(ir, state, operand, mode)
+    return text
 }

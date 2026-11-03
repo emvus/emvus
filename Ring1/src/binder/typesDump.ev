@@ -38,6 +38,11 @@ static method<String> typesNode(String source, List<Int> nodes, List<Int> types,
     Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
 
     while (child != NO_NODE) {
+        if (nodeField(nodes, child, NODE_KIND) == NODE_INTERPOLATION) {
+            child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+            continue
+        }
+
         text = text + typesNode(source, nodes, types, annotations, child)
         child = nodeField(nodes, child, NODE_NEXT_SIBLING)
     }

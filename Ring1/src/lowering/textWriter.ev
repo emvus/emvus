@@ -240,6 +240,14 @@ static method<String> parametersList(List<Int> ir, Int record) {
 static method<String> functionName(String source, List<Int> ir, Int record) {
     Int length = ir[record + FUNCTION_NAME_LENGTH]
 
+    if (length == 0 && ir[record + FUNCTION_NAME_START] == NAME_APPEND_INT) {
+        return "emvus.text.appendInt"
+    }
+
+    if (length == 0 && ir[record + FUNCTION_NAME_START] == NAME_APPEND_BOOL) {
+        return "emvus.text.appendBool"
+    }
+
     if (length == 0 && ir[record + FUNCTION_NAME_START] <= NAME_IMPORT_BASE) {
         return importName(NAME_IMPORT_BASE - ir[record + FUNCTION_NAME_START])
     }

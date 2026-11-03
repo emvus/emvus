@@ -18,6 +18,8 @@ static method<String> lowerSource(String source, String moduleName) {
     numberImports(source, nodes, annotations, functions, state)
     declareRecords(source, nodes, ir, state)
     addTextAssignHelper(ir, state)
+    addAppendIntHelper(ir, state)
+    addAppendBoolHelper(ir, state)
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (declaration != NO_NODE) {

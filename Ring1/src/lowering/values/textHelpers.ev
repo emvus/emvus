@@ -1,0 +1,284 @@
+package ring1.lowering
+
+// Text built from parts. `"a ${x} b"` starts from an empty text and appends the literal pieces and the parts in
+// order: a String part is concatenated, an Int or Bool part is appended in place by a helper function. Two helpers
+// follow the text-assign helper in every module: appendInt(dst, n) writes the decimal digits of n, appendBool(dst, b)
+// writes `true` or `false`.
+final var APPEND_INT_FUNCTION = 2
+final var APPEND_BOOL_FUNCTION = 3
+final var NAME_APPEND_INT = -3
+final var NAME_APPEND_BOOL = -4
+final var TEXT_TRUE = -2
+final var TEXT_FALSE = -3
+final var ASCII_ZERO = 48
+final var ASCII_MINUS = 45
+final var DECIMAL_BASE = 10
+final var NEGATIVE_DECIMAL_BASE = -10
+
+static method addHelperHeader(List<Int> ir, List<Int> state, Int name, Int parameters) {
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(name)
+    ir.add(0)
+    ir.add(WIRE_VOID)
+    ir.add(parameters)
+    ir.add(REC_PARAMETER)
+    ir.add(PARAMETER_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(WIRE_STRING)
+    ir.add(MODE_BORROW_WRITE)
+}
+
+static method addHelperParameter(List<Int> ir, Int type) {
+    ir.add(REC_PARAMETER)
+    ir.add(PARAMETER_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(type)
+    ir.add(MODE_VALUE)
+}
+
+static method<Int> constantNumber(List<Int> ir, List<Int> state, Int number) {
+    return constantValue(ir, state, OP_CONST_INT, WIRE_INT, number, false)
+}
+
+static method<Int> arithmetic(List<Int> ir, List<Int> state, Int code, Int left, Int right) {
+    Int result = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, code, result, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+static method<Int> compareValues(List<Int> ir, List<Int> state, Int predicate, Int left, Int right) {
+    Int result = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, predicate)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+static method jump(List<Int> ir, List<Int> state, Int target, List<Int> arguments) {
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+
+    for (Int position = 0; position < arguments.size(); position++) {
+        addOperand(ir, state, arguments[position])
+    }
+
+    setTargets(ir, state, target, NO_BLOCK, 0)
+}
+
+static method pushDigit(List<Int> ir, List<Int> state, Int destination, Int code) {
+    Int byte = newValue(ir, state, WIRE_BYTE)
+    addOperation(ir, state, OP_BYTE_FROM_INT, byte, WIRE_BYTE, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, code)
+    addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, destination, MODE_BORROW_WRITE)
+    addOperand(ir, state, byte)
+}
+
+// appendInt(dst: borrow_write, n): works on the non-positive magnitude so the smallest Int needs no overflowing
+// negation; `int.rem` truncates toward zero, so the remainders are not positive. The largest power of ten that
+// still leaves two digits is found first, then the digits are written from the most significant one.
+static method addAppendIntHelper(List<Int> ir, List<Int> state) {
+    addHelperHeader(ir, state, NAME_APPEND_INT, 2)
+    addHelperParameter(ir, WIRE_INT)
+    Int destination = newValue(ir, state, WIRE_STRING)
+    Int number = newValue(ir, state, WIRE_INT)
+    List<Int> row = [0, 0, WIRE_INT]
+    List<Int> none = []
+    state[LOWER_BLOCK] = newBlock(ir, state, none, 0)
+    Int zero = constantNumber(ir, state, 0)
+    Int below = compareValues(ir, state, PREDICATE_LESS, number, zero)
+    Int negativeBlock = newBlock(ir, state, none, 0)
+    Int positiveBlock = newBlock(ir, state, none, 0)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, below)
+    setTargets(ir, state, negativeBlock, positiveBlock, 0)
+    Int prepare = newBlock(ir, state, row, 1)
+    Int magnitude = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    state[LOWER_BLOCK] = negativeBlock
+    pushDigit(ir, state, destination, constantNumber(ir, state, ASCII_MINUS))
+    jump(ir, state, prepare, [number])
+    state[LOWER_BLOCK] = positiveBlock
+    jump(ir, state, prepare, [arithmetic(ir, state, OP_SUBTRACT, zero, number)])
+    state[LOWER_BLOCK] = prepare
+    Int one = constantNumber(ir, state, 1)
+    Int ten = constantNumber(ir, state, DECIMAL_BASE)
+    Int minusTen = constantNumber(ir, state, NEGATIVE_DECIMAL_BASE)
+    Int scale = newBlock(ir, state, row, 1)
+    Int power = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    jump(ir, state, scale, [one])
+    Int digits = newBlock(ir, state, row, 1)
+    Int current = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    Int grow = newBlock(ir, state, none, 0)
+    state[LOWER_BLOCK] = scale
+    Int quotient = arithmetic(ir, state, OP_DIVIDE, magnitude, power)
+    Int wide = compareValues(ir, state, PREDICATE_LESS_EQUAL, quotient, minusTen)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, wide)
+    addOperand(ir, state, power)
+    setTargets(ir, state, grow, digits, 0)
+    state[LOWER_BLOCK] = grow
+    jump(ir, state, scale, [arithmetic(ir, state, OP_MULTIPLY, power, ten)])
+    state[LOWER_BLOCK] = digits
+    Int part = arithmetic(ir, state, OP_DIVIDE, magnitude, current)
+    Int remainder = arithmetic(ir, state, OP_REMAINDER, part, ten)
+    Int digit = arithmetic(ir, state, OP_SUBTRACT, zero, remainder)
+    pushDigit(ir, state, destination, arithmetic(ir, state, OP_ADD, digit, constantNumber(ir, state, ASCII_ZERO)))
+    Int more = compareValues(ir, state, PREDICATE_GREATER, current, one)
+    Int shrink = newBlock(ir, state, none, 0)
+    Int done = newBlock(ir, state, none, 0)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, more)
+    setTargets(ir, state, shrink, done, 0)
+    state[LOWER_BLOCK] = shrink
+    jump(ir, state, digits, [arithmetic(ir, state, OP_DIVIDE, current, ten)])
+    state[LOWER_BLOCK] = done
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+}
+
+static method textConstant(List<Int> ir, List<Int> state, Int start, Int length) {
+    Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
+    addOperation(ir, state, OP_CONST_STRING, constant, WIRE_STRING_CONSTANT, 0, 0, false, PREDICATE_NONE)
+    setText(ir, state, start, length)
+}
+
+// appendBool(dst: borrow_write, b)
+static method addAppendBoolHelper(List<Int> ir, List<Int> state) {
+    addHelperHeader(ir, state, NAME_APPEND_BOOL, 2)
+    addHelperParameter(ir, WIRE_BOOL)
+    Int destination = newValue(ir, state, WIRE_STRING)
+    Int flag = newValue(ir, state, WIRE_BOOL)
+    List<Int> none = []
+    state[LOWER_BLOCK] = newBlock(ir, state, none, 0)
+    Int yes = newBlock(ir, state, none, 0)
+    Int no = newBlock(ir, state, none, 0)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, flag)
+    setTargets(ir, state, yes, no, 0)
+    state[LOWER_BLOCK] = yes
+    appendConstant(ir, state, destination, TEXT_TRUE, 4)
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    state[LOWER_BLOCK] = no
+    appendConstant(ir, state, destination, TEXT_FALSE, 5)
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+}
+
+// Appends a constant text to a text in place.
+static method appendConstant(List<Int> ir, List<Int> state, Int destination, Int start, Int length) {
+    Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
+    addOperation(ir, state, OP_CONST_STRING, constant, WIRE_STRING_CONSTANT, 0, 0, false, PREDICATE_NONE)
+    setText(ir, state, start, length)
+    addOperation(ir, state, OP_TEXT_APPEND, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, destination, MODE_BORROW_WRITE)
+    addOperand(ir, state, constant)
+}
+
+static method<Int> openerAt(String source, Int from, Int end) {
+    for (Int index = from; index + 1 < end; index++) {
+        if (source.byteAt(index) == DOLLAR_BYTE && source.byteAt(index + 1) == OPEN_BRACE_BYTE) {
+            return index
+        }
+    }
+
+    return -1
+}
+
+// The `}` that closes an interpolation whose expression starts at `from`.
+static method<Int> closerFrom(String source, Int from, Int end) {
+    Int depth = 0
+
+    for (Int index = from; index < end; index++) {
+        Int byte = source.byteAt(index)
+
+        if (byte == OPEN_BRACE_BYTE) {
+            depth = depth + 1
+        }
+
+        if (byte == CLOSE_BRACE_BYTE && depth == 0) {
+            return index
+        }
+
+        if (byte == CLOSE_BRACE_BYTE) {
+            depth = depth - 1
+        }
+    }
+
+    return -1
+}
+
+final var DOLLAR_BYTE = 36
+final var OPEN_BRACE_BYTE = 123
+final var CLOSE_BRACE_BYTE = 125
+
+static method<Int> lowerInterpolation(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int begin = nodeField(nodes, node, NODE_TEXT_START)
+    Int end = begin + nodeField(nodes, node, NODE_TEXT_LENGTH)
+    textConstant(ir, state, begin, 0)
+    Int constant = state[LOWER_VALUES]
+    Int accumulated = emitTextResult(ir, state, OP_TEXT_FROM_STR, constant, MODE_VALUE)
+    Int cursor = begin
+    Int part = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (part != NO_NODE) {
+        Int open = openerAt(source, cursor, end)
+        Int close = closerFrom(source, open + 2, end)
+
+        if (open < 0 || close < 0) {
+            markUnsupported(nodes, state, node)
+            return NO_VALUE
+        }
+
+        appendConstant(ir, state, accumulated, cursor, open - cursor)
+        Int expression = nodeField(nodes, part, NODE_FIRST_CHILD)
+        Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, expression)
+
+        if (value == NO_VALUE) {
+            return NO_VALUE
+        }
+
+        accumulated = appendPart(nodes, annotations, ir, state, node, accumulated, value, wireType(state, annotationField(annotations, expression, ANNOTATION_TYPE)))
+
+        if (accumulated == NO_VALUE) {
+            return NO_VALUE
+        }
+
+        cursor = close + 1
+        part = nodeField(nodes, part, NODE_NEXT_SIBLING)
+    }
+
+    appendConstant(ir, state, accumulated, cursor, end - cursor)
+    return accumulated
+}
+
+// Adds one part to the text; returns the text to go on with (a concatenation makes a new one).
+static method<Int> appendPart(List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int accumulated, Int value, Int type) {
+    if (type == WIRE_STRING) {
+        Int joined = newValue(ir, state, WIRE_STRING)
+        addOperation(ir, state, OP_TEXT_CONCAT, joined, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+        setOwned(ir, state)
+        addOperandMode(ir, state, accumulated, MODE_BORROW_READ)
+        addOperandMode(ir, state, value, MODE_BORROW_READ)
+        return joined
+    }
+
+    Int helper = APPEND_INT_FUNCTION
+
+    if (type == WIRE_BOOL) {
+        helper = APPEND_BOOL_FUNCTION
+    }
+
+    if (type != WIRE_INT && type != WIRE_BOOL) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    addOperation(ir, state, OP_CALL, NO_VALUE, WIRE_VOID, helper, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, accumulated, MODE_BORROW_WRITE)
+    addOperand(ir, state, value)
+    return accumulated
+}

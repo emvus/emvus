@@ -83,13 +83,18 @@ static method<Int> literalType(Int kind) {
 }
 
 // Binds every child that is an expression, for nodes that hold more than the binder types itself. The
-// expressions inside an interpolation are left alone: Ring0 does not annotate them either.
+// expressions inside an interpolation are bound too (the lowering needs them) but the type dump leaves them out,
+// as Ring0's does.
 static method bindChildren(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
     Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
 
     while (child != NO_NODE) {
         if (nodeField(nodes, child, NODE_KIND) != NODE_INTERPOLATION) {
             bindExpression(source, nodes, types, symbols, annotations, state, child, TYPE_UNKNOWN)
+        }
+
+        if (nodeField(nodes, child, NODE_KIND) == NODE_INTERPOLATION) {
+            bindChildren(source, nodes, types, symbols, annotations, state, child)
         }
 
         child = nodeField(nodes, child, NODE_NEXT_SIBLING)
