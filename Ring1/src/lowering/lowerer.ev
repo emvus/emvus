@@ -10,7 +10,7 @@ static method<String> lowerSource(String source, String moduleName) {
     List<Int> bound = [0, 0, NO_TYPE, TYPE_UNKNOWN]
     bindProgram(source, nodes, types, symbols, annotations, bound)
     List<Int> state = newLowerState()
-    buildTypeMap(types, state)
+    buildTypeMap(source, nodes, types, state)
     List<Int> functions = declareFunctions(source, nodes, types, state)
     analyzeMutation(source, nodes, annotations, functions)
     List<Int> ir = []

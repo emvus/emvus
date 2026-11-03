@@ -31,10 +31,52 @@ static method<Bool> isReferenceWire(Int wire) {
 }
 
 // Fills the type map: every binder type that has a wire type gets it.
-static method buildTypeMap(List<Int> types, List<Int> state) {
+// After the wire types come, for every type, the declaration of the enum it names (NO_NODE for the others); an enum
+// value is its ordinal, an Int.
+static method buildTypeMap(String source, List<Int> nodes, List<Int> types, List<Int> state) {
     for (Int type = 0; type < typeCount(types); type++) {
-        state.add(wireOf(types, type))
+        if (enumDeclaration(source, nodes, types, type) != NO_NODE) {
+            state.add(WIRE_INT)
+        }
+
+        if (enumDeclaration(source, nodes, types, type) == NO_NODE) {
+            state.add(wireOf(types, type))
+        }
     }
+
+    for (Int type = 0; type < typeCount(types); type++) {
+        state.add(enumDeclaration(source, nodes, types, type))
+    }
+}
+
+// The enum declaration a named type refers to.
+static method<Int> enumDeclaration(String source, List<Int> nodes, List<Int> types, Int type) {
+    if (typeField(types, type, TYPE_KIND) != KIND_NAMED) {
+        return NO_NODE
+    }
+
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))) {
+            return declaration
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return NO_NODE
+}
+
+// The enum declaration of a binder type id, read from the map buildTypeMap made.
+static method<Int> declarationOfType(List<Int> state, Int type) {
+    Int count = (state.size() - LOWER_STATE_SIZE) / 2
+
+    if (type < 0 || type >= count) {
+        return NO_NODE
+    }
+
+    return state[LOWER_STATE_SIZE + count + type]
 }
 
 static method<Int> wireOf(List<Int> types, Int type) {
@@ -96,6 +138,14 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
 
     if (kind == NODE_STRING) {
         return lowerStringLiteral(source, nodes, ir, state, node)
+    }
+
+    if (kind == NODE_MEMBER) {
+        return lowerEnumEntry(source, nodes, annotations, ir, state, node)
+    }
+
+    if (kind == NODE_SWITCH) {
+        return lowerSwitch(source, nodes, annotations, ir, env, functions, state, node, true)
     }
 
     if (kind == NODE_LIST_LITERAL) {
