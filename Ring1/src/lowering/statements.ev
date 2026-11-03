@@ -71,6 +71,17 @@ static method addVariable(List<Int> env, List<Int> state, Int key, Int value, In
     state[LOWER_ENV] = state[LOWER_ENV] + 1
 }
 
+// Strings have value semantics: a variable initialized from another variable gets a copy of its bytes.
+static method<Int> copyText(List<Int> ir, List<Int> state, Int original) {
+    Int copy = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_LIST_NEW, copy, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperation(ir, state, OP_CALL, NO_VALUE, WIRE_VOID, TEXT_ASSIGN_FUNCTION, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, copy, MODE_BORROW_WRITE)
+    addOperandMode(ir, state, original, MODE_BORROW_READ)
+    return copy
+}
+
 // A local needs an initializer: its value is the variable's first value.
 static method lowerLocal(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int local) {
     Int init = childOfKind(nodes, local, NODE_INIT)
@@ -81,7 +92,12 @@ static method lowerLocal(String source, List<Int> nodes, List<Int> annotations, 
         return
     }
 
-    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, init, NODE_FIRST_CHILD))
+    Int initializer = nodeField(nodes, init, NODE_FIRST_CHILD)
+    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, initializer)
+
+    if (value != NO_VALUE && type == WIRE_STRING && nodeField(nodes, initializer, NODE_KIND) == NODE_NAME) {
+        value = copyText(ir, state, value)
+    }
 
     if (value != NO_VALUE) {
         addVariable(env, state, nodeField(nodes, local, NODE_TEXT_START), value, type)
@@ -121,6 +137,11 @@ static method lowerAssign(String source, List<Int> nodes, List<Int> annotations,
     Int row = variableRow(nodes, annotations, env, state, target)
     Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, target, NODE_NEXT_SIBLING))
 
+    if (row >= 0 && env[row * ENV_STRIDE + ENV_TYPE] == WIRE_STRING && value != NO_VALUE && annotationField(annotations, target, ANNOTATION_SYMBOL) == REFERENCE_LOCAL) {
+        assignText(source, nodes, ir, env, state, assign, row, value)
+        return
+    }
+
     if (row < 0 || value == NO_VALUE || isReferenceWire(env[row * ENV_STRIDE + ENV_TYPE])) {
         markUnsupported(nodes, state, assign)
         return
@@ -133,6 +154,29 @@ static method lowerAssign(String source, List<Int> nodes, List<Int> annotations,
     if (value != NO_VALUE) {
         env[row * ENV_STRIDE + ENV_VALUE] = value
     }
+}
+
+// `text = value` and `text += value`: the value is copied into the variable's own byte list.
+static method assignText(String source, List<Int> nodes, List<Int> ir, List<Int> env, List<Int> state, Int assign, Int row, Int value) {
+    Int copiedValue = value
+
+    if (nodeIs(source, nodes, assign, "+=")) {
+        Int joined = newValue(ir, state, WIRE_STRING)
+        addOperation(ir, state, OP_TEXT_CONCAT, joined, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+        setOwned(ir, state)
+        addOperandMode(ir, state, env[row * ENV_STRIDE + ENV_VALUE], MODE_BORROW_READ)
+        addOperandMode(ir, state, value, MODE_BORROW_READ)
+        copiedValue = joined
+    }
+
+    if (!nodeIs(source, nodes, assign, "=") && !nodeIs(source, nodes, assign, "+=")) {
+        markUnsupported(nodes, state, assign)
+        return
+    }
+
+    addOperation(ir, state, OP_CALL, NO_VALUE, WIRE_VOID, TEXT_ASSIGN_FUNCTION, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, env[row * ENV_STRIDE + ENV_VALUE], MODE_BORROW_WRITE)
+    addOperandMode(ir, state, copiedValue, MODE_BORROW_READ)
 }
 
 // `xs[i] = v` and `xs[i] += v`: the compound form reads the element, combines and writes it back.
@@ -280,6 +324,11 @@ static method lowerReturn(String source, List<Int> nodes, List<Int> annotations,
         }
 
         mode = returnMode(nodes, annotations, state, value)
+
+        if (mode == MODE_BORROW_READ && wireType(state, annotationField(annotations, value, ANNOTATION_TYPE)) == WIRE_STRING) {
+            result = copyText(ir, state, result)
+            mode = MODE_OWNED
+        }
     }
 
     if (mode == MODE_BORROW_READ) {
@@ -287,6 +336,7 @@ static method lowerReturn(String source, List<Int> nodes, List<Int> annotations,
         return
     }
 
+    // An owned reference return transfers the value and closes scopes (Sublang returnOwned).
     if (state[LOWER_SCOPE] == 1 && mode != MODE_OWNED) {
         addOperation(ir, state, OP_SCOPE_END, NO_VALUE, 0, 1, 0, false, PREDICATE_NONE)
     }

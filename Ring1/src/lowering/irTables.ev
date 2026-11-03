@@ -88,6 +88,15 @@ final var OP_TEXT_CONCAT = 23
 final var OP_TEXT_SLICE = 24
 final var OP_TEXT_EQUAL = 25
 final var OP_BYTE_TO_INT = 26
+final var OP_LIST_CLEAR = 27
+
+// Function 1 of every module copies one text into another; the functions of the program follow it.
+final var TEXT_ASSIGN_FUNCTION = 1
+final var FIRST_USER_FUNCTION = 2
+
+// Functions that have no name in the source are recognized by their name start.
+final var NAME_ENTRY = -1
+final var NAME_TEXT_ASSIGN = -2
 
 final var PREDICATE_NONE = 0
 final var PREDICATE_LESS = 1

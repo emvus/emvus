@@ -9,9 +9,9 @@ EMERALD="$2"
 NOVUSC="$3"
 WORK="$4"
 TESTS="$ROOT/../Ring0/tests"
+cd "$ROOT"
 LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
 TOOL=("${LEXER[@]}" src/parser/*.ev src/parser/*/*.ev src/binder/*.ev src/binder/*/*.ev)
-cd "$ROOT"
 mkdir -p "$WORK/types"
 "$NOVUSC" build scripts/emvusToEmerald.nv -o "$WORK/emvusToEmerald" > /dev/null
 "$WORK/emvusToEmerald" "$RING0" "$WORK/types" "${TOOL[@]}" tests/emptyTest.ev

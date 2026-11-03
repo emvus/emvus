@@ -1,0 +1,41 @@
+package ring1.tests
+
+// The Ring1 frontend and lowering, compiled by Ring1's own lowering, run on a small program here: the
+// type annotations must equal the ones Ring0 gives, and the lowered text must have the length and the
+// beginning and the position-weighted byte sum it has when the lowering runs on Emerald.
+static method<Int> check(Bool holds) {
+    if (holds) {
+        return 0
+    }
+
+    return 1
+}
+
+static method<String> sampleProgram() {
+    return "method<Int> twice(Int n) {\n    return n * 2\n}\n\nstatic method<Int> main {\n    Int total = 0\n\n    for (Int i = 0; i < 4; i++) {\n        total += twice(i)\n    }\n\n    return total\n}\n"
+}
+
+static method<String> sampleTypes() {
+    return "2:14 binary * : Int\n2:12 name n : Int @ parameter n\n2:16 int-literal 2 : Int @ literal int-literal\n6:5 local total : Int @ local total\n6:17 int-literal 0 : Int @ literal int-literal\n8:10 local i : Int @ local i\n8:18 int-literal 0 : Int @ literal int-literal\n8:23 binary < : Boolean\n8:21 name i : Int @ local i\n8:25 int-literal 4 : Int @ literal int-literal\n8:29 postfix ++ : Int\n8:28 name i : Int @ local i\n9:15 assign += : Int\n9:9 name total : Int @ local total\n9:23 call : Int @ method twice (|0|)\n9:24 name i : Int @ local i\n12:12 name total : Int @ local total\n"
+}
+
+// Every byte times its position, so a changed, moved or missing byte changes the sum.
+static method<Int> weightedSum(String text) {
+    Int sum = 0
+
+    for (Int index = 0; index < text.length(); index++) {
+        sum += (index + 1) * text.byteAt(index)
+    }
+
+    return sum
+}
+
+static method<Int> main {
+    String program = sampleProgram()
+    String lowered = lowerSource(program, "/tmp/sample.ev")
+    Int failed = check(typesSource(program) == sampleTypes())
+    failed += check(lowered.length() == 10104)
+    failed += check(lowered.substring(0, 14) == "sublang-text 1")
+    failed += check(weightedSum(lowered) == 4345031238)
+    return failed
+}

@@ -193,3 +193,90 @@ static method<String> argumentText(String source, List<Int> types, List<Int> ann
 
     return typeText(source, types, argument)
 }
+
+// Null-flow diagnostics are separate from the type dump, preserving its stable format.
+static method<String> diagnosticsSource(String source) {
+    List<Int> nodes = parseSource(source)
+    List<Int> types = newTypeTable()
+    List<Int> symbols = []
+    List<Int> annotations = newAnnotations(nodes)
+    List<Int> state = [0, 0, NO_TYPE, TYPE_UNKNOWN]
+    bindProgram(source, nodes, types, symbols, annotations, state)
+    String text = ""
+
+    for (Int index = BINDER_REGISTERS; index < state.size(); index += 3) {
+        Int node = state[index]
+        String name = flowDescription(source, nodes, node)
+        String message = "'" + name + "' may be null; check it first"
+
+        Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+
+        if (symbol == REFERENCE_PROPERTY || symbol == REFERENCE_FIELD) {
+            message = "'" + name + "' may be null; copy it into a final var and check that instead"
+        }
+
+        if (state[index + 1] == FLOW_NULL) {
+            String purpose = flowPurpose(state[index + 2])
+
+
+            message = "'" + name + "' is null; " + purpose
+        }
+
+        text = text + "error " + intText(nodeField(nodes, node, NODE_LINE)) + ":" + intText(nodeField(nodes, node, NODE_COLUMN)) + ": " + message + "\n"
+    }
+
+    return text
+}
+
+static method<String> flowPurpose(Int purpose) {
+    if (purpose == FLOW_OPERAND) {
+        return "it cannot be used as an operand"
+    }
+
+    if (purpose == FLOW_INDEX) {
+        return "it cannot be indexed"
+    }
+
+    if (purpose == FLOW_ARGUMENT) {
+        return "it is passed to a non-null parameter"
+    }
+
+    if (purpose == FLOW_UPDATE) {
+        return "it cannot be updated"
+    }
+
+    if (purpose == FLOW_RETURN) {
+        return "a non-null value must be returned"
+    }
+
+    if (purpose == FLOW_UNPACK) {
+        return "it cannot be unpacked"
+    }
+
+    return "it cannot be dereferenced"
+}
+
+static method<String> flowDescription(String source, List<Int> nodes, Int node) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_NULL_LITERAL) {
+        return "null"
+    }
+
+    if (kind == NODE_NAME || kind == NODE_MEMBER) {
+        Int start = nodeField(nodes, node, NODE_TEXT_START)
+        String name = source.substring(start, start + nodeField(nodes, node, NODE_TEXT_LENGTH))
+
+        if (kind == NODE_MEMBER && firstChildOf(nodes, node) != NO_NODE) {
+            return flowDescription(source, nodes, firstChildOf(nodes, node)) + "." + name
+        }
+
+        return name
+    }
+
+    if (kind == NODE_CALL && firstChildOf(nodes, node) != NO_NODE) {
+        return flowDescription(source, nodes, firstChildOf(nodes, node)) + "()"
+    }
+
+    return "value"
+}

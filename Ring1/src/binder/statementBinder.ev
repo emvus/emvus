@@ -195,3 +195,201 @@ static method bindForEach(String source, List<Int> nodes, List<Int> types, List<
     bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, items, NODE_NEXT_SIBLING))
     state[BINDER_TOP] = mark
 }
+
+// Returns false when this path exits, so guards keep their facts after the block.
+static method<Bool> flowStatement(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    if (node == NO_NODE) {
+        return true
+    }
+
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_IF || kind == NODE_WHILE) {
+        return flowConditional(source, nodes, annotations, env, diagnostics, node)
+    }
+
+    if (kind == NODE_FOR || kind == NODE_FOREACH) {
+        flowLoop(source, nodes, annotations, env, diagnostics, node)
+        return true
+    }
+
+    if (kind == NODE_DESTRUCTURE) {
+        Int valueNode = firstChildOf(nodes, childOfKind(nodes, node, NODE_INIT))
+        requireFlow(diagnostics, valueNode, flowExpression(source, nodes, annotations, env, diagnostics, valueNode), FLOW_UNPACK)
+        return true
+    }
+
+    if (kind == NODE_BREAK || kind == NODE_CONTINUE) {
+        return false
+    }
+
+    if (kind == NODE_LOCAL) {
+        Int init = childOfKind(nodes, node, NODE_INIT)
+        Int value = flowExpression(source, nodes, annotations, env, diagnostics, firstChildOf(nodes, init))
+
+        if (init == NO_NODE && !primitiveFlowType(source, nodes, childOfKind(nodes, node, NODE_TYPE))) {
+            value = FLOW_NULL
+        }
+
+        env[nodeField(nodes, node, NODE_TEXT_START)] = value
+        return true
+    }
+
+    if (kind == NODE_EXPRESSION_STATEMENT || kind == NODE_RETURN || kind == NODE_FAIL || kind == NODE_SUCCESS) {
+        Int valueNode = firstChildOf(nodes, node)
+        Int value = flowExpression(source, nodes, annotations, env, diagnostics, valueNode)
+
+        if ((kind == NODE_RETURN || kind == NODE_SUCCESS) && valueNode != NO_NODE) {
+            requireFlow(diagnostics, valueNode, value, FLOW_RETURN)
+        }
+
+        return kind == NODE_EXPRESSION_STATEMENT
+    }
+
+    if (kind == NODE_VARIABLE || kind == NODE_FIELD || kind == NODE_PROPERTY) {
+        Int last = nodeField(nodes, node, NODE_LAST_CHILD)
+
+        if (last != NO_NODE && nodeField(nodes, last, NODE_KIND) != NODE_TYPE && nodeField(nodes, last, NODE_KIND) != NODE_ACCESSORS && nodeField(nodes, last, NODE_KIND) != NODE_MODIFIERS) {
+            flowExpression(source, nodes, annotations, env, diagnostics, last)
+        }
+
+        return true
+    }
+
+    Int child = firstChildOf(nodes, node)
+
+    while (child != NO_NODE) {
+        if (!flowStatement(source, nodes, annotations, env, diagnostics, child)) {
+            return false
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return true
+}
+
+static method<Bool> flowConditional(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    Int condition = firstChildOf(nodes, node)
+    Int body = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    flowExpression(source, nodes, annotations, env, diagnostics, condition)
+    List<Int> taken = copyFlow(env)
+    List<Int> skipped = copyFlow(env)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    refineFlow(source, nodes, annotations, skipped, condition, false)
+    Bool continues = flowStatement(source, nodes, annotations, taken, diagnostics, body)
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_WHILE) {
+        List<Int> header = copyFlow(env)
+        List<Int> silent = [0, 0, 0, 0]
+        Bool stable = false
+
+        while (!stable) {
+            List<Int> next = copyFlow(header)
+            flowExpression(source, nodes, annotations, next, silent, condition)
+            refineFlow(source, nodes, annotations, next, condition, true)
+            Bool backEdge = flowStatement(source, nodes, annotations, next, silent, body)
+
+            if (!backEdge && !containsFlowExit(nodes, body)) {
+                break
+            }
+
+            mergeFlow(next, env)
+            stable = equalFlow(header, next)
+            joinFlow(header, next, next)
+        }
+
+        flowExpression(source, nodes, annotations, header, diagnostics, condition)
+        joinFlow(taken, header, header)
+        refineFlow(source, nodes, annotations, taken, condition, true)
+        flowStatement(source, nodes, annotations, taken, diagnostics, body)
+        joinFlow(env, header, header)
+
+        if (containsFlowExit(nodes, body)) {
+            joinFlow(env, header, taken)
+            return true
+        }
+
+        refineFlow(source, nodes, annotations, env, condition, false)
+        return true
+    }
+
+    if (!continues) {
+        joinFlow(env, skipped, skipped)
+        return true
+    }
+
+    joinFlow(env, taken, skipped)
+    return true
+}
+
+// A for-loop update runs after its body; neither loop form guarantees one iteration.
+static method flowLoop(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    Int first = firstChildOf(nodes, node)
+    Int condition = NO_NODE
+    Int update = NO_NODE
+    Int body = nodeField(nodes, node, NODE_LAST_CHILD)
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_FOR) {
+        flowStatement(source, nodes, annotations, env, diagnostics, first)
+        Int conditionPart = nodeField(nodes, first, NODE_NEXT_SIBLING)
+        condition = firstChildOf(nodes, conditionPart)
+        update = firstChildOf(nodes, nodeField(nodes, conditionPart, NODE_NEXT_SIBLING))
+    }
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_FOREACH) {
+        flowExpression(source, nodes, annotations, env, diagnostics, nodeField(nodes, first, NODE_NEXT_SIBLING))
+    }
+
+    List<Int> entry = copyFlow(env)
+    List<Int> taken = copyFlow(env)
+    flowExpression(source, nodes, annotations, taken, diagnostics, condition)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    flowStatement(source, nodes, annotations, taken, diagnostics, body)
+    flowExpression(source, nodes, annotations, taken, diagnostics, update)
+    mergeFlow(taken, entry)
+    flowExpression(source, nodes, annotations, taken, diagnostics, condition)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    flowStatement(source, nodes, annotations, taken, diagnostics, body)
+    flowExpression(source, nodes, annotations, taken, diagnostics, update)
+    joinFlow(env, entry, taken)
+}
+
+static method<Bool> equalFlow(List<Int> left, List<Int> right) {
+    for (Int index = 0; index < left.size(); index++) {
+        if (left[index] != right[index]) {
+            return false
+        }
+    }
+
+    return true
+}
+
+// A break or continue prevents treating the false condition as the sole loop exit.
+static method<Bool> containsFlowExit(List<Int> nodes, Int node) {
+    if (node == NO_NODE) {
+        return false
+    }
+
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_BREAK || kind == NODE_CONTINUE) {
+        return true
+    }
+
+    if (kind == NODE_WHILE || kind == NODE_FOR || kind == NODE_FOREACH || kind == NODE_LAMBDA) {
+        return false
+    }
+
+    Int child = firstChildOf(nodes, node)
+
+    while (child != NO_NODE) {
+        if (containsFlowExit(nodes, child)) {
+            return true
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return false
+}

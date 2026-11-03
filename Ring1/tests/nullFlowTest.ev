@@ -1,0 +1,51 @@
+package ring1.tests
+
+static method<Int> main {
+    Int failed = 0
+
+    if (diagnosticsSource("method f { String s = null\ns.size()\n}") != "error 2:1: 's' is null; it cannot be dereferenced\n") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = null\nif (s != null) { s.size() }\n}") != "") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = null\nif (s == null) { return }\ns.size()\n}") != "") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = null\ns = \"ok\"\ns.size()\n}") != "") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = null\nBool b = s != null && s.size() > 0\n}") != "") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s\ns.size()\n}") != "error 2:1: 's' is null; it cannot be dereferenced\n") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method<String> f { return null }") != "error 1:27: 'null' is null; a non-null value must be returned\n") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f(Bool b) { String s = \"ok\"\nif (b) { s = null }\ns.size()\n}") != "error 3:1: 's' may be null; check it first\n") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = null\nString t = s != null ? s : \"ok\"\nt.size()\n}") != "") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = null\nwhile (s == null) { s = \"ok\" }\ns.size()\n}") != "") {
+        failed += 1
+    }
+
+    if (diagnosticsSource("method f { String s = \"ok\"\nfor (Int i = 0; i < 1; i++) { s = null }\ns.size()\n}") != "error 3:1: 's' may be null; check it first\n") {
+        failed += 1
+    }
+
+    return failed
+}

@@ -360,7 +360,7 @@ static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotatio
         result = newValue(ir, state, returnType)
     }
 
-    addOperation(ir, state, OP_CALL, result, returnType, row + 1, 0, false, PREDICATE_NONE)
+    addOperation(ir, state, OP_CALL, result, returnType, row + FIRST_USER_FUNCTION, 0, false, PREDICATE_NONE)
 
     if (isReferenceWire(returnType)) {
         setOwned(ir, state)

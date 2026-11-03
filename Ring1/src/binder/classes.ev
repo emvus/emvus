@@ -135,3 +135,38 @@ static method bindInitializer(String source, List<Int> nodes, List<Int> types, L
         bindExpression(source, nodes, types, symbols, annotations, state, last, TYPE_UNKNOWN)
     }
 }
+
+// Like Ring0, an explicit null initializer marks a property name as nullable.
+// Mutable properties are never refined by a condition; a local snapshot can be.
+static method<Int> propertyFlow(String source, List<Int> nodes, List<Int> annotations, Int node) {
+    Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+
+    if (symbol != REFERENCE_PROPERTY && symbol != REFERENCE_FIELD) {
+        return FLOW_SAFE
+    }
+
+    Int start = annotationField(annotations, node, ANNOTATION_NAME_START)
+    Int length = annotationField(annotations, node, ANNOTATION_NAME_LENGTH)
+
+    for (Int member = 0; member < nodes.size() / NODE_STRIDE; member++) {
+        Int kind = nodeField(nodes, member, NODE_KIND)
+
+        if ((kind == NODE_PROPERTY || kind == NODE_FIELD) && sameSpans(source, start, length, nodeField(nodes, member, NODE_TEXT_START), nodeField(nodes, member, NODE_TEXT_LENGTH))) {
+            Int last = nodeField(nodes, member, NODE_LAST_CHILD)
+
+            if (last != NO_NODE && nodeField(nodes, last, NODE_KIND) == NODE_NULL_LITERAL) {
+                return FLOW_MAYBE
+            }
+        }
+    }
+
+    return FLOW_SAFE
+}
+
+static method<Bool> primitiveFlowType(String source, List<Int> nodes, Int node) {
+    if (node == NO_NODE || nodeIs(source, nodes, node, "var")) {
+        return true
+    }
+
+    return nodeIs(source, nodes, node, "Int") || nodeIs(source, nodes, node, "Float") || nodeIs(source, nodes, node, "Bool") || nodeIs(source, nodes, node, "Boolean") || nodeIs(source, nodes, node, "Void") || nodeIs(source, nodes, node, "Long") || nodeIs(source, nodes, node, "Double") || nodeIs(source, nodes, node, "Byte") || nodeIs(source, nodes, node, "Char")
+}

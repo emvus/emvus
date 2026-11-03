@@ -15,6 +15,7 @@ static method<String> lowerSource(String source, String moduleName) {
     analyzeMutation(source, nodes, annotations, functions)
     List<Int> ir = []
     List<Int> env = []
+    addTextAssignHelper(ir, state)
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (declaration != NO_NODE) {
@@ -32,11 +33,11 @@ static method<String> lowerSource(String source, String moduleName) {
     }
 
     if (functions[entry * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN] == WIRE_VOID) {
-        addEntryWrapper(ir, state, entry + 1)
+        addEntryWrapper(ir, state, entry + FIRST_USER_FUNCTION)
         entry = functions.size() / FUNCTION_ROW_SIZE
     }
 
-    return programText(source, moduleName, ir, entry + 1)
+    return programText(source, moduleName, ir, entry + FIRST_USER_FUNCTION)
 }
 
 static method<List<Int>> newLowerState() {
@@ -166,12 +167,18 @@ static method<Int> parameterMode(List<Int> functions, Int row, Int position, Int
     return MODE_BORROW_READ
 }
 
-// A function that creates a list owns it in a scope: a list literal or a call that returns a list.
+// List allocations need a scope. String names also need one: borrowed returns are copied.
 static method<Bool> needsScope(List<Int> nodes, List<Int> annotations, List<Int> state, Int node) {
     Int kind = nodeField(nodes, node, NODE_KIND)
+    Int type = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (type == WIRE_STRING) {
+        return true
+    }
+
     Bool creates = kind == NODE_LIST_LITERAL || kind == NODE_STRING || kind == NODE_BINARY || kind == NODE_CALL
 
-    if (creates && isReferenceWire(wireType(state, annotationField(annotations, node, ANNOTATION_TYPE)))) {
+    if (creates && isReferenceWire(type)) {
         return true
     }
 
@@ -303,7 +310,7 @@ static method addEntryWrapper(List<Int> ir, List<Int> state, Int main) {
     state[LOWER_BLOCKS] = 0
     ir.add(REC_FUNCTION)
     ir.add(FUNCTION_SIZE)
-    ir.add(0)
+    ir.add(NAME_ENTRY)
     ir.add(0)
     ir.add(WIRE_INT)
     ir.add(0)
@@ -313,4 +320,70 @@ static method addEntryWrapper(List<Int> ir, List<Int> state, Int main) {
     Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
     addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
     addOperand(ir, state, zero)
+}
+
+// `emvus.text.assign(dst, src)`: empties dst and appends every byte of src. Assigning a String variable
+// calls it, so the variable keeps its list and needs no block parameter.
+static method addTextAssignHelper(List<Int> ir, List<Int> state) {
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(NAME_TEXT_ASSIGN)
+    ir.add(0)
+    ir.add(WIRE_VOID)
+    ir.add(2)
+    ir.add(REC_PARAMETER)
+    ir.add(PARAMETER_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(WIRE_STRING)
+    ir.add(MODE_BORROW_WRITE)
+    Int destination = newValue(ir, state, WIRE_STRING)
+    ir.add(REC_PARAMETER)
+    ir.add(PARAMETER_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(WIRE_STRING)
+    ir.add(MODE_BORROW_READ)
+    Int source = newValue(ir, state, WIRE_STRING)
+    List<Int> counter = [0, 0, WIRE_INT]
+    state[LOWER_BLOCK] = newBlock(ir, state, counter, 0)
+    addOperation(ir, state, OP_LIST_CLEAR, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, destination, MODE_BORROW_WRITE)
+    Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+    Int header = newBlock(ir, state, counter, 1)
+    Int index = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, zero)
+    setTargets(ir, state, header, NO_BLOCK, 0)
+    state[LOWER_BLOCK] = header
+    Int length = emitListLength(ir, state, source)
+    Int more = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, more, WIRE_BOOL, 0, 0, false, PREDICATE_LESS)
+    addOperand(ir, state, index)
+    addOperand(ir, state, length)
+    Int body = newBlock(ir, state, counter, 0)
+    Int done = newBlock(ir, state, counter, 0)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, more)
+    setTargets(ir, state, body, done, 0)
+    state[LOWER_BLOCK] = body
+    Int byte = newValue(ir, state, WIRE_BYTE)
+    addOperation(ir, state, OP_LIST_GET, byte, WIRE_BYTE, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, source, MODE_BORROW_READ)
+    addOperand(ir, state, index)
+    addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, destination, MODE_BORROW_WRITE)
+    addOperand(ir, state, byte)
+    Int one = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 1, false)
+    Int next = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_ADD, next, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, index)
+    addOperand(ir, state, one)
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, next)
+    setTargets(ir, state, header, NO_BLOCK, 0)
+    state[LOWER_BLOCK] = done
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
 }

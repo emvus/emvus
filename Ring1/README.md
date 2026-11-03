@@ -79,18 +79,38 @@ expected type) and the statements `if`, `while`, `for`, `return` and expression 
 - **Result:** the annotations of Ring1's whole source (lexer, parser, binder: 8,973 lines) are identical to
   Ring0's. `scripts/diffTypes.sh` shows where a program differs; `scripts/runBinderCorpus.sh` measures
   against Ring0's test sources: 77 of 78 are identical (the showcase uses built-ins outside the Ring1 subset:
-  `Files`, `Int.parse`, `copy`, the members of `Any`).
-- No diagnostics yet: the binder assumes a valid program.
+  `Files`, `Int.parse`, `copy`, the members of `Any`; remaining differences also include interface calls,
+  exception members, switch results, Dictionary/Tuple typing and task/async types).
+- `diagnosticsSource` reports null dereferences, unsafe operands and null returns with line and column.
+  Local assignments, null guards, early returns, short-circuit and ternary expressions are tracked;
+  `tests/nullFlowTest.ev` contains eleven regression cases. Constructor initialization and full switch-flow
+  analysis remain open; this is not yet diagnostic parity with Ring0.
 
 ## Running the tests
 
-The Sublang backend does not run yet, so the tests execute on Emerald: Ring0 parses the sources
+The frontend unit tests execute on Emerald: Ring0 parses the sources
 (`ring0 files... --ast`), `scripts/emvusToEmerald.nv` translates the Ring1 subset to an Emerald class, the
 Emerald compiler builds it and the program prints the number of failed cases.
 
 ```bash
 EMERALD_HOME=<kit> bash scripts/runTests.sh <ring0-binary> <emerald-compiler> <novusc> <work-dir>
 ```
+
+`runTests.sh` includes the lexer, parser and null-flow regressions. The scripts resolve source globs
+from the Ring1 directory and can also be invoked from the workspace root. Tool and work-directory
+arguments should be absolute paths.
+
+The native bootstrap regression lowers the combined frontend and lowering with Ring1, builds the
+Sublang wire output and executes the resulting compiler on a sample program:
+
+```bash
+EMERALD_HOME=<kit> bash scripts/runBootstrap.sh <ring0-binary> <emerald-compiler> <novusc> <sublang> <work-dir>
+```
+
+The integrated review run passes all four bootstrap checks (`bootstrap: failed checks: 0`),
+77/78 binder corpus comparisons and all 12 supported native lowering cases (33 unsupported).
+An owned reference return closes its remaining scopes through Sublang's `return` with `owned`
+operand mode; borrowed String returns are copied first. Full diagnostic and IR parity remains open.
 
 The translator `scripts/emvusToEmerald.nv` is written in Novus (https://github.com/ezTxmMC/novus, `novusc` from its
 releases; it needs a C compiler to build). It is a test harness for exactly the constructs Ring1 uses, not a second compiler; it stops with an

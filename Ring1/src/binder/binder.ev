@@ -8,6 +8,7 @@ static method bindProgram(String source, List<Int> nodes, List<Int> types, List<
     state[BINDER_DECLARED] = state[BINDER_TOP]
     bindConstants(source, nodes, types, symbols, annotations, state, file)
     bindMethods(source, nodes, types, symbols, annotations, state, file)
+    analyzeNullFlow(source, nodes, annotations, state, file)
 }
 
 static method declareMembers(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int file) {
@@ -118,4 +119,253 @@ static method bindMethod(String source, List<Int> nodes, List<Int> types, List<I
     if (body != NO_NODE) {
         bindBlock(source, nodes, types, symbols, annotations, state, body)
     }
+}
+
+// Diagnostics follow the four binder registers as (node, state, purpose) triples.
+// Nullability is a flow fact, not a type qualifier, just as in Ring0.
+final var BINDER_REGISTERS = 4
+final var FLOW_SAFE = 0
+final var FLOW_NULL = 1
+final var FLOW_MAYBE = 2
+final var FLOW_DEREFERENCE = 0
+final var FLOW_OPERAND = 1
+final var FLOW_INDEX = 2
+final var FLOW_ARGUMENT = 3
+final var FLOW_UPDATE = 4
+final var FLOW_RETURN = 5
+final var FLOW_UNPACK = 6
+
+static method analyzeNullFlow(String source, List<Int> nodes, List<Int> annotations, List<Int> diagnostics, Int node) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_METHOD || kind == NODE_CONSTRUCTOR || kind == NODE_VARIABLE || kind == NODE_FIELD || kind == NODE_PROPERTY) {
+        List<Int> env = []
+
+        for (Int index = 0; index <= source.length(); index++) {
+            env.add(FLOW_SAFE)
+        }
+
+        flowStatement(source, nodes, annotations, env, diagnostics, node)
+        return
+    }
+
+    Int child = firstChildOf(nodes, node)
+
+    while (child != NO_NODE) {
+        analyzeNullFlow(source, nodes, annotations, diagnostics, child)
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+}
+
+// Annotation name spans identify declarations, including shadowed locals.
+static method<Int> flowKey(List<Int> annotations, Int node) {
+    Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+
+    if (symbol == REFERENCE_LOCAL || symbol == REFERENCE_PARAMETER) {
+        return annotationField(annotations, node, ANNOTATION_NAME_START)
+    }
+
+    return NO_NODE
+}
+
+static method<List<Int>> copyFlow(List<Int> env) {
+    List<Int> copy = []
+
+    for (Int index = 0; index < env.size(); index++) {
+        copy.add(env[index])
+    }
+
+    return copy
+}
+
+static method joinFlow(List<Int> env, List<Int> left, List<Int> right) {
+    for (Int index = 0; index < env.size(); index++) {
+        env[index] = left[index]
+
+        if (left[index] != right[index]) {
+            env[index] = FLOW_MAYBE
+        }
+    }
+}
+
+// Merge into an existing environment without passing it as both writable and readable.
+static method mergeFlow(List<Int> env, List<Int> incoming) {
+    for (Int index = 0; index < env.size(); index++) {
+        if (env[index] != incoming[index]) {
+            env[index] = FLOW_MAYBE
+        }
+    }
+}
+
+static method requireFlow(List<Int> diagnostics, Int node, Int value, Int purpose) {
+    if (value == FLOW_SAFE) {
+        return
+    }
+
+    // A loop can visit an expression more than once; report each use once.
+    for (Int index = BINDER_REGISTERS; index < diagnostics.size(); index += 3) {
+        if (diagnostics[index] == node && diagnostics[index + 2] == purpose) {
+            return
+        }
+    }
+
+    diagnostics.add(node)
+    diagnostics.add(value)
+    diagnostics.add(purpose)
+}
+
+static method<Int> flowExpression(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    if (node == NO_NODE) {
+        return FLOW_SAFE
+    }
+
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_NULL_LITERAL) {
+        return FLOW_NULL
+    }
+
+    if (kind == NODE_NAME) {
+        Int key = flowKey(annotations, node)
+
+        if (key != NO_NODE) {
+            return env[key]
+        }
+
+        return propertyFlow(source, nodes, annotations, node)
+    }
+
+    Int first = firstChildOf(nodes, node)
+
+    if (kind == NODE_TERNARY) {
+        return flowTernary(source, nodes, annotations, env, diagnostics, node)
+    }
+
+    if (kind == NODE_ASSIGN && first != NO_NODE) {
+        Int value = flowExpression(source, nodes, annotations, env, diagnostics, nodeField(nodes, first, NODE_NEXT_SIBLING))
+        Int key = flowKey(annotations, first)
+
+        if (key != NO_NODE && nodeIs(source, nodes, node, "=")) {
+            env[key] = value
+            return value
+        }
+
+        if (!nodeIs(source, nodes, node, "=")) {
+            requireFlow(diagnostics, first, flowExpression(source, nodes, annotations, env, diagnostics, first), FLOW_UPDATE)
+            return FLOW_SAFE
+        }
+
+        flowExpression(source, nodes, annotations, env, diagnostics, first)
+        return value
+    }
+
+    if (kind == NODE_BINARY && (nodeIs(source, nodes, node, "&&") || nodeIs(source, nodes, node, "||"))) {
+        flowExpression(source, nodes, annotations, env, diagnostics, first)
+        List<Int> rightEnv = copyFlow(env)
+        refineFlow(source, nodes, annotations, rightEnv, first, nodeIs(source, nodes, node, "&&"))
+        flowExpression(source, nodes, annotations, rightEnv, diagnostics, nodeField(nodes, first, NODE_NEXT_SIBLING))
+        mergeFlow(env, rightEnv)
+        return FLOW_SAFE
+    }
+
+    Int child = first
+
+    while (child != NO_NODE) {
+        Int value = flowExpression(source, nodes, annotations, env, diagnostics, child)
+
+        if ((kind == NODE_MEMBER || kind == NODE_CASCADE) && child == first) {
+            requireFlow(diagnostics, child, value, FLOW_DEREFERENCE)
+        }
+
+        if (kind == NODE_INDEX && child == first) {
+            requireFlow(diagnostics, child, value, FLOW_INDEX)
+        }
+
+        if (kind == NODE_CALL && child != first) {
+            requireFlow(diagnostics, child, value, FLOW_ARGUMENT)
+        }
+
+        if ((kind == NODE_BINARY && !nodeIs(source, nodes, node, "==") && !nodeIs(source, nodes, node, "!=")) || kind == NODE_UNARY || kind == NODE_POSTFIX) {
+            requireFlow(diagnostics, child, value, FLOW_OPERAND)
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    if (kind == NODE_MEMBER) {
+        return propertyFlow(source, nodes, annotations, node)
+    }
+
+    return FLOW_SAFE
+}
+
+static method refineFlow(String source, List<Int> nodes, List<Int> annotations, List<Int> env, Int condition, Bool truth) {
+    if (condition == NO_NODE) {
+        return
+    }
+
+    Int first = firstChildOf(nodes, condition)
+
+    if (nodeField(nodes, condition, NODE_KIND) == NODE_UNARY && nodeIs(source, nodes, condition, "!")) {
+        refineFlow(source, nodes, annotations, env, first, !truth)
+        return
+    }
+
+    if (nodeField(nodes, condition, NODE_KIND) != NODE_BINARY || first == NO_NODE) {
+        return
+    }
+
+    Int second = nodeField(nodes, first, NODE_NEXT_SIBLING)
+
+    if (second == NO_NODE) {
+        return
+    }
+
+    if (nodeIs(source, nodes, condition, "&&") && truth || nodeIs(source, nodes, condition, "||") && !truth) {
+        refineFlow(source, nodes, annotations, env, first, truth)
+        refineFlow(source, nodes, annotations, env, second, truth)
+        return
+    }
+
+    if (!nodeIs(source, nodes, condition, "==") && !nodeIs(source, nodes, condition, "!=")) {
+        return
+    }
+
+    if (nodeField(nodes, first, NODE_KIND) == NODE_NULL_LITERAL) {
+        Int swap = first
+        first = second
+        second = swap
+    }
+
+    Int key = flowKey(annotations, first)
+
+    if (key == NO_NODE || nodeField(nodes, second, NODE_KIND) != NODE_NULL_LITERAL) {
+        return
+    }
+
+    env[key] = FLOW_SAFE
+
+    if (truth == nodeIs(source, nodes, condition, "==")) {
+        env[key] = FLOW_NULL
+    }
+}
+
+static method<Int> flowTernary(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    Int condition = firstChildOf(nodes, node)
+    Int yes = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    Int no = nodeField(nodes, yes, NODE_NEXT_SIBLING)
+    flowExpression(source, nodes, annotations, env, diagnostics, condition)
+    List<Int> taken = copyFlow(env)
+    List<Int> skipped = copyFlow(env)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    refineFlow(source, nodes, annotations, skipped, condition, false)
+    Int left = flowExpression(source, nodes, annotations, taken, diagnostics, yes)
+    Int right = flowExpression(source, nodes, annotations, skipped, diagnostics, no)
+    joinFlow(env, taken, skipped)
+
+    if (left == right) {
+        return left
+    }
+
+    return FLOW_MAYBE
 }

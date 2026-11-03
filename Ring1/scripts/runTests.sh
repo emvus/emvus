@@ -8,9 +8,10 @@ RING0="$1"
 EMERALD="$2"
 NOVUSC="$3"
 WORK="$4"
+cd "$ROOT"
 LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
 PARSER=(src/parser/*.ev src/parser/*/*.ev)
-cd "$ROOT"
+BINDER=(src/binder/*.ev src/binder/*/*.ev)
 mkdir -p "$WORK"
 "$NOVUSC" build scripts/emvusToEmerald.nv -o "$WORK/emvusToEmerald" > /dev/null
 status=0
@@ -25,4 +26,5 @@ run() {
 }
 run lexer "${LEXER[@]}" tests/lexerTest.ev
 run parser "${LEXER[@]}" "${PARSER[@]}" tests/parserTest.ev
+run nullFlow "${LEXER[@]}" "${PARSER[@]}" "${BINDER[@]}" tests/nullFlowTest.ev
 exit $status

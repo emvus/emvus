@@ -226,9 +226,13 @@ static method<String> parametersList(List<Int> ir, Int record) {
     return text + "]"
 }
 
-// The wrapper around a Void `main` has no name in the source.
+// The wrapper around a Void `main` and the text copy helper have no name in the source.
 static method<String> functionName(String source, List<Int> ir, Int record) {
     Int length = ir[record + FUNCTION_NAME_LENGTH]
+
+    if (length == 0 && ir[record + FUNCTION_NAME_START] == NAME_TEXT_ASSIGN) {
+        return "emvus.text.assign"
+    }
 
     if (length == 0) {
         return "entry"

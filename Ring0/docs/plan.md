@@ -8,7 +8,7 @@ Emvus is a new language with its own compiler. The compiler is bootstrapped in s
 |---|---|---|---|
 | Ring0 | Bootstrap compiler: Emvus source to native executable through the Sublang backend | Emerald (`.ems`) | frontend and lowering work, frozen except for fixes that block self-hosting |
 | Runtime IR | Runtime library (output, files, arguments, text and number helpers, later Map and Option) | Sublang IR, written by us; the platform layer (syscalls, Windows API) is provided by Sublang | not started, waits for the Sublang side |
-| Ring1 | First self-hosted compiler, data-oriented subset (lexer first) | Emvus (`.ev`), built by Ring0 | not started |
+| Ring1 | First self-hosted compiler, data-oriented subset | Emvus (`.ev`), built by Ring0 | frontend, partial null-flow diagnostics and subset lowering implemented; native bootstrap regression passes |
 | Ring2 | Idiomatic self-hosted compiler (`Node`, `List<Node>`, `Dictionary`) | Emvus, built by Ring1 or Ring0 | needs backend gates G3 to G6 |
 
 Pipeline today:
@@ -76,11 +76,11 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 
 ### Self-hosting
 
-- [ ] Ring1 lexer in Emvus; token stream equals the Ring0 lexer on every fixture (v0 is `Ring1/src/lexer.ev`: checks and lowers, wire export blocked by Sublang's 32-function module budget, not run; see `Ring1/README.md`)
-- [ ] Ring1 parser; AST dump equals Ring0's on every fixture (131 of 131 corpus cases identical, including the whole showcase and Ring1's own sources, run on Emerald; open: error recovery and diagnostics; not run through Sublang; see `Ring1/README.md`)
-- [ ] Ring1 binder and null flow; diagnostics equal Ring0's (binder v0 annotates Ring1's own source identically to Ring0, 23 of 78 Ring0 test sources; no diagnostics, no null flow yet; see `Ring1/README.md`)
-- [ ] Ring1 lowering and wire output; wire equals Ring0's for the lowering fixtures
-- [ ] First self-host: the Ring0-built compiler compiles its own source
+- [ ] Ring1 lexer corpus parity (implemented; ASCII identifiers only; see `Ring1/README.md`)
+- [ ] Ring1 parser diagnostic parity (131 corpus ASTs matched in the previous run; error recovery remains open)
+- [ ] Ring1 binder and null flow; diagnostics equal Ring0's (77/78 type corpus cases matched in the integrated review run; `showcase.ev` still differs in built-ins, interface/exception members, switch results, collections and task/async types. Local null flow and line/column diagnostics implemented with eleven regression cases; constructor initialization and full switch flows remain open)
+- [ ] Ring1 lowering and wire output parity (subset executes natively; integrated review corpus: 12 passed, 33 unsupported. Headers, builtin declarations, helper IDs and source spans still differ from Ring0; byte-for-byte IR parity is not claimed)
+- [x] First self-host: Ring1 lowers its own frontend and lowering source to Sublang, builds natively and runs the bootstrap regression (`scripts/runBootstrap.sh`: zero failed checks; this is not yet an executable fixed point)
 - [ ] Fixed point: the result compiles itself to an identical executable
 - [ ] Ring2 idiomatic rewrite on the available backend gates
 

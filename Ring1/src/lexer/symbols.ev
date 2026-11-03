@@ -26,8 +26,16 @@ static method<Bool> isTwoByteSymbol(Int first, Int second) {
 }
 
 static method<Bool> isSingleSymbol(String source, List<Int> cursor) {
-    Int position = cursor[CURSOR_POSITION]
-    return singleSymbols().indexOf(source.substring(position, position + 1)) >= 0
+    Int byte = source.byteAt(cursor[CURSOR_POSITION])
+    String symbols = singleSymbols()
+
+    for (Int index = 0; index < symbols.length(); index++) {
+        if (symbols.byteAt(index) == byte) {
+            return true
+        }
+    }
+
+    return false
 }
 
 static method<Int> symbolLength(String source, List<Int> cursor) {

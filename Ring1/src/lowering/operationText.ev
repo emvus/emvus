@@ -104,6 +104,10 @@ static method<String> opcodeText(Int code) {
         return "return"
     }
 
+    if (code == OP_LIST_CLEAR) {
+        return "list.clear"
+    }
+
     if (code >= OP_CONST_STRING) {
         return textOpcodeText(code)
     }
