@@ -150,10 +150,10 @@ static method<Int> parseTask(String source, List<Int> tokens, List<Int> state, L
     return task
 }
 
-// An unexpected token becomes an error node and is skipped, so parsing always makes progress.
+// An unexpected token becomes an error node and stays where it is; the loop around the expression skips it when nothing
+// else could use it, so parsing always makes progress.
 static method<Int> parseError(List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int error = addNodeAtToken(nodes, NODE_ERROR, tokens, state)
     reportError(state, MSG_EXPRESSION)
-    advanceToken(tokens, state)
     return error
 }
