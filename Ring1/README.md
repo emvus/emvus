@@ -58,14 +58,15 @@ becomes an error node; there is no `else`, `switch`, class, lambda or `Result` y
 ## Running the tests
 
 The Sublang backend does not run yet, so the tests execute on Emerald: Ring0 parses the sources
-(`ring0 files... --ast`), `scripts/emvusToEmerald.py` translates the Ring1 subset to an Emerald class, the
+(`ring0 files... --ast`), `scripts/emvusToEmerald.nv` translates the Ring1 subset to an Emerald class, the
 Emerald compiler builds it and the program prints the number of failed cases.
 
 ```bash
-bash scripts/runTests.sh <ring0-binary> <emerald-compiler> <work-dir>
+EMERALD_HOME=<kit> bash scripts/runTests.sh <ring0-binary> <emerald-compiler> <novusc> <work-dir>
 ```
 
-The translator is a test harness for exactly the constructs Ring1 uses, not a second compiler; it stops with an
+The translator `scripts/emvusToEmerald.nv` is written in Novus (https://github.com/ezTxmMC/novus, `novusc` from its
+releases; it needs a C compiler to build). It is a test harness for exactly the constructs Ring1 uses, not a second compiler; it stops with an
 error on anything else. It replaces constants by their values (like Ring0's lowering) and emulates `byteAt` for ASCII.
 
 ## State

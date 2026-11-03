@@ -1,0 +1,577 @@
+package main
+
+import io
+import os
+import strings
+import unicode
+
+// Runs Ring1 on Emerald: translates the Ring1 subset of Emvus to Emerald and writes a program.
+//
+//   novusc run emvusToEmerald.nv <ring0-binary> <out-dir> <file.ev>...
+//
+// Ring0 parses the sources (`--ast`), so the translator only sees the tree. It covers exactly the
+// constructs Ring1 is written in; anything else stops with an error. This is a test harness, not
+// a second compiler: its only purpose is to execute Ring1 before the Sublang backend can.
+
+define class Node {
+    private final string kind: get
+    private final string text: get
+    private final array children: get
+
+    construct(string kind, string text) {
+        this.kind = kind
+        this.text = text
+        this.children = []
+    }
+
+    method child(integer index): Node {
+        return this.children[index]
+    }
+
+    method last(): Node {
+        return this.children[this.children.length() - 1]
+    }
+}
+
+method main(array<string> arguments) {
+    if (arguments.length() < 3) {
+        println "usage: emvusToEmerald.nv <ring0-binary> <out-dir> <file.ev>..."
+        return 1
+    }
+
+    var command = os.shellQuote(arguments[0])
+    var index = 2
+    while (index < arguments.length()) {
+        command = command + " " + os.shellQuote(arguments[index])
+        index = index + 1
+    }
+
+    var result = os.run(command + " --ast 2>&1")
+    if (result["code"] != 0) {
+        println result["output"]
+        return 1
+    }
+
+    var translator = Translator(readTree(result["output"]))
+    writeProgram(arguments[1], translator)
+    return 0
+}
+
+method writeProgram(string outDir, Translator translator) {
+    os.mkdir(outDir + "/ring1")
+    var body = join(translator.methods(), "\n\n") + "\n\n" + join(translator.helpers(), "\n\n")
+    var program = "namespace ring1;\n\npublic class Program {\n    public Program() {\n    }\n\n" + body + "\n}\n"
+    os.writeFile(outDir + "/ring1/Program.ems", program)
+    var entry = "use ring1::Program;\n\nmain() {\n    Int failed = Program.m_main();\n    println(\"failed cases: \" + failed.toString());\n}\n"
+    os.writeFile(outDir + "/Ring1Main.ems", entry)
+}
+
+method join(array<string> parts, string separator): string {
+    var result = ""
+    var index = 0
+    while (index < parts.length()) {
+        if (index > 0) {
+            result = result + separator
+        }
+
+        result = result + parts[index]
+        index = index + 1
+    }
+
+    return result
+}
+
+// ---------------------------------------------------------------
+// Reading the tree: one node per line, two spaces of indentation per level
+// ---------------------------------------------------------------
+
+method readTree(string dump): Node {
+    var root = Node("file", "")
+    var stack = []
+    for (line in strings.lines(dump)) {
+        if (strings.isSpace(line) || line == "") {
+            continue
+        }
+
+        var depth = indentOf(line) / 2
+        var rest = line.substring(depth * 2, line.length())
+        var split = rest.indexOf(" ")
+        var kind = rest
+        var text = ""
+        if (split >= 0) {
+            kind = rest.substring(0, split)
+            text = unescape(rest.substring(split + 1, rest.length()))
+        }
+
+        var node = Node(kind, text)
+        if (depth == 0) {
+            root = node
+        }
+
+        if (depth > 0) {
+            stack[depth - 1].children().append(node)
+        }
+
+        while (stack.length() > depth) {
+            stack.remove(stack.length() - 1)
+        }
+
+        stack.append(node)
+    }
+
+    return root
+}
+
+method indentOf(string line): integer {
+    var count = 0
+    while (count < line.length() && line.charAt(count) == " ") {
+        count = count + 1
+    }
+
+    return count
+}
+
+method unescape(string text): string {
+    var result = ""
+    var index = 0
+    while (index < text.length()) {
+        var character = text.charAt(index)
+        if (character == "\\" && index + 1 < text.length()) {
+            result = result + unescaped(text.charAt(index + 1))
+            index = index + 2
+            continue
+        }
+
+        result = result + character
+        index = index + 1
+    }
+
+    return result
+}
+
+method unescaped(string character): string {
+    if (character == "n") {
+        return "\n"
+    }
+
+    if (character == "r") {
+        return "\r"
+    }
+
+    if (character == "t") {
+        return "\t"
+    }
+
+    return character
+}
+
+// ---------------------------------------------------------------
+// Emerald text
+// ---------------------------------------------------------------
+
+method emeraldString(string text): string {
+    var result = "\""
+    var index = 0
+    while (index < text.length()) {
+        result = result + escapedCharacter(text.charAt(index))
+        index = index + 1
+    }
+
+    return result + "\""
+}
+
+method escapedCharacter(string character): string {
+    if (character == "\\") {
+        return "\\\\"
+    }
+
+    if (character == "\"") {
+        return "\\\""
+    }
+
+    if (character == "\n") {
+        return "\\n"
+    }
+
+    if (character == "\r") {
+        return "\\r"
+    }
+
+    if (character == "\t") {
+        return "\\t"
+    }
+
+    return character
+}
+
+method asciiTable(): string {
+    var table = ""
+    var code = 32
+    while (code < 127) {
+        table = table + unicode.fromCodePoint(code)
+        code = code + 1
+    }
+
+    return table
+}
+
+method indentation(integer depth): string {
+    return strings.repeat("    ", depth)
+}
+
+// ---------------------------------------------------------------
+// Translation
+// ---------------------------------------------------------------
+
+define class Translator {
+    private final map constants: get
+    private final map arities: get
+    private final array translated: get
+
+    construct(Node root) {
+        this.constants = {}
+        this.arities = {}
+        this.translated = []
+        for (declaration in root.children()) {
+            if (declaration.kind() == "variable") {
+                this.constants[declaration.text()] = this.constant(declaration.last())
+            }
+        }
+
+        for (declaration in root.children()) {
+            if (declaration.kind() == "method") {
+                this.translated.append(this.translateMethod(declaration))
+            }
+        }
+    }
+
+    method methods(): array<string> {
+        return this.translated
+    }
+
+    method constant(Node node): integer {
+        if (node.kind() == "int-literal") {
+            return parseInt(node.text())
+        }
+
+        if (node.kind() == "unary" && node.text() == "-") {
+            return 0 - this.constant(node.child(0))
+        }
+
+        if (node.kind() == "name") {
+            return this.constants[node.text()]
+        }
+
+        return fatal("unsupported constant " + node.kind())
+    }
+
+    method typeName(Node node): string {
+        if (node.children().length() == 0) {
+            return node.text()
+        }
+
+        var arguments = []
+        for (child in node.children()) {
+            arguments.append(this.typeName(child))
+        }
+
+        return node.text() + "<" + join(arguments, ", ") + ">"
+    }
+
+    method translateMethod(Node node): string {
+        var returns = "Void"
+        var parameters = []
+        var body = node.last()
+        for (child in node.children()) {
+            if (child.kind() == "return-type") {
+                returns = this.typeName(child.child(0))
+            }
+
+            if (child.kind() == "params") {
+                for (parameter in child.children()) {
+                    parameters.append(this.typeName(parameter.child(1)) + " v_" + parameter.text())
+                }
+            }
+        }
+
+        var lines = ["    public static " + returns + " m_" + node.text() + "(" + join(parameters, ", ") + ") {"]
+        appendAll(lines, this.block(body, 2))
+        lines.append("    }")
+        return join(lines, "\n")
+    }
+
+    method block(Node node, integer depth): array<string> {
+        var lines = []
+        for (statement in node.children()) {
+            appendAll(lines, this.statement(statement, depth))
+        }
+
+        return lines
+    }
+
+    method statement(Node node, integer depth): array<string> {
+        var pad = indentation(depth)
+        var kind = node.kind()
+        if (kind == "local") {
+            return [pad + this.local(node)]
+        }
+
+        if (kind == "expr-stmt") {
+            return [pad + this.expressionStatement(node.child(0))]
+        }
+
+        if (kind == "return") {
+            return [pad + this.returnStatement(node)]
+        }
+
+        if (kind == "break" || kind == "continue") {
+            return [pad + kind + ";"]
+        }
+
+        if (kind == "if" || kind == "while") {
+            return this.conditional(node, depth)
+        }
+
+        if (kind == "for") {
+            return this.loop(node, depth)
+        }
+
+        return fatal("unsupported statement " + kind)
+    }
+
+    method local(Node node): string {
+        var declared = this.typeName(node.child(0))
+        if (node.children().length() > 1) {
+            return declared + " v_" + node.text() + " = " + this.expression(node.child(1).child(0)) + ";"
+        }
+
+        return declared + " v_" + node.text() + ";"
+    }
+
+    method returnStatement(Node node): string {
+        if (node.children().length() == 0) {
+            return "return;"
+        }
+
+        return "return " + this.expression(node.child(0)) + ";"
+    }
+
+    method conditional(Node node, integer depth): array<string> {
+        var pad = indentation(depth)
+        var lines = [pad + node.kind() + " (" + this.expression(node.child(0)) + ") {"]
+        appendAll(lines, this.block(node.child(1), depth + 1))
+        lines.append(pad + "}")
+        return lines
+    }
+
+    // Emerald has no `for`, so it becomes `if (true) { init; while (cond) { body; update } }`.
+    method loop(Node node, integer depth): array<string> {
+        var pad = indentation(depth)
+        var body = node.child(3)
+        if (containsKind(body, "continue")) {
+            fatal("continue inside for is not translated")
+        }
+
+        var lines = [pad + "if (true) {"]
+        appendAll(lines, this.statement(node.child(0).child(0), depth + 1))
+        lines.append(pad + "    while (" + this.expression(node.child(1).child(0)) + ") {")
+        appendAll(lines, this.block(body, depth + 2))
+        lines.append(pad + "        " + this.expressionStatement(node.child(2).child(0)))
+        lines.append(pad + "    }")
+        lines.append(pad + "}")
+        return lines
+    }
+
+    method expressionStatement(Node node): string {
+        if (node.kind() == "assign") {
+            return this.assignment(node) + ";"
+        }
+
+        if (node.kind() == "postfix") {
+            var target = this.expression(node.child(0))
+            return target + " = " + target + " " + node.text().substring(0, 1) + " 1;"
+        }
+
+        return this.expression(node) + ";"
+    }
+
+    method assignment(Node node): string {
+        var target = node.child(0)
+        var operator = node.text().substring(0, node.text().length() - 1)
+        var right = this.expression(node.child(1))
+        if (target.kind() == "index") {
+            var receiver = this.expression(target.child(0))
+            var index = this.expression(target.child(1))
+            if (operator != "") {
+                right = "(" + receiver + ".get(" + index + ") " + operator + " " + right + ")"
+            }
+
+            return receiver + ".set(" + index + ", " + right + ")"
+        }
+
+        var name = this.expression(target)
+        if (operator != "") {
+            right = "(" + name + " " + operator + " " + right + ")"
+        }
+
+        return name + " = " + right
+    }
+
+    method expression(Node node): string {
+        var kind = node.kind()
+        if (kind == "int-literal" || kind == "bool-literal") {
+            return node.text()
+        }
+
+        if (kind == "string") {
+            return emeraldString(node.text())
+        }
+
+        if (kind == "name") {
+            return this.name(node)
+        }
+
+        if (kind == "unary") {
+            return "(" + node.text() + this.expression(node.child(0)) + ")"
+        }
+
+        if (kind == "binary") {
+            return "(" + this.expression(node.child(0)) + " " + node.text() + " " + this.expression(node.child(1)) + ")"
+        }
+
+        if (kind == "index") {
+            return this.expression(node.child(0)) + ".get(" + this.expression(node.child(1)) + ")"
+        }
+
+        if (kind == "list-literal") {
+            return this.listLiteral(node)
+        }
+
+        if (kind == "call") {
+            return this.call(node)
+        }
+
+        return fatal("unsupported expression " + kind)
+    }
+
+    method name(Node node): string {
+        if (this.constants.has(node.text())) {
+            return "(" + this.constants[node.text()] + ")"
+        }
+
+        return "v_" + node.text()
+    }
+
+    method listLiteral(Node node): string {
+        var count = node.children().length()
+        this.arities["" + count] = count
+        return "Program.m_list" + count + "(" + join(this.expressions(node, 0), ", ") + ")"
+    }
+
+    method expressions(Node node, integer from): array<string> {
+        var result = []
+        var index = from
+        while (index < node.children().length()) {
+            result.append(this.expression(node.child(index)))
+            index = index + 1
+        }
+
+        return result
+    }
+
+    method call(Node node): string {
+        var callee = node.child(0)
+        var arguments = this.expressions(node, 1)
+        if (callee.kind() == "name") {
+            return "Program.m_" + callee.text() + "(" + join(arguments, ", ") + ")"
+        }
+
+        var receiver = this.expression(callee.child(0))
+        if (callee.text() == "byteAt") {
+            return "Program.m_byteAt(" + receiver + ", " + arguments[0] + ")"
+        }
+
+        var name = callee.text()
+        if (name == "size") {
+            name = "length"
+        }
+
+        return receiver + "." + name + "(" + join(arguments, ", ") + ")"
+    }
+
+    method helpers(): array<string> {
+        var result = [byteAtHelper()]
+        for (key in this.arities.keys()) {
+            result.append(listHelper(this.arities[key]))
+        }
+
+        return result
+    }
+}
+
+method containsKind(Node node, string kind): bool {
+    if (node.kind() == kind) {
+        return true
+    }
+
+    for (child in node.children()) {
+        if (containsKind(child, kind)) {
+            return true
+        }
+    }
+
+    return false
+}
+
+method fatal(string message): string {
+    io.writeErr(message + "\n")
+    os.exit(1)
+    return ""
+}
+
+method appendAll(array target, array source) {
+    for (item in source) {
+        target.append(item)
+    }
+}
+
+// Emvus strings are byte lists; the Emerald harness only needs ASCII, so a lookup table gives the code.
+method byteAtHelper(): string {
+    var lines = []
+    lines.append("    public static Int m_byteAt(String v_text, Int v_index) {")
+    lines.append("        String character = v_text.charAt(v_index).toString();")
+    lines.append("")
+    lines.append("        if (character == \"\\n\") {")
+    lines.append("            return 10;")
+    lines.append("        }")
+    lines.append("")
+    lines.append("        if (character == \"\\t\") {")
+    lines.append("            return 9;")
+    lines.append("        }")
+    lines.append("")
+    lines.append("        if (character == \"\\r\") {")
+    lines.append("            return 13;")
+    lines.append("        }")
+    lines.append("")
+    lines.append("        return 32 + " + emeraldString(asciiTable()) + ".indexOf(character);")
+    lines.append("    }")
+    return join(lines, "\n")
+}
+
+method listHelper(integer arity): string {
+    var parameters = []
+    var additions = []
+    var index = 0
+    while (index < arity) {
+        parameters.append("Int v_item" + index)
+        additions.append("        list.add(v_item" + index + ");")
+        index = index + 1
+    }
+
+    var lines = ["    public static List<Int> m_list" + arity + "(" + join(parameters, ", ") + ") {"]
+    lines.append("        List<Int> list = List();")
+    appendAll(lines, additions)
+    lines.append("        return list;")
+    lines.append("    }")
+    return join(lines, "\n")
+}
