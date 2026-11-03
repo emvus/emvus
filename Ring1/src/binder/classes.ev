@@ -99,6 +99,10 @@ static method bindTypeBodies(String source, List<Int> nodes, List<Int> types, Li
             bindMethod(source, nodes, types, symbols, annotations, state, member)
         }
 
+        if (kind == NODE_PROPERTY || kind == NODE_FIELD) {
+            bindInitializer(source, nodes, types, symbols, annotations, state, member)
+        }
+
         member = nodeField(nodes, member, NODE_NEXT_SIBLING)
     }
 
@@ -118,5 +122,16 @@ static method bindDefaults(String source, List<Int> nodes, List<Int> types, List
         }
 
         param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+}
+
+// A property or field may end in an initializer, which is the only child that is none of the usual parts.
+static method bindInitializer(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int member) {
+    Int last = nodeField(nodes, member, NODE_LAST_CHILD)
+    Int kind = nodeField(nodes, last, NODE_KIND)
+
+    if (last != NO_NODE && kind != NODE_MODIFIERS && kind != NODE_TYPE && kind != NODE_ACCESSORS) {
+        state[BINDER_TOP] = state[BINDER_DECLARED]
+        bindExpression(source, nodes, types, symbols, annotations, state, last, TYPE_UNKNOWN)
     }
 }

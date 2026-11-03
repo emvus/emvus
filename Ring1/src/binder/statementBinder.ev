@@ -20,6 +20,10 @@ static method bindStatement(String source, List<Int> nodes, List<Int> types, Lis
         bindLocal(source, nodes, types, symbols, annotations, state, statement)
     }
 
+    if (kind == NODE_FOREACH) {
+        bindForEach(source, nodes, types, symbols, annotations, state, statement)
+    }
+
     if (kind == NODE_DESTRUCTURE) {
         bindDestructure(source, nodes, types, symbols, annotations, state, statement)
     }
@@ -138,4 +142,22 @@ static method bindBinding(List<Int> nodes, List<Int> symbols, List<Int> annotati
     Int length = nodeField(nodes, binding, NODE_TEXT_LENGTH)
     annotate(annotations, binding, type, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
     addSymbol(symbols, state, ROW_LOCAL, start, length, type, binding, 0, NO_TYPE)
+}
+
+// `for (Type item in items) { ... }`: the loop variable is a local of the body and has no annotation of
+// its own. With `var` it takes the element type of the list.
+static method bindForEach(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int loop) {
+    Int mark = state[BINDER_TOP]
+    Int declared = declaredType(source, nodes, types, loop)
+    Int items = nodeField(nodes, childOfKind(nodes, loop, NODE_TYPE), NODE_NEXT_SIBLING)
+    Int itemsType = bindExpression(source, nodes, types, symbols, annotations, state, items, TYPE_UNKNOWN)
+    Int type = declared
+
+    if (declared == TYPE_UNKNOWN && typeField(types, itemsType, TYPE_KIND) == KIND_LIST) {
+        type = typeField(types, itemsType, TYPE_ELEMENT)
+    }
+
+    addSymbol(symbols, state, ROW_LOCAL, nodeField(nodes, loop, NODE_TEXT_START), nodeField(nodes, loop, NODE_TEXT_LENGTH), type, loop, 0, NO_TYPE)
+    bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, items, NODE_NEXT_SIBLING))
+    state[BINDER_TOP] = mark
 }
