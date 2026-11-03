@@ -62,8 +62,15 @@ method writeProgram(string outDir, Translator translator) {
     var body = join(translator.methods(), "\n\n") + "\n\n" + join(translator.helpers(), "\n\n")
     var program = "namespace ring1;\n\npublic class Program {\n    public Program() {\n    }\n\n" + body + "\n}\n"
     os.writeFile(outDir + "/ring1/Program.ems", program)
-    var entry = "use ring1::Program;\n\nmain() {\n    Int failed = Program.m_main();\n    println(\"failed cases: \" + failed.toString());\n}\n"
+    var report = ""
+    for (name in translator.cases()) {
+        report = report + "    println(\"" + name + ": \" + Program.m_" + name + "().toString());\n"
+    }
+
+    var entry = "use ring1::Program;\n\nmain() {\n" + report + "    Int failed = Program.m_main();\n    println(\"failed cases: \" + failed.toString());\n}\n"
     os.writeFile(outDir + "/Ring1Main.ems", entry)
+    var dump = "use ring1::Program;\nuse Std::Io::File;\nuse Std::Process::Process;\n\nmain() {\n    List<String> args = Process.args();\n    println(Program.m_dumpSource(File(args.get(0)).readText()));\n}\n"
+    os.writeFile(outDir + "/Ring1Dump.ems", dump)
 }
 
 method join(array<string> parts, string separator): string {
@@ -227,11 +234,13 @@ define class Translator {
     private final map constants: get
     private final map arities: get
     private final array translated: get
+    private final array cases: get
 
     construct(Node root) {
         this.constants = {}
         this.arities = {}
         this.translated = []
+        this.cases = []
         for (declaration in root.children()) {
             if (declaration.kind() == "variable") {
                 this.constants[declaration.text()] = this.constant(declaration.last())
@@ -241,12 +250,20 @@ define class Translator {
         for (declaration in root.children()) {
             if (declaration.kind() == "method") {
                 this.translated.append(this.translateMethod(declaration))
+                this.collectCase(declaration)
             }
         }
     }
 
     method methods(): array<string> {
         return this.translated
+    }
+
+    // A parameterless method named case... is a test case: the entry prints its result.
+    method collectCase(Node declaration) {
+        if (declaration.text().startsWith("case") && declaration.child(declaration.children().length() - 2).children().length() == 0) {
+            this.cases.append(declaration.text())
+        }
     }
 
     method constant(Node node): integer {

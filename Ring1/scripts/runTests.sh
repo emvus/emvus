@@ -9,7 +9,7 @@ EMERALD="$2"
 NOVUSC="$3"
 WORK="$4"
 LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
-PARSER=(src/parser/nodeTable.ev src/parser/tokenReader.ev src/parser/expressions.ev src/parser/statements.ev src/parser/declarations.ev src/parser/treeDump.ev src/parser/parser.ev)
+PARSER=(src/parser/*.ev src/parser/*/*.ev)
 cd "$ROOT"
 mkdir -p "$WORK"
 "$NOVUSC" build scripts/emvusToEmerald.nv -o "$WORK/emvusToEmerald" > /dev/null
@@ -19,7 +19,7 @@ run() {
     "$WORK/emvusToEmerald" "$RING0" "$WORK/$name" "$@"
     "$EMERALD" build "$WORK/$name/Ring1Main.ems" -o "$WORK/$name/run" > /dev/null
     local result
-    result="$("$WORK/$name/run")"
+    result="$("$WORK/$name/run" | tail -n 1)"
     echo "$name: $result"
     [[ "$result" == "failed cases: 0" ]] || status=1
 }

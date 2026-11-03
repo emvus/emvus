@@ -55,6 +55,10 @@ static method<Int> parseDeclaration(String source, List<Int> tokens, List<Int> s
         return parseMethod(source, tokens, state, nodes, modifiers)
     }
 
+    if (atTypeDeclaration(source, tokens, state)) {
+        return parseTypeDeclaration(source, tokens, state, nodes, modifiers)
+    }
+
     return parseError(tokens, state, nodes)
 }
 
@@ -97,7 +101,15 @@ static method<Int> parseMethod(String source, List<Int> tokens, List<Int> state,
     }
 
     appendChild(nodes, method, parseParams(source, tokens, state, nodes))
-    appendChild(nodes, method, parseBlock(source, tokens, state, nodes))
+
+    if (atIdentifierText(source, tokens, state, "where")) {
+        appendChild(nodes, method, parseWhere(source, tokens, state, nodes))
+    }
+
+    if (atSymbol(source, tokens, state, "{")) {
+        appendChild(nodes, method, parseBlock(source, tokens, state, nodes))
+    }
+
     return method
 }
 
@@ -145,12 +157,22 @@ static method<Int> parseParam(String source, List<Int> tokens, List<Int> state, 
     expectIdentifier(tokens, state)
     appendChild(nodes, param, modifiers)
     appendChild(nodes, param, type)
+
+    if (atSymbol(source, tokens, state, "=")) {
+        advanceToken(tokens, state)
+        appendChild(nodes, param, parseExpression(source, tokens, state, nodes))
+    }
+
     return param
 }
 
 // A type name with optional type arguments: `Int`, `List<Int>`.
 static method<Int> parseType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    if (!atKind(tokens, state, TOKEN_IDENTIFIER)) {
+    if (atSymbol(source, tokens, state, "[")) {
+        return parseTupleType(source, tokens, state, nodes)
+    }
+
+    if (!atKind(tokens, state, TOKEN_IDENTIFIER) && !atKeyword(source, tokens, state, "dynamic")) {
         return parseError(tokens, state, nodes)
     }
 
@@ -174,4 +196,23 @@ static method<Int> parseType(String source, List<Int> tokens, List<Int> state, L
 
     expectSymbol(source, tokens, state, ">")
     return type
+}
+
+// `[Int, String]`: the types of a tuple.
+static method<Int> parseTupleType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int tuple = addEmptyNode(nodes, NODE_TUPLE_TYPE, tokens, state)
+    advanceToken(tokens, state)
+
+    while (true) {
+        appendChild(nodes, tuple, parseType(source, tokens, state, nodes))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    expectSymbol(source, tokens, state, "]")
+    return tuple
 }

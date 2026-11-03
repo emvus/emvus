@@ -50,6 +50,65 @@ final var NODE_STRING = 32
 final var NODE_BOOL_LITERAL = 33
 final var NODE_LIST_LITERAL = 34
 final var NODE_ERROR = 35
+final var NODE_ENUM = 36
+final var NODE_BODY = 37
+final var NODE_ENUM_ENTRY = 38
+final var NODE_RECORD = 39
+final var NODE_DATA_CLASS = 40
+final var NODE_EXCEPTION = 41
+final var NODE_BASED = 42
+final var NODE_IMPLEMENTS = 43
+final var NODE_INTERFACE = 44
+final var NODE_CLASS = 45
+final var NODE_FIELD = 46
+final var NODE_PROPERTY = 47
+final var NODE_ACCESSORS = 48
+final var NODE_ACCESSOR = 49
+final var NODE_CONSTRUCTOR = 50
+final var NODE_SUPER_CALL = 51
+final var NODE_WHERE = 52
+final var NODE_TYPE_PARAMETER = 53
+final var NODE_FOREACH = 54
+final var NODE_FAIL = 55
+final var NODE_SUCCESS = 56
+final var NODE_TERNARY = 57
+final var NODE_PROPAGATE = 58
+final var NODE_UNWRAP = 59
+final var NODE_IS = 60
+final var NODE_AS = 61
+final var NODE_LAMBDA = 62
+final var NODE_CASCADE = 63
+final var NODE_CASCADE_SECTION = 64
+final var NODE_DESTRUCTURE = 65
+final var NODE_BINDING = 66
+final var NODE_WILDCARD = 67
+final var NODE_TUPLE_TYPE = 68
+final var NODE_NULL_LITERAL = 69
+final var NODE_VAR = 70
+final var NODE_SWITCH = 71
+final var NODE_CASE = 72
+final var NODE_PATTERNS = 73
+final var NODE_PATTERN = 74
+final var NODE_PATTERN_LITERAL = 75
+final var NODE_PATTERN_SUCCESS = 76
+final var NODE_PATTERN_ERROR = 77
+final var NODE_PATTERN_VALUE = 78
+final var NODE_PATTERN_NAME = 79
+final var NODE_DICT_LITERAL = 80
+final var NODE_DICT_ENTRY = 81
+final var NODE_TASK = 82
+
+// Moves the children of `from` to the end of `to`.
+static method moveChildren(List<Int> nodes, Int from, Int to) {
+    Int child = nodeField(nodes, from, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        Int next = nodeField(nodes, child, NODE_NEXT_SIBLING)
+        setNodeField(nodes, child, NODE_NEXT_SIBLING, NO_NODE)
+        appendChild(nodes, to, child)
+        child = next
+    }
+}
 
 static method<Int> addNode(List<Int> nodes, Int kind, Int textStart, Int textLength, Int line, Int column) {
     Int id = nodes.size() / NODE_STRIDE

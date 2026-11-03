@@ -3,6 +3,9 @@ package ring1.parser
 // The parser state is a list: index of the current token and the number of syntax errors.
 final var STATE_TOKEN = 0
 final var STATE_ERRORS = 1
+final var STATE_CASCADE = 2
+final var CASCADE_OPEN = 0
+final var CASCADE_CLOSED = 1
 final var FIRST_TOKEN = 0
 final var NO_ERRORS = 0
 final var AHEAD_BEFORE = -1
@@ -57,6 +60,15 @@ static method<Bool> atKind(List<Int> tokens, List<Int> state, Int kind) {
     return tokenKindAhead(tokens, state, AHEAD_CURRENT) == kind
 }
 
+// Ring0 lets locals and fields be named like these keywords.
+static method<Bool> nameKeywordAhead(String source, List<Int> tokens, List<Int> state, Int ahead) {
+    return textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "exception") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "method") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "macro") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "record") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "class") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "interface") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "enum") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "package") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "use")
+}
+
+static method<Bool> nameAhead(String source, List<Int> tokens, List<Int> state, Int ahead) {
+    return tokenKindAhead(tokens, state, ahead) == TOKEN_IDENTIFIER || nameKeywordAhead(source, tokens, state, ahead)
+}
+
 static method<Bool> atEnd(List<Int> tokens, List<Int> state) {
     return atKind(tokens, state, TOKEN_EOF)
 }
@@ -99,6 +111,12 @@ static method<Bool> onPreviousLine(List<Int> tokens, List<Int> state) {
     }
 
     return tokenValue(tokens, index, TOKEN_LINE) == tokenValue(tokens, index - 1, TOKEN_LINE)
+}
+
+static method<Bool> nextOnSameLine(List<Int> tokens, List<Int> state) {
+    Int current = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    Int next = tokenIndexAhead(tokens, state, AHEAD_NEXT)
+    return tokenValue(tokens, current, TOKEN_LINE) == tokenValue(tokens, next, TOKEN_LINE)
 }
 
 // Node at the current token: its text is the token's span.

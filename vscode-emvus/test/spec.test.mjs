@@ -52,9 +52,12 @@ test('showcase.ev checks ok', () => {
 
 // Ring1 is written in Emvus; its files form one program (Ring0 merges them), so they are checked together.
 const ring1 = process.env.EMVUS_RING1 || path.join(here, '..', '..', 'Ring1');
-const ring1Sources = d => fs.existsSync(path.join(ring1, d))
-  ? fs.readdirSync(path.join(ring1, d)).filter(f => f.endsWith('.ev')).sort().map(f => path.join(ring1, d, f))
-  : [];
+const ring1Sources = d => {
+  const dir = path.join(ring1, d);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap(entry =>
+    entry.isDirectory() ? ring1Sources(path.join(d, entry.name)) : entry.name.endsWith('.ev') ? [path.join(dir, entry.name)] : []);
+};
 
 for (const f of [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser')), ...ring1Sources('tests')]) {
   test(`ring1/${path.relative(ring1, f)} parses`, () => {

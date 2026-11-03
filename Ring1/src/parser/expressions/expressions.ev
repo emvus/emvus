@@ -14,6 +14,10 @@ final var LEVEL_MULTIPLICATIVE = 6
 static method<Int> parseExpression(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int target = parseBinary(source, tokens, state, nodes, LEVEL_LOWEST)
 
+    if (atTernaryQuestion(source, tokens, state)) {
+        target = parseTernary(source, tokens, state, nodes, target)
+    }
+
     if (!atAssignOperator(source, tokens, state)) {
         return target
     }
@@ -23,6 +27,26 @@ static method<Int> parseExpression(String source, List<Int> tokens, List<Int> st
     appendChild(nodes, assign, target)
     appendChild(nodes, assign, parseExpression(source, tokens, state, nodes))
     return assign
+}
+
+// `condition ? a : b`. A `?` that ends the line, or is followed by a closing bracket or separator, is
+// error propagation instead.
+static method<Bool> atTernaryQuestion(String source, List<Int> tokens, List<Int> state) {
+    if (!atSymbol(source, tokens, state, "?") || !nextOnSameLine(tokens, state)) {
+        return false
+    }
+
+    return !symbolAhead(source, tokens, state, AHEAD_NEXT, ")") && !symbolAhead(source, tokens, state, AHEAD_NEXT, "]") && !symbolAhead(source, tokens, state, AHEAD_NEXT, "}") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ",") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ";") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ":")
+}
+
+static method<Int> parseTernary(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int condition) {
+    Int ternary = addEmptyNode(nodes, NODE_TERNARY, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, ternary, condition)
+    appendChild(nodes, ternary, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ":")
+    appendChild(nodes, ternary, parseExpression(source, tokens, state, nodes))
+    return ternary
 }
 
 static method<Bool> atAssignOperator(String source, List<Int> tokens, List<Int> state) {
@@ -68,6 +92,11 @@ static method<Int> parseBinary(String source, List<Int> tokens, List<Int> state,
     Int left = parseUnary(source, tokens, state, nodes)
 
     while (true) {
+        if (minimum <= LEVEL_COMPARISON && atTypeTest(source, tokens, state)) {
+            left = parseTypeTest(source, tokens, state, nodes, left)
+            continue
+        }
+
         Int level = binaryLevel(source, tokens, state)
 
         if (level == LEVEL_NONE || level < minimum) {
@@ -83,6 +112,25 @@ static method<Int> parseBinary(String source, List<Int> tokens, List<Int> state,
     }
 
     return left
+}
+
+static method<Bool> atTypeTest(String source, List<Int> tokens, List<Int> state) {
+    return onPreviousLine(tokens, state) && (atKeyword(source, tokens, state, "is") || atKeyword(source, tokens, state, "as"))
+}
+
+// `value is Type` and `value as Type`.
+static method<Int> parseTypeTest(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int value) {
+    Int kind = NODE_AS
+
+    if (atKeyword(source, tokens, state, "is")) {
+        kind = NODE_IS
+    }
+
+    Int test = addEmptyNode(nodes, kind, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, test, value)
+    appendChild(nodes, test, parseType(source, tokens, state, nodes))
+    return test
 }
 
 static method<Int> parseUnary(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
@@ -114,7 +162,22 @@ static method<Int> parsePostfix(String source, List<Int> tokens, List<Int> state
         }
 
         if (atSymbol(source, tokens, state, ".")) {
-            target = parseMember(source, tokens, state, nodes, target)
+            target = parseMemberAccess(source, tokens, state, nodes, target)
+            continue
+        }
+
+        if (sameLine && atSymbol(source, tokens, state, "?") && !atTernaryQuestion(source, tokens, state)) {
+            target = parseWrapper(tokens, state, nodes, NODE_PROPAGATE, target)
+            continue
+        }
+
+        if (sameLine && atSymbol(source, tokens, state, "!")) {
+            target = parseWrapper(tokens, state, nodes, NODE_UNWRAP, target)
+            continue
+        }
+
+        if (state[STATE_CASCADE] == CASCADE_OPEN && atSymbol(source, tokens, state, "..")) {
+            target = parseCascade(source, tokens, state, nodes, target)
             continue
         }
 
@@ -130,6 +193,31 @@ static method<Int> parsePostfix(String source, List<Int> tokens, List<Int> state
     }
 
     return target
+}
+
+// `value?` and `value!`: one child, no text.
+static method<Int> parseWrapper(List<Int> tokens, List<Int> state, List<Int> nodes, Int kind, Int value) {
+    Int wrapper = addEmptyNode(nodes, kind, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, wrapper, value)
+    return wrapper
+}
+
+// `receiver ..a() ..b = 1`: every section runs on the receiver. A section ends at the next `..`.
+static method<Int> parseCascade(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int receiver) {
+    Int cascade = addEmptyNode(nodes, NODE_CASCADE, tokens, state)
+    appendChild(nodes, cascade, receiver)
+    state[STATE_CASCADE] = CASCADE_CLOSED
+
+    while (atSymbol(source, tokens, state, "..")) {
+        Int section = addEmptyNode(nodes, NODE_CASCADE_SECTION, tokens, state)
+        advanceToken(tokens, state)
+        appendChild(nodes, section, parseExpression(source, tokens, state, nodes))
+        appendChild(nodes, cascade, section)
+    }
+
+    state[STATE_CASCADE] = CASCADE_OPEN
+    return cascade
 }
 
 static method<Int> parseCall(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int callee) {
@@ -149,7 +237,7 @@ static method<Int> parseIndex(String source, List<Int> tokens, List<Int> state, 
     return index
 }
 
-static method<Int> parseMember(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int receiver) {
+static method<Int> parseMemberAccess(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int receiver) {
     advanceToken(tokens, state)
 
     if (!atKind(tokens, state, TOKEN_IDENTIFIER)) {
@@ -163,8 +251,42 @@ static method<Int> parseMember(String source, List<Int> tokens, List<Int> state,
     return member
 }
 
-// Comma separated expressions up to `closing`, which is consumed.
+// `{ key: value, ... }`
+static method<Int> parseDictLiteral(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int dictionary = addEmptyNode(nodes, NODE_DICT_LITERAL, tokens, state)
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        Int entry = addEmptyNode(nodes, NODE_DICT_ENTRY, tokens, state)
+        appendChild(nodes, entry, parseExpression(source, tokens, state, nodes))
+        expectSymbol(source, tokens, state, ":")
+        appendChild(nodes, entry, parseExpression(source, tokens, state, nodes))
+        appendChild(nodes, dictionary, entry)
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return dictionary
+}
+
+// `fiber { ... }`, `virtual { ... }`, `thread { ... }`: the node text is the keyword.
+static method<Int> parseTask(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int task = addNodeAtToken(nodes, NODE_TASK, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, task, parseBlock(source, tokens, state, nodes))
+    return task
+}
+
+// Comma separated expressions up to `closing`, which is consumed. Cascades work again inside.
 static method parseElements(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int parent, String closing) {
+    Int outer = state[STATE_CASCADE]
+    state[STATE_CASCADE] = CASCADE_OPEN
+
     while (!atSymbol(source, tokens, state, closing) && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
         appendChild(nodes, parent, parseExpression(source, tokens, state, nodes))
@@ -178,6 +300,7 @@ static method parseElements(String source, List<Int> tokens, List<Int> state, Li
     }
 
     expectSymbol(source, tokens, state, closing)
+    state[STATE_CASCADE] = outer
 }
 
 static method<Int> parsePrimary(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
@@ -201,8 +324,32 @@ static method<Int> parsePrimary(String source, List<Int> tokens, List<Int> state
         return parseLeaf(tokens, state, nodes, NODE_BOOL_LITERAL)
     }
 
+    if (atSymbol(source, tokens, state, "(") && atLambda(source, tokens, state)) {
+        return parseLambda(source, tokens, state, nodes)
+    }
+
     if (atSymbol(source, tokens, state, "(")) {
         return parseParenthesized(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "this") || atKeyword(source, tokens, state, "super") || nameKeywordAhead(source, tokens, state, AHEAD_CURRENT)) {
+        return parseLeaf(tokens, state, nodes, NODE_NAME)
+    }
+
+    if (atSymbol(source, tokens, state, "{")) {
+        return parseDictLiteral(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "fiber") || atKeyword(source, tokens, state, "virtual") || atKeyword(source, tokens, state, "thread")) {
+        return parseTask(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "null")) {
+        return withoutText(nodes, parseLeaf(tokens, state, nodes, NODE_NULL_LITERAL))
+    }
+
+    if (atKeyword(source, tokens, state, "switch")) {
+        return parseSwitch(source, tokens, state, nodes, true)
     }
 
     if (atSymbol(source, tokens, state, "[")) {
@@ -230,7 +377,10 @@ static method<Int> parseString(List<Int> tokens, List<Int> state, List<Int> node
 
 static method<Int> parseParenthesized(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     advanceToken(tokens, state)
+    Int outer = state[STATE_CASCADE]
+    state[STATE_CASCADE] = CASCADE_OPEN
     Int inner = parseExpression(source, tokens, state, nodes)
+    state[STATE_CASCADE] = outer
     expectSymbol(source, tokens, state, ")")
     return inner
 }

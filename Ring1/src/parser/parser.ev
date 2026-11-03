@@ -6,7 +6,7 @@ final var ROOT_NODE = 0
 // Syntax errors become error nodes in the table.
 static method<List<Int>> parseSource(String source) {
     List<Int> tokens = lexSource(source)
-    List<Int> state = [FIRST_TOKEN, NO_ERRORS]
+    List<Int> state = [FIRST_TOKEN, NO_ERRORS, CASCADE_OPEN]
     List<Int> nodes = []
     parseFile(source, tokens, state, nodes)
     return nodes

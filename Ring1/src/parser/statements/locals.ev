@@ -1,0 +1,137 @@
+package ring1.parser
+
+final var NOT_A_TYPE = 0
+
+// `Type name = value`, `var name = value`, with `final` or `scoped` in front. The modifiers belong
+// directly to the local, not to a modifiers node.
+static method<Int> parseLocal(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int holder = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
+
+    while (atModifier(source, tokens, state)) {
+        appendChild(nodes, holder, parseLeaf(tokens, state, nodes, NODE_MODIFIER))
+    }
+
+    Int type = parseLocalType(source, tokens, state, nodes)
+    Int local = addNodeAtToken(nodes, NODE_LOCAL, tokens, state)
+    advanceToken(tokens, state)
+    moveChildren(nodes, holder, local)
+    appendChild(nodes, local, type)
+
+    if (atSymbol(source, tokens, state, "=")) {
+        appendChild(nodes, local, parseInitializer(source, tokens, state, nodes))
+    }
+
+    return local
+}
+
+static method<Int> parseLocalType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atKeyword(source, tokens, state, "var")) {
+        return parseLeaf(tokens, state, nodes, NODE_VAR)
+    }
+
+    return parseType(source, tokens, state, nodes)
+}
+
+// `= value`, wrapped in an init node.
+static method<Int> parseInitializer(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int init = addEmptyNode(nodes, NODE_INIT, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, init, parseExpression(source, tokens, state, nodes))
+    return init
+}
+
+static method<Bool> atDestructure(String source, List<Int> tokens, List<Int> state) {
+    return atKeyword(source, tokens, state, "var") && symbolAhead(source, tokens, state, AHEAD_NEXT, "{")
+}
+
+// `var { first, _ } = pair`
+static method<Int> parseDestructure(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int destructure = addEmptyNode(nodes, NODE_DESTRUCTURE, tokens, state)
+    advanceToken(tokens, state)
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, destructure, parseBinding(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "}")
+
+    if (atSymbol(source, tokens, state, "=")) {
+        appendChild(nodes, destructure, parseInitializer(source, tokens, state, nodes))
+    }
+
+    return destructure
+}
+
+// A name that receives a value; `_` skips one.
+static method<Int> parseBinding(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atIdentifierText(source, tokens, state, "_")) {
+        return parseLeaf(tokens, state, nodes, NODE_WILDCARD)
+    }
+
+    return parseLeaf(tokens, state, nodes, NODE_BINDING)
+}
+
+// A local starts with a modifier, `var`, or a type followed by a name.
+static method<Bool> looksLikeLocal(String source, List<Int> tokens, List<Int> state) {
+    return atModifier(source, tokens, state) || atKeyword(source, tokens, state, "var") || looksLikeTypedName(source, tokens, state)
+}
+
+// A type followed by a name: `Int count`, `List<Int> items`.
+static method<Bool> looksLikeTypedName(String source, List<Int> tokens, List<Int> state) {
+    if (!atKind(tokens, state, TOKEN_IDENTIFIER) && !atSymbol(source, tokens, state, "[") && !atKeyword(source, tokens, state, "dynamic")) {
+        return false
+    }
+
+    Int after = typeEndAhead(source, tokens, state)
+
+    if (after == NOT_A_TYPE) {
+        return false
+    }
+
+    return nameAhead(source, tokens, state, after)
+}
+
+// Offset of the token after the type that starts at the current token (`Name`, `Name<...>` or
+// `[...]`), NOT_A_TYPE when the brackets never close.
+static method<Int> typeEndAhead(String source, List<Int> tokens, List<Int> state) {
+    Int offset = AHEAD_NEXT
+    String opening = "<"
+    String closing = ">"
+
+    if (atSymbol(source, tokens, state, "[")) {
+        offset = AHEAD_CURRENT
+        opening = "["
+        closing = "]"
+    }
+
+    if (!symbolAhead(source, tokens, state, offset, opening)) {
+        return offset
+    }
+
+    Int depth = 0
+
+    while (tokenKindAhead(tokens, state, offset) != TOKEN_EOF) {
+        if (symbolAhead(source, tokens, state, offset, opening)) {
+            depth = depth + 1
+        }
+
+        if (symbolAhead(source, tokens, state, offset, closing)) {
+            depth = depth - 1
+        }
+
+        offset = offset + 1
+
+        if (depth == 0) {
+            return offset
+        }
+    }
+
+    return NOT_A_TYPE
+}

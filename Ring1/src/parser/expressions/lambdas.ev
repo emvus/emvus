@@ -1,0 +1,64 @@
+package ring1.parser
+
+// `(x) -> expression`, `(Int x, Int y) -> { ... }`: parameters with or without types, then an
+// expression or a block.
+static method<Bool> atLambda(String source, List<Int> tokens, List<Int> state) {
+    Int offset = AHEAD_NEXT
+    Int depth = 1
+
+    while (depth > 0 && tokenKindAhead(tokens, state, offset) != TOKEN_EOF) {
+        if (symbolAhead(source, tokens, state, offset, "(")) {
+            depth = depth + 1
+        }
+
+        if (symbolAhead(source, tokens, state, offset, ")")) {
+            depth = depth - 1
+        }
+
+        offset = offset + 1
+    }
+
+    return depth == 0 && symbolAhead(source, tokens, state, offset, "->")
+}
+
+static method<Int> parseLambda(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int lambda = addEmptyNode(nodes, NODE_LAMBDA, tokens, state)
+    Int params = addEmptyNode(nodes, NODE_PARAMS, tokens, state)
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, ")") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, params, parseLambdaParam(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, "->")
+    appendChild(nodes, lambda, params)
+    appendChild(nodes, lambda, parseLambdaBody(source, tokens, state, nodes))
+    return lambda
+}
+
+// `Int x` has a type child, a bare `x` has none.
+static method<Int> parseLambdaParam(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (!looksLikeTypedName(source, tokens, state)) {
+        return parseLeaf(tokens, state, nodes, NODE_PARAM)
+    }
+
+    Int type = parseType(source, tokens, state, nodes)
+    Int param = parseLeaf(tokens, state, nodes, NODE_PARAM)
+    appendChild(nodes, param, type)
+    return param
+}
+
+static method<Int> parseLambdaBody(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atSymbol(source, tokens, state, "{")) {
+        return parseBlock(source, tokens, state, nodes)
+    }
+
+    return parseExpression(source, tokens, state, nodes)
+}

@@ -1,0 +1,90 @@
+package ring1.parser
+
+// A member of a class or interface body: method, constructor, field or property.
+static method<Int> parseMember(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int modifiers = parseModifiers(source, tokens, state, nodes)
+
+    if (atKeyword(source, tokens, state, "method")) {
+        return parseMethod(source, tokens, state, nodes, modifiers)
+    }
+
+    if (atKind(tokens, state, TOKEN_IDENTIFIER) && symbolAhead(source, tokens, state, AHEAD_NEXT, "(")) {
+        return parseConstructor(source, tokens, state, nodes, modifiers)
+    }
+
+    return parseDataMember(source, tokens, state, nodes, modifiers)
+}
+
+// `Name(parameters) : super(arguments) { ... }`
+static method<Int> parseConstructor(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
+    Int constructor = addNodeAtToken(nodes, NODE_CONSTRUCTOR, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, constructor, modifiers)
+    appendChild(nodes, constructor, parseParams(source, tokens, state, nodes))
+
+    if (atSymbol(source, tokens, state, ":")) {
+        appendChild(nodes, constructor, parseSuperCall(source, tokens, state, nodes))
+    }
+
+    appendChild(nodes, constructor, parseBlock(source, tokens, state, nodes))
+    return constructor
+}
+
+// `: super(arguments)` or `: this(arguments)`; the node text is the keyword.
+static method<Int> parseSuperCall(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    advanceToken(tokens, state)
+    Int call = addNodeAtToken(nodes, NODE_SUPER_CALL, tokens, state)
+    advanceToken(tokens, state)
+
+    if (expectSymbol(source, tokens, state, "(")) {
+        parseElements(source, tokens, state, nodes, call, ")")
+    }
+
+    return call
+}
+
+// `Type name = value` is a field, `Type name { get, set } = value` a property.
+static method<Int> parseDataMember(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
+    Int type = parseType(source, tokens, state, nodes)
+    Bool property = symbolAhead(source, tokens, state, AHEAD_NEXT, "{")
+    Int kind = NODE_FIELD
+
+    if (property) {
+        kind = NODE_PROPERTY
+    }
+
+    Int member = addNodeAtToken(nodes, kind, tokens, state)
+    expectIdentifier(tokens, state)
+    appendChild(nodes, member, modifiers)
+    appendChild(nodes, member, type)
+
+    if (property) {
+        appendChild(nodes, member, parseAccessors(source, tokens, state, nodes))
+    }
+
+    if (atSymbol(source, tokens, state, "=")) {
+        advanceToken(tokens, state)
+        appendChild(nodes, member, parseExpression(source, tokens, state, nodes))
+    }
+
+    return member
+}
+
+// `{ get, set }`
+static method<Int> parseAccessors(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int accessors = addEmptyNode(nodes, NODE_ACCESSORS, tokens, state)
+    expectSymbol(source, tokens, state, "{")
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, accessors, parseLeaf(tokens, state, nodes, NODE_ACCESSOR))
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return accessors
+}

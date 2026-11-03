@@ -39,21 +39,26 @@ Ring0 builds several files as one program: `ring0 a.ev b.ev ... --check`, in the
   language knows; non-ASCII bytes outside strings and comments are `TOKEN_UNEXPECTED` here.
 - `main` is a self test and returns the number of failed cases (0 = all passed).
 
-## Parser v0 (`src/parser/`)
+## Parser (`src/parser/`)
 
-Seven files: `nodeTable` (the tree as a table of eight Ints per node), `tokenReader`, `expressions`,
-`statements`, `declarations`, `treeDump` and `parser` (entry point `parseSource`, `dumpSource`).
-It parses the subset the lexer itself is written in: package, `final var` constants, methods with
-parameters and return type, locals, assignments, `if`, `while`, `for`, `return`, `break`, `continue`,
-and expressions with calls, members, indexing, lists, unary and binary operators. Everything else
-becomes an error node; there is no `else`, `switch`, class, lambda or `Result` yet.
+Files by responsibility: `nodeTable` (the tree as a table of eight Ints per node), `tokenReader`, `treeDump`,
+`parser` (entry points `parseSource` and `dumpSource`), and the folders `expressions/` (operators, calls,
+cascades, lambdas), `statements/` (statements, locals, destructuring), `switches/` (both switch forms) and
+`declarations/` (methods, types, class members).
 
-- The tree has the shape of Ring0's AST (`Ring0/ast.md`); `dumpSource` prints it like Ring0's `dump`.
-  String nodes hold the raw content between the quotes, so they differ from Ring0 for strings with escapes.
-- `tests/parserTest.ev` compares the dump of five sources with the output of Ring0's parser for the same
-  sources; the expected text was generated from Ring0, not written by hand.
-- Build order: the eight lexer files, then `nodeTable tokenReader expressions statements declarations
-  treeDump parser`, then `tests/parserTest.ev`.
+It covers the constructs of Ring0's tree except the ones listed under Open: package, `final var`, methods with
+generics and `where` bounds, enums, records, data classes, exceptions, interfaces, classes with fields,
+properties, constructors, `based` and `implements`, all statements (`if`, `while`, `for`, `foreach`, `switch`,
+`fail`, `success`, locals, destructuring, `scoped`), and all expressions (operators, calls, indexing, ternary,
+`?`, `!`, `is`, `as`, lambdas, cascades, list and dictionary literals, tasks).
+
+- The tree has the shape of Ring0's AST (`Ring0/ast.md`); `dumpSource` prints it like Ring0's `dump`,
+  including resolved string escapes.
+- **Corpus:** `scripts/runCorpus.sh` generates one test case per Ring0 test source (lowering, syntax,
+  binding, flow, types, showcase) and per Ring1 source file, and compares Ring1's tree with Ring0's.
+  117 cases, all identical, including every Ring1 file: the parser parses its own source tree.
+  `scripts/diffParse.sh` shows where one file differs.
+- `tests/parserTest.ev` holds five hand-picked cases, expected trees generated from Ring0.
 
 ## Running the tests
 
@@ -75,9 +80,9 @@ error on anything else. It replaces constants by their values (like Ring0's lowe
 |---|---|
 | `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
-| Parser, lexer and tests together | check ok; lowers to 113 functions, verifier: structure and semantics valid |
+| Parser, lexer and tests together | check ok; lowers to 169 functions, verifier: structure and semantics valid |
 | Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
-| Self tests on Emerald (translated) | lexer 17 of 17 cases, parser 5 of 5 cases pass; a deliberately wrong expectation fails as it should |
+| Self tests on Emerald (translated) | lexer 17 of 17, parser 5 of 5, corpus 117 of 117 cases pass; a deliberately wrong expectation fails as it should |
 | Native run of the self tests through Sublang | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend
@@ -87,6 +92,9 @@ spans per module.
 
 ## Open
 
+- Not parsed yet: string interpolation (`${...}` expressions inside strings; 5 corpus sources are skipped),
+  `use` imports, macros and `quote`, statement-level cascade items, and error recovery that matches Ring0's
+  diagnostics (Ring1 only produces error nodes).
 - Wire export and native run, after Sublang raises the module budget and builds again.
 - Token stream comparison with Ring0 on every syntax fixture: needs file input (`G1`) and a shared
   dump format; Ring0's `--tokens` prints `line:column kind text`.
