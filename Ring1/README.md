@@ -26,7 +26,7 @@ The first self-hosted stage of the Emvus compiler, written in Emvus and built by
 |---|---|
 | `ring0 src/lexer.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
-| Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer lowers to 44 including 5 generated text helpers |
+| Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer lowers to 45 including 4 generated text helpers |
 | Native run of the self test | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend

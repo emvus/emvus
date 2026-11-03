@@ -70,7 +70,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [ ] G5 absence: nullable references (depends on G3)
 - [ ] G6 Map
 - [ ] G7 static fields
-- [ ] Sublang module budget of 32 functions (the Ring1 lexer v0 needs 44)
+- [ ] Sublang module budget of 32 functions (the Ring1 lexer v0 needs 45)
 - [ ] Sublang `emit-llvm` crash on `tests/lowering/backendCrash.ev` (reported, not ours)
 
 ### Self-hosting
