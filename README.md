@@ -15,14 +15,15 @@ Native code comes from [Sublang](https://github.com/emvus/sub-lang) (LLVM) and a
 ## The compiler binary: `emvusc`
 
 ```bash
-scripts/buildEmvusc.sh <emerald-kit> <sub-lang-checkout>       # builds dist/emvusc-<version>/
+NOVUSC=<path to novusc> scripts/buildEmvusc.sh <emerald-kit> <sub-lang-checkout>   # builds dist/emvusc-<version>/
 dist/emvusc-*/emvusc helpers.ev main.ev -o demo && ./demo      # several files form one program
 dist/emvusc-*/emvusc --run main.ev
 dist/emvusc-*/emvusc --emit-llvm main.ev                       # or --emit-wire
 ```
 
-The package holds `emvusc` (the driver), `ring0-lower` and `sublang`; the two tools need only libc, the
-driver needs `clang` (or `EMVUSC_CC`). Versions are `0.1.0-indev.<first 8 characters of the commit>`,
+The package holds three native binaries: `emvusc` (the driver, written in [Novus](https://github.com/ezTxmMC/novus)),
+`ring0-lower` and `sublang` (both written in Emerald). They need only libc; at run time the driver calls `clang`
+(or `EMVUSC_CC`). Building the package needs the Emerald kit, a sub-lang checkout, `novusc` and a C compiler. Versions are `0.1.0-indev.<first 8 characters of the commit>`,
 written by `scripts/stampVersion.sh`.
 
 What the compiled programs can do today: integers, floats, booleans, text (`+`, `length`, `byteAt`,
@@ -30,6 +31,11 @@ What the compiled programs can do today: integers, floats, booleans, text (`+`, 
 generics, lambdas, `Result` with `switch`, top-level constants. The program prints the `Int` its `main`
 returns. Not yet: `println`, files, arguments, dictionaries, tasks, `null` on references (they need
 Sublang runtime support, see `Ring0/docs/plan.md`).
+
+## Contributing
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), versions follow
+[Semantic Versioning](https://semver.org/); see `CONTRIBUTING.md`.
 
 ## Tests
 
