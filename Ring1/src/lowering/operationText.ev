@@ -108,6 +108,10 @@ static method<String> opcodeText(Int code) {
         return "list.clear"
     }
 
+    if (code == OP_FAIL) {
+        return "fail"
+    }
+
     if (code == OP_TEXT_APPEND) {
         return "text.append"
     }

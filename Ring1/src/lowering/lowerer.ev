@@ -17,6 +17,7 @@ static method<String> lowerSource(String source, String moduleName) {
     List<Int> env = []
     numberImports(source, nodes, annotations, functions, state)
     declareRecords(source, nodes, ir, state)
+    declareResults(source, nodes, types, ir, state)
     addTextAssignHelper(ir, state)
     addAppendIntHelper(ir, state)
     addAppendBoolHelper(ir, state)
@@ -104,6 +105,7 @@ static method<Int> findFunctionNamed(String source, List<Int> nodes, List<Int> f
 
 static method lowerFunction(String source, List<Int> nodes, List<Int> types, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int method) {
     Int returnType = wireType(state, returnTypeOf(source, nodes, types, method))
+    state[LOWER_RETURN_TYPE] = returnType
     state[LOWER_VALUES] = 0
     state[LOWER_BLOCKS] = 0
     state[LOWER_ENV] = 0

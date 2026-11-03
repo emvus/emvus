@@ -34,6 +34,7 @@ static method<Bool> isReferenceWire(Int wire) {
 // After the wire types come, for every type, the declaration of the enum it names (NO_NODE for the others); an enum
 // value is its ordinal, an Int.
 static method buildTypeMap(String source, List<Int> nodes, List<Int> types, List<Int> state) {
+    Int results = 0
     for (Int type = 0; type < typeCount(types); type++) {
         Int declaration = enumDeclaration(source, nodes, types, type)
 
@@ -41,11 +42,16 @@ static method buildTypeMap(String source, List<Int> nodes, List<Int> types, List
             state.add(WIRE_INT)
         }
 
-        if (declaration != NO_NODE && nodeField(nodes, declaration, NODE_KIND) == NODE_RECORD) {
+        if (declaration != NO_NODE && isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
             state.add(WIRE_RECORD_BASE + recordIndex(nodes, declaration))
         }
 
-        if (declaration == NO_NODE) {
+        if (declaration == NO_NODE && isSupportedResult(source, nodes, types, type)) {
+            state.add(WIRE_RECORD_BASE + recordCountOf(nodes) + results)
+            results = results + 1
+        }
+
+        if (declaration == NO_NODE && !isSupportedResult(source, nodes, types, type)) {
             state.add(wireOf(types, type))
         }
     }
@@ -64,7 +70,7 @@ static method<Int> enumDeclaration(String source, List<Int> nodes, List<Int> typ
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (declaration != NO_NODE) {
-        if ((nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM || nodeField(nodes, declaration, NODE_KIND) == NODE_RECORD) && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))) {
+        if ((nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM || isRecordKind(nodeField(nodes, declaration, NODE_KIND))) && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))) {
             return declaration
         }
 
@@ -128,6 +134,10 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
 
     if (kind == NODE_BOOL_LITERAL) {
         return constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, nodeIs(source, nodes, node, "true"))
+    }
+
+    if (kind == NODE_PROPAGATE || kind == NODE_UNWRAP) {
+        return lowerResultTest(source, nodes, annotations, ir, env, functions, state, node, kind == NODE_PROPAGATE)
     }
 
     if (kind == NODE_FLOAT_LITERAL) {
@@ -400,6 +410,10 @@ static method<Int> lowerShortCircuit(String source, List<Int> nodes, List<Int> a
 // which is also the function number.
 static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
     Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_RESULT) {
+        return lowerOrElse(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
 
     if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_STRING) {
         return lowerStringMember(source, nodes, annotations, ir, env, functions, state, node, callee)
@@ -936,4 +950,19 @@ static method<Int> emitTextResult(List<Int> ir, List<Int> state, Int code, Int o
     setOwned(ir, state)
     addOperandMode(ir, state, operand, mode)
     return text
+}
+
+static method<Int> recordCountOf(List<Int> nodes) {
+    Int count = 0
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
+            count = count + 1
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return count
 }

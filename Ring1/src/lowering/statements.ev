@@ -50,6 +50,16 @@ static method lowerStatement(String source, List<Int> nodes, List<Int> annotatio
         return
     }
 
+    if (kind == NODE_FAIL) {
+        lowerFail(source, nodes, annotations, ir, env, functions, state, statement)
+        return
+    }
+
+    if (kind == NODE_SUCCESS) {
+        lowerSuccess(source, nodes, annotations, ir, env, functions, state, statement)
+        return
+    }
+
     if (kind == NODE_BREAK || kind == NODE_CONTINUE) {
         lowerJump(ir, env, nodes, state, statement, kind)
         return

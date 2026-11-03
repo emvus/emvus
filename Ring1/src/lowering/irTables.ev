@@ -98,6 +98,7 @@ final var OP_RECORD_MAKE = 33
 final var OP_RECORD_GET = 34
 final var OP_TEXT_APPEND = 35
 final var OP_BYTE_FROM_INT = 36
+final var OP_FAIL = 37
 
 // A Float multiplied by this constant, -1.0, is negated.
 final var MINUS_ONE_BITS = -4616189618054758400
@@ -147,7 +148,11 @@ final var LOWER_USER_FUNCTIONS = 14
 final var LOWER_WRAPPERS = 15
 // The function numbers of the platform imports a program calls, 0 for the others (one entry per import).
 final var LOWER_IMPORT = 16
-final var LOWER_STATE_SIZE = 27
+final var LOWER_RETURN_TYPE = 27
+final var LOWER_RECORD_COUNT = 28
+final var LOWER_RESULT_COUNT = 29
+final var LOWER_FIELD_BASE = 30
+final var LOWER_STATE_SIZE = 31
 
 final var WIRE_VOID = 1
 final var WIRE_BOOL = 2

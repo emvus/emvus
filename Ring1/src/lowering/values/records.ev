@@ -18,7 +18,7 @@ static method declareRecords(String source, List<Int> nodes, List<Int> ir, List<
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (declaration != NO_NODE) {
-        if (nodeField(nodes, declaration, NODE_KIND) == NODE_RECORD) {
+        if (isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
             declareRecord(source, nodes, ir, state, declaration)
         }
 
@@ -26,8 +26,15 @@ static method declareRecords(String source, List<Int> nodes, List<Int> ir, List<
     }
 }
 
+// Records and exceptions are both Sublang record types.
+static method<Bool> isRecordKind(Int kind) {
+    return kind == NODE_RECORD || kind == NODE_EXCEPTION
+}
+
 static method declareRecord(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int declaration) {
     Int count = countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+    state[LOWER_RECORD_COUNT] = state[LOWER_RECORD_COUNT] + 1
+    state[LOWER_FIELD_BASE] = state[LOWER_FIELD_BASE] + count
     ir.add(REC_RECORD)
     ir.add(RECORD_HEADER_SIZE + count * RECORD_FIELD_SIZE)
     ir.add(nodeField(nodes, declaration, NODE_TEXT_START))
@@ -79,7 +86,7 @@ static method<Int> recordIndex(List<Int> nodes, Int declaration) {
     Int other = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (other != declaration && other != NO_NODE) {
-        if (nodeField(nodes, other, NODE_KIND) == NODE_RECORD) {
+        if (isRecordKind(nodeField(nodes, other, NODE_KIND))) {
             index = index + 1
         }
 
@@ -95,7 +102,7 @@ static method<Int> fieldNumber(List<Int> nodes, Int paramStart) {
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (declaration != NO_NODE) {
-        if (nodeField(nodes, declaration, NODE_KIND) == NODE_RECORD) {
+        if (isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
             Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
 
             while (param != NO_NODE) {
@@ -171,6 +178,11 @@ static method<String> recordTypesText(String source, List<Int> ir) {
             number = number + 1
         }
 
+        if (ir[index + RECORD_KIND] == REC_RESULT) {
+            text = text + "type id=" + intText(number) + " kind=\"Record\" name=\"Result$" + intText(number) + "\" width=0 signed=false target=0 nullable=false span=1\n"
+            number = number + 1
+        }
+
         index = index + ir[index + RECORD_LENGTH]
     }
 
@@ -191,6 +203,14 @@ static method<String> recordFieldsText(String source, List<Int> ir) {
                 field = field + 1
             }
 
+            owner = owner + 1
+        }
+
+        if (ir[index + RECORD_KIND] == REC_RESULT) {
+            text = text + "field id=" + intText(field) + " owner=" + intText(owner) + " name=\"tag\" type=3 mutable=false span=1\n"
+            text = text + "field id=" + intText(field + 1) + " owner=" + intText(owner) + " name=\"value\" type=" + intText(ir[index + RESULT_VALUE_WIRE]) + " mutable=false span=1\n"
+            text = text + "field id=" + intText(field + 2) + " owner=" + intText(owner) + " name=\"e_value\" type=" + intText(ir[index + RESULT_ERROR_WIRE]) + " mutable=false span=1\n"
+            field = field + RESULT_FIELDS
             owner = owner + 1
         }
 
