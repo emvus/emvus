@@ -127,6 +127,7 @@ public class BuiltinMembers {
         lines.add("fn readFile(String):String");
         lines.add("fn fileExists(String):Boolean");
         lines.add("fn argumentCount():Int");
+        lines.add("fn lastError():Int");
         lines.add("fn exit(Int):Void");
         lines.add("fn errprint(String):Void");
         lines.add("fn writeFile(String,String):Boolean");

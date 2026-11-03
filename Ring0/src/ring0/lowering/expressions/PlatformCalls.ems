@@ -6,7 +6,8 @@ use ring0::syntax::Node;
 // `errprintln` to standard error, `readFile(path)` returns the bytes of a file as a String (empty when it cannot be
 // read), `writeFile(path, text)` and `fileExists(path)` return a Boolean, `argument(index)` is the command line
 // argument with that index (0 is the first after the program name, empty past the last), `argumentCount()` their
-// number and `exit(status)` ends the process. Each is a call of a platform import (PlatformImports). A program
+// number, `lastError()` the reason the last file operation failed (0 when it worked) and `exit(status)` ends the
+// process. Each is a call of a platform import (PlatformImports). A program
 // that uses them is a command line program: the Int returned by main becomes the exit status and is not printed.
 public class PlatformCalls {
     private LoweringContext context;
@@ -16,7 +17,7 @@ public class PlatformCalls {
     }
 
     public static Bool handles(String name) {
-        return name == "print" || name == "println" || name == "errprint" || name == "errprintln" || name == "readfile" || name == "writefile" || name == "fileexists" || name == "argument" || name == "argumentcount" || name == "exit";
+        return name == "print" || name == "println" || name == "errprint" || name == "errprintln" || name == "readfile" || name == "writefile" || name == "fileexists" || name == "argument" || name == "argumentcount" || name == "lasterror" || name == "exit";
     }
 
     public LoweredValue lower(Node node, String name) {
@@ -26,7 +27,7 @@ public class PlatformCalls {
             expected = 2;
         }
 
-        if (name == "argumentcount") {
+        if (name == "argumentcount" || name == "lasterror") {
             expected = 0;
         }
 
@@ -81,6 +82,10 @@ public class PlatformCalls {
 
         if (name == "fileexists") {
             return LoweredValue(this.call(PlatformImports.fileExists(), this.one(arguments.get(0).valueId()), this.reads(1), span), "Bool");
+        }
+
+        if (name == "lasterror") {
+            return LoweredValue(this.call(PlatformImports.lastError(), List(), List(), span), "Int");
         }
 
         if (name == "argumentcount") {

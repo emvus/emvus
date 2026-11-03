@@ -12,7 +12,8 @@ final var IMPORT_PRINT_ERROR = 4
 final var IMPORT_ARGUMENT = 5
 final var IMPORT_ARGUMENT_COUNT = 6
 final var IMPORT_EXIT = 7
-final var IMPORT_COUNT = 8
+final var IMPORT_LAST_ERROR = 8
+final var IMPORT_COUNT = 9
 final var NO_IMPORT = -1
 
 final var GREATER_BYTE = 62
@@ -57,6 +58,10 @@ static method<String> importName(Int slot) {
         return "platform.process.argument_count"
     }
 
+    if (slot == IMPORT_LAST_ERROR) {
+        return "platform.io.last_error"
+    }
+
     return "platform.process.exit"
 }
 
@@ -81,7 +86,7 @@ static method<String> importSignature(Int slot) {
         return "i>T"
     }
 
-    if (slot == IMPORT_ARGUMENT_COUNT) {
+    if (slot == IMPORT_ARGUMENT_COUNT || slot == IMPORT_LAST_ERROR) {
         return ">i"
     }
 
@@ -116,6 +121,10 @@ static method<Int> importForName(String source, List<Int> nodes, Int callee) {
 
     if (nodeIs(source, nodes, callee, "argumentCount")) {
         return IMPORT_ARGUMENT_COUNT
+    }
+
+    if (nodeIs(source, nodes, callee, "lastError")) {
+        return IMPORT_LAST_ERROR
     }
 
     if (nodeIs(source, nodes, callee, "exit")) {

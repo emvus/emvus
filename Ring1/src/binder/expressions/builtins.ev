@@ -74,7 +74,7 @@ static method<Int> builtinFunctionType(String source, Int start, Int length, Int
         return TYPE_BOOLEAN
     }
 
-    if (argumentCount == 0 && spanIs(source, start, length, "argumentCount")) {
+    if (argumentCount == 0 && (spanIs(source, start, length, "argumentCount") || spanIs(source, start, length, "lastError"))) {
         return TYPE_INT
     }
 

@@ -129,7 +129,7 @@ final var LOWER_USER_FUNCTIONS = 14
 final var LOWER_WRAPPERS = 15
 // The function numbers of the platform imports a program calls, 0 for the others (one entry per import).
 final var LOWER_IMPORT = 16
-final var LOWER_STATE_SIZE = 24
+final var LOWER_STATE_SIZE = 25
 
 final var WIRE_VOID = 1
 final var WIRE_BOOL = 2
