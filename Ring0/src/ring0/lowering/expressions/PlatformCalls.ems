@@ -1,0 +1,189 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// The functions that reach the platform. `print(text)` and `println(text)` write to standard output, `errprint` and
+// `errprintln` to standard error, `readFile(path)` returns the bytes of a file as a String (empty when it cannot be
+// read), `writeFile(path, text)` and `fileExists(path)` return a Boolean, `argument(index)` is the command line
+// argument with that index (0 is the first after the program name, empty past the last), `argumentCount()` their
+// number, `lastError()` the reason the last file operation failed (0 when it worked) and `exit(status)` ends the
+// process. Each is a call of a platform import (PlatformImports). A program
+// that uses them is a command line program: the Int returned by main becomes the exit status and is not printed.
+public class PlatformCalls {
+    private LoweringContext context;
+
+    public PlatformCalls(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public static Bool handles(String name) {
+        return name == "print" || name == "println" || name == "errprint" || name == "errprintln" || name == "readfile" || name == "writefile" || name == "fileexists" || name == "argument" || name == "argumentcount" || name == "lasterror" || name == "milliseconds" || name == "environmentvariable" || name == "exit";
+    }
+
+    public LoweredValue lower(Node node, String name) {
+        Int expected = 1;
+
+        if (name == "writefile") {
+            expected = 2;
+        }
+
+        if (name == "argumentcount" || name == "lasterror" || name == "milliseconds") {
+            expected = 0;
+        }
+
+        if (node.count() != expected + 1) {
+            this.context.unsupported(node, name + " takes " + expected.toString() + " argument(s)");
+            return LoweredValue.unsupported();
+        }
+
+        List<LoweredValue> arguments = List();
+        Int index = 1;
+
+        while (index < node.count()) {
+            arguments.add(ExpressionLowerer(this.context).lower(node.child(index)));
+            index = index + 1;
+        }
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        String wanted = "String";
+
+        if (name == "argument" || name == "exit") {
+            wanted = "Int";
+        }
+
+        if (!this.hasKind(node, arguments, wanted)) {
+            return LoweredValue.unsupported();
+        }
+
+        return this.dispatch(node, name, arguments, this.context.span(node));
+    }
+
+    private LoweredValue dispatch(Node node, String name, List<LoweredValue> arguments, Int span) {
+        if (name == "print" || name == "println") {
+            this.write(PlatformImports.print(), arguments.get(0).valueId(), name == "println", span);
+            return LoweredValue.nothing();
+        }
+
+        if (name == "errprint" || name == "errprintln") {
+            this.write(PlatformImports.printError(), arguments.get(0).valueId(), name == "errprintln", span);
+            return LoweredValue.nothing();
+        }
+
+        if (name == "readfile" || name == "argument" || name == "environmentvariable") {
+            return LoweredValue(this.callOwnedText(this.slotOf(name), arguments.get(0).valueId(), span), "String");
+        }
+
+        if (name == "writefile") {
+            return LoweredValue(this.call(PlatformImports.writeFile(), this.pair(arguments.get(0).valueId(), arguments.get(1).valueId()), this.reads(2), span), "Bool");
+        }
+
+        if (name == "fileexists") {
+            return LoweredValue(this.call(PlatformImports.fileExists(), this.one(arguments.get(0).valueId()), this.reads(1), span), "Bool");
+        }
+
+        if (name == "milliseconds") {
+            return LoweredValue(this.call(PlatformImports.milliseconds(), List(), List(), span), "Int");
+        }
+
+        if (name == "lasterror") {
+            return LoweredValue(this.call(PlatformImports.lastError(), List(), List(), span), "Int");
+        }
+
+        if (name == "argumentcount") {
+            return LoweredValue(this.call(PlatformImports.argumentCount(), List(), List(), span), "Int");
+        }
+
+        this.call(PlatformImports.exit(), this.one(arguments.get(0).valueId()), this.values(1), span);
+        return LoweredValue.nothing();
+    }
+
+    private Int slotOf(String name) {
+        if (name == "readfile") {
+            return PlatformImports.readFile();
+        }
+
+        if (name == "environmentvariable") {
+            return PlatformImports.environmentVariable();
+        }
+
+        return PlatformImports.argument();
+    }
+
+    private Bool hasKind(Node node, List<LoweredValue> arguments, String kind) {
+        Int index = 0;
+
+        while (index < arguments.length()) {
+            if (arguments.get(index).kind() != kind) {
+                this.context.unsupported(node, "the platform functions take " + kind + " arguments here (found " + arguments.get(index).kind() + ")");
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+
+    // Prints a text and, for the `ln` forms, a line feed after it.
+    private Void write(Int slot, Int text, Bool lineFeed, Int span) {
+        this.call(slot, this.one(text), this.reads(1), span);
+
+        if (lineFeed) {
+            this.call(slot, this.one(TextLowerer(this.context).fromStatic("\n", span)), this.reads(1), span);
+        }
+    }
+
+    private Int call(Int slot, List<Int> arguments, List<String> modes, Int span) {
+        return this.context.ops().callDirect(PlatformImports.functionFor(this.context, slot), arguments, modes, span);
+    }
+
+    private Int callOwnedText(Int slot, Int argument, Int span) {
+        Int function = PlatformImports.functionFor(this.context, slot);
+
+        if (slot == PlatformImports.argument()) {
+            return this.context.ops().callDirectOwned(function, this.one(argument), this.values(1), this.context.scopes().functionScope(), span);
+        }
+
+        return this.context.ops().callDirectOwned(function, this.one(argument), this.reads(1), this.context.scopes().functionScope(), span);
+    }
+
+    private List<Int> one(Int value) {
+        List<Int> values = List();
+        values.add(value);
+        return values;
+    }
+
+    private List<Int> pair(Int first, Int second) {
+        List<Int> values = List();
+        values.add(first);
+        values.add(second);
+        return values;
+    }
+
+    private List<String> reads(Int count) {
+        List<String> modes = List();
+        Int index = 0;
+
+        while (index < count) {
+            modes.add("borrow_read");
+            index = index + 1;
+        }
+
+        return modes;
+    }
+
+    private List<String> values(Int count) {
+        List<String> modes = List();
+        Int index = 0;
+
+        while (index < count) {
+            modes.add("value");
+            index = index + 1;
+        }
+
+        return modes;
+    }
+}

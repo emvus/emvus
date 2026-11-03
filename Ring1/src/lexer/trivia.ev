@@ -1,0 +1,49 @@
+package ring1.lexer
+
+static method<Bool> skipTrivia(String source, List<Int> cursor, List<Int> tokens) {
+    Int current = peek(source, cursor, AHEAD_CURRENT)
+    Int following = peek(source, cursor, AHEAD_NEXT)
+
+    if (isWhitespace(current)) {
+        advance(source, cursor)
+        return true
+    }
+
+    if (current == BYTE_SLASH && following == BYTE_SLASH) {
+        skipLineComment(source, cursor)
+        return true
+    }
+
+    if (current == BYTE_SLASH && following == BYTE_STAR) {
+        skipBlockComment(source, cursor, tokens)
+        return true
+    }
+
+    return false
+}
+
+static method skipLineComment(String source, List<Int> cursor) {
+    while (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE && peek(source, cursor, AHEAD_CURRENT) != BYTE_NEWLINE) {
+        advance(source, cursor)
+    }
+}
+
+static method skipBlockComment(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    advance(source, cursor)
+    advance(source, cursor)
+
+    while (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE) {
+        if (peek(source, cursor, AHEAD_CURRENT) == BYTE_STAR && peek(source, cursor, AHEAD_NEXT) == BYTE_SLASH) {
+            advance(source, cursor)
+            advance(source, cursor)
+            return
+        }
+
+        advance(source, cursor)
+    }
+
+    emit(tokens, TOKEN_UNTERMINATED_COMMENT, start, cursor[CURSOR_POSITION] - start, line, column)
+}

@@ -1,0 +1,159 @@
+package ring1.parser
+
+// The operands of an expression: literals, names, parentheses, list and dictionary literals, tasks.
+
+final var QUOTE_LENGTH = 1
+
+static method<Int> parsePrimary(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atKind(tokens, state, TOKEN_NUMBER)) {
+        return parseLeaf(tokens, state, nodes, NODE_INT_LITERAL)
+    }
+
+    if (atKind(tokens, state, TOKEN_FLOAT)) {
+        return parseLeaf(tokens, state, nodes, NODE_FLOAT_LITERAL)
+    }
+
+    if (atQuote(source, tokens, state)) {
+        return parseQuote(source, tokens, state, nodes)
+    }
+
+    if (atSplice(source, tokens, state)) {
+        return parseSplice(source, tokens, state, nodes)
+    }
+
+    if (atGenericReference(source, tokens, state)) {
+        return parseGenericReference(source, tokens, state, nodes)
+    }
+
+    if (atKind(tokens, state, TOKEN_IDENTIFIER)) {
+        return parseLeaf(tokens, state, nodes, NODE_NAME)
+    }
+
+    if (atKind(tokens, state, TOKEN_STRING)) {
+        return parseString(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "true") || atKeyword(source, tokens, state, "false")) {
+        return parseLeaf(tokens, state, nodes, NODE_BOOL_LITERAL)
+    }
+
+    if (atSymbol(source, tokens, state, "(") && atLambda(source, tokens, state)) {
+        return parseLambda(source, tokens, state, nodes)
+    }
+
+    if (atSymbol(source, tokens, state, "(")) {
+        return parseParenthesized(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "this") || atKeyword(source, tokens, state, "super") || nameKeywordAhead(source, tokens, state, AHEAD_CURRENT)) {
+        return parseLeaf(tokens, state, nodes, NODE_NAME)
+    }
+
+    if (atSymbol(source, tokens, state, "{")) {
+        return parseDictLiteral(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "fiber") || atKeyword(source, tokens, state, "virtual") || atKeyword(source, tokens, state, "thread")) {
+        return parseTask(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "null")) {
+        return withoutText(nodes, parseLeaf(tokens, state, nodes, NODE_NULL_LITERAL))
+    }
+
+    if (atKeyword(source, tokens, state, "switch")) {
+        return parseSwitch(source, tokens, state, nodes, true)
+    }
+
+    if (atSymbol(source, tokens, state, "[")) {
+        return parseListLiteral(source, tokens, state, nodes)
+    }
+
+    return parseError(tokens, state, nodes)
+}
+
+static method<Int> parseLeaf(List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    Int leaf = addNodeAtToken(nodes, kind, tokens, state)
+    advanceToken(tokens, state)
+    return leaf
+}
+
+// The node text is the content between the quotes, still escaped.
+static method<Int> parseString(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int index = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    Int start = tokenValue(tokens, index, TOKEN_START) + QUOTE_LENGTH
+    Int length = tokenValue(tokens, index, TOKEN_LENGTH) - QUOTE_LENGTH - QUOTE_LENGTH
+    Int string = addNode(nodes, NODE_STRING, start, length, tokenValue(tokens, index, TOKEN_LINE), tokenValue(tokens, index, TOKEN_COLUMN))
+    advanceToken(tokens, state)
+    parseInterpolations(source, nodes, string)
+    return string
+}
+
+static method<Int> parseParenthesized(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    advanceToken(tokens, state)
+    Int outer = state[STATE_CASCADE]
+    state[STATE_CASCADE] = CASCADE_OPEN
+    Int inner = parseExpression(source, tokens, state, nodes)
+    state[STATE_CASCADE] = outer
+    expectSymbol(source, tokens, state, ")")
+    return inner
+}
+
+static method<Int> parseListLiteral(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int list = addEmptyNode(nodes, NODE_LIST_LITERAL, tokens, state)
+    advanceToken(tokens, state)
+    parseElements(source, tokens, state, nodes, list, "]")
+    return list
+}
+
+// `{ key: value, ... }`
+static method<Int> parseDictLiteral(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int dictionary = addEmptyNode(nodes, NODE_DICT_LITERAL, tokens, state)
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        Int entry = addEmptyNode(nodes, NODE_DICT_ENTRY, tokens, state)
+        appendChild(nodes, entry, parseDictKey(source, tokens, state, nodes, entry))
+        expectSymbol(source, tokens, state, ":")
+        appendChild(nodes, entry, parseExpression(source, tokens, state, nodes))
+        appendChild(nodes, dictionary, entry)
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return dictionary
+}
+
+// A key is an expression; `[expression]` is a computed key, which makes the entry a different kind.
+static method<Int> parseDictKey(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int entry) {
+    if (!atSymbol(source, tokens, state, "[")) {
+        return parseExpression(source, tokens, state, nodes)
+    }
+
+    setNodeField(nodes, entry, NODE_KIND, NODE_COMPUTED_DICT_ENTRY)
+    advanceToken(tokens, state)
+    Int key = parseExpression(source, tokens, state, nodes)
+    expectSymbol(source, tokens, state, "]")
+    return key
+}
+
+// `fiber { ... }`, `virtual { ... }`, `thread { ... }`: the node text is the keyword.
+static method<Int> parseTask(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int task = addNodeAtToken(nodes, NODE_TASK, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, task, parseBlock(source, tokens, state, nodes))
+    return task
+}
+
+// An unexpected token becomes an error node and is skipped, so parsing always makes progress.
+static method<Int> parseError(List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int error = addNodeAtToken(nodes, NODE_ERROR, tokens, state)
+    recordError(state)
+    advanceToken(tokens, state)
+    return error
+}

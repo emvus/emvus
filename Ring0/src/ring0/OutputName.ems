@@ -1,0 +1,21 @@
+namespace ring0;
+
+// Where the compiler writes when no `-o` is given: the first source file without its `.ev` ending.
+public class OutputName {
+    public OutputName() {
+    }
+
+    public static String of(String firstPath, Bool wire) {
+        String stem = firstPath;
+
+        if (firstPath.endsWith(".ev")) {
+            stem = firstPath.substring(0, firstPath.length() - 3);
+        }
+
+        if (wire) {
+            return stem + ".sublang-wire";
+        }
+
+        return stem + ".ll";
+    }
+}

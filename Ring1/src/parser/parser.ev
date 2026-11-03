@@ -1,0 +1,17 @@
+package ring1.parser
+
+final var ROOT_NODE = 0
+
+// Entry point of the Ring1 parser: the node table of a source text, with the file node at ROOT_NODE.
+// Syntax errors become error nodes in the table.
+static method<List<Int>> parseSource(String source) {
+    List<Int> tokens = lexSource(source)
+    List<Int> state = [FIRST_TOKEN, NO_ERRORS, CASCADE_OPEN]
+    List<Int> nodes = []
+    parseFile(source, tokens, state, nodes)
+    return nodes
+}
+
+static method<String> dumpSource(String source) {
+    return dumpNode(source, parseSource(source), ROOT_NODE, 0)
+}

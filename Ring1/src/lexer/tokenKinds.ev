@@ -1,0 +1,30 @@
+package ring1.lexer
+
+// A token is a span of the source in UTF-8 bytes, so columns count bytes and a string token keeps
+// its quotes and escapes raw. Lexical errors are tokens of their own kind where Ring0 reports a
+// diagnostic. Tokens live in one list because the subset has no list-typed fields.
+final var TOKEN_EOF = 0
+final var TOKEN_IDENTIFIER = 1
+final var TOKEN_KEYWORD = 2
+final var TOKEN_NUMBER = 3
+final var TOKEN_FLOAT = 4
+final var TOKEN_STRING = 5
+final var TOKEN_SYMBOL = 6
+final var TOKEN_UNEXPECTED = 8
+final var TOKEN_UNTERMINATED_STRING = 9
+final var TOKEN_UNTERMINATED_COMMENT = 10
+
+final var TOKEN_KIND = 0
+final var TOKEN_START = 1
+final var TOKEN_LENGTH = 2
+final var TOKEN_LINE = 3
+final var TOKEN_COLUMN = 4
+final var TOKEN_STRIDE = 5
+
+static method emit(List<Int> tokens, Int kind, Int start, Int length, Int line, Int column) {
+    tokens.add(kind)
+    tokens.add(start)
+    tokens.add(length)
+    tokens.add(line)
+    tokens.add(column)
+}

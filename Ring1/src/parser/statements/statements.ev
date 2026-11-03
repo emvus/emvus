@@ -1,0 +1,164 @@
+package ring1.parser
+
+static method<Int> parseBlock(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int block = addEmptyNode(nodes, NODE_BLOCK, tokens, state)
+    expectSymbol(source, tokens, state, "{")
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, block, parseStatement(source, tokens, state, nodes))
+        skipSemicolon(source, tokens, state)
+        ensureProgress(tokens, state, before)
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return block
+}
+
+static method<Int> parseStatement(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atKeyword(source, tokens, state, "if")) {
+        return parseCondition(source, tokens, state, nodes, NODE_IF)
+    }
+
+    if (atKeyword(source, tokens, state, "while")) {
+        return parseCondition(source, tokens, state, nodes, NODE_WHILE)
+    }
+
+    if (atKeyword(source, tokens, state, "for")) {
+        return parseFor(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "switch")) {
+        return parseSwitch(source, tokens, state, nodes, false)
+    }
+
+    if (atKeyword(source, tokens, state, "return")) {
+        return parseReturn(source, tokens, state, nodes)
+    }
+
+    return parseSimpleStatement(source, tokens, state, nodes)
+}
+
+static method<Int> parseSimpleStatement(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atKeyword(source, tokens, state, "break")) {
+        return withoutText(nodes, parseLeaf(tokens, state, nodes, NODE_BREAK))
+    }
+
+    if (atKeyword(source, tokens, state, "continue")) {
+        return withoutText(nodes, parseLeaf(tokens, state, nodes, NODE_CONTINUE))
+    }
+
+    if (atKeyword(source, tokens, state, "fail")) {
+        return parseValueStatement(source, tokens, state, nodes, NODE_FAIL)
+    }
+
+    if (atSuccessStatement(source, tokens, state)) {
+        return parseValueStatement(source, tokens, state, nodes, NODE_SUCCESS)
+    }
+
+    if (atDestructure(source, tokens, state)) {
+        return parseDestructure(source, tokens, state, nodes)
+    }
+
+    if (looksLikeLocal(source, tokens, state)) {
+        return parseLocal(source, tokens, state, nodes)
+    }
+
+    return parseExpressionStatement(source, tokens, state, nodes)
+}
+
+// `if (condition) { ... }` and `while (condition) { ... }` share their shape.
+static method<Int> parseCondition(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    Int statement = withoutText(nodes, addNodeAtToken(nodes, kind, tokens, state))
+    advanceToken(tokens, state)
+    expectSymbol(source, tokens, state, "(")
+    appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    appendChild(nodes, statement, parseBlock(source, tokens, state, nodes))
+    return statement
+}
+
+// Keywords name the statement kind, so the node carries no text.
+static method<Int> withoutText(List<Int> nodes, Int id) {
+    setNodeField(nodes, id, NODE_TEXT_LENGTH, 0)
+    return id
+}
+
+static method<Int> parseFor(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int loop = withoutText(nodes, addNodeAtToken(nodes, NODE_FOR, tokens, state))
+    advanceToken(tokens, state)
+    expectSymbol(source, tokens, state, "(")
+
+    if (atForeach(source, tokens, state)) {
+        return parseForeach(source, tokens, state, nodes, loop)
+    }
+
+    Int start = addEmptyNode(nodes, NODE_INIT, tokens, state)
+    appendChild(nodes, start, parseStatement(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ";")
+    Int condition = addEmptyNode(nodes, NODE_CONDITION, tokens, state)
+    appendChild(nodes, condition, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ";")
+    Int update = addEmptyNode(nodes, NODE_UPDATE, tokens, state)
+    appendChild(nodes, update, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    appendChild(nodes, loop, start)
+    appendChild(nodes, loop, condition)
+    appendChild(nodes, loop, update)
+    appendChild(nodes, loop, parseBlock(source, tokens, state, nodes))
+    return loop
+}
+
+// `for (Type name in values) { ... }`: the node that `for` started becomes the foreach.
+static method<Bool> atForeach(String source, List<Int> tokens, List<Int> state) {
+    if (!looksLikeTypedName(source, tokens, state)) {
+        return false
+    }
+
+    return textAhead(source, tokens, state, typeEndAhead(source, tokens, state) + AHEAD_NEXT, TOKEN_KEYWORD, "in")
+}
+
+static method<Int> parseForeach(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int loop) {
+    setNodeField(nodes, loop, NODE_KIND, NODE_FOREACH)
+    Int type = parseType(source, tokens, state, nodes)
+    Int index = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    setNodeField(nodes, loop, NODE_TEXT_START, tokenValue(tokens, index, TOKEN_START))
+    setNodeField(nodes, loop, NODE_TEXT_LENGTH, tokenValue(tokens, index, TOKEN_LENGTH))
+    advanceToken(tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, loop, type)
+    appendChild(nodes, loop, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    appendChild(nodes, loop, parseBlock(source, tokens, state, nodes))
+    return loop
+}
+
+static method<Int> parseReturn(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int statement = withoutText(nodes, addNodeAtToken(nodes, NODE_RETURN, tokens, state))
+    advanceToken(tokens, state)
+
+    if (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    }
+
+    return statement
+}
+
+// `fail value` and `success value`. `success` is not a keyword, so it is a statement only when a
+// value follows it: `success(x)` and `success.x` are ordinary expressions.
+static method<Bool> atSuccessStatement(String source, List<Int> tokens, List<Int> state) {
+    return atIdentifierText(source, tokens, state, "success") && nextOnSameLine(tokens, state) && tokenKindAhead(tokens, state, AHEAD_NEXT) != TOKEN_SYMBOL
+}
+
+static method<Int> parseValueStatement(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    Int statement = withoutText(nodes, addNodeAtToken(nodes, kind, tokens, state))
+    advanceToken(tokens, state)
+    appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    return statement
+}
+
+static method<Int> parseExpressionStatement(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int statement = addEmptyNode(nodes, NODE_EXPRESSION_STATEMENT, tokens, state)
+    appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    return statement
+}

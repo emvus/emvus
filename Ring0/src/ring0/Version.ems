@@ -1,0 +1,21 @@
+namespace ring0;
+
+// The product version: 0.1.0-indev.<first 8 characters of the git commit>. The commit part is written
+// by scripts/stampVersion.sh at the repository root; a build outside git keeps "unstamped".
+public class Version {
+    public Version() {
+    }
+
+    private static String commit() {
+        return "58e4df3b";
+    }
+
+    public static String number() {
+        return "0.1.0-indev." + Version.commit();
+    }
+
+    // `Emvus Ring0 <version>`, as printed by `--version`.
+    public static String product() {
+        return "Emvus Ring0 " + Version.number();
+    }
+}

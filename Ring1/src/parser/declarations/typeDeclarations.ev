@@ -1,0 +1,157 @@
+package ring1.parser
+
+// enum, record, data class, exception, interface and class share a header:
+// modifiers, parameters (records and exceptions), `where`, `based`, `implements`, then a body.
+
+static method<Bool> atDataClass(String source, List<Int> tokens, List<Int> state) {
+    return textAhead(source, tokens, state, AHEAD_CURRENT, TOKEN_IDENTIFIER, "data") && textAhead(source, tokens, state, AHEAD_NEXT, TOKEN_KEYWORD, "class")
+}
+
+static method<Bool> atTypeDeclaration(String source, List<Int> tokens, List<Int> state) {
+    return atKeyword(source, tokens, state, "enum") || atKeyword(source, tokens, state, "record") || atKeyword(source, tokens, state, "exception") || atKeyword(source, tokens, state, "interface") || atKeyword(source, tokens, state, "class") || atDataClass(source, tokens, state)
+}
+
+static method<Int> declarationKind(String source, List<Int> tokens, List<Int> state) {
+    if (atKeyword(source, tokens, state, "enum")) {
+        return NODE_ENUM
+    }
+
+    if (atKeyword(source, tokens, state, "record")) {
+        return NODE_RECORD
+    }
+
+    if (atKeyword(source, tokens, state, "exception")) {
+        return NODE_EXCEPTION
+    }
+
+    if (atKeyword(source, tokens, state, "interface")) {
+        return NODE_INTERFACE
+    }
+
+    if (atDataClass(source, tokens, state)) {
+        return NODE_DATA_CLASS
+    }
+
+    return NODE_CLASS
+}
+
+static method<Bool> hasHeaderParameters(Int kind) {
+    return kind == NODE_RECORD || kind == NODE_DATA_CLASS || kind == NODE_EXCEPTION
+}
+
+static method<Int> parseTypeDeclaration(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
+    Int kind = declarationKind(source, tokens, state)
+
+    if (kind == NODE_DATA_CLASS) {
+        advanceToken(tokens, state)
+    }
+
+    advanceToken(tokens, state)
+    Int declaration = addNodeAtToken(nodes, kind, tokens, state)
+    expectIdentifier(tokens, state)
+    appendModifiers(nodes, declaration, modifiers)
+    parseTypeHeader(source, tokens, state, nodes, declaration, kind)
+
+    if (atSymbol(source, tokens, state, "{")) {
+        appendChild(nodes, declaration, parseTypeBody(source, tokens, state, nodes, kind))
+    }
+
+    return declaration
+}
+
+static method parseTypeHeader(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int declaration, Int kind) {
+    if (hasHeaderParameters(kind) && atSymbol(source, tokens, state, "(")) {
+        appendChild(nodes, declaration, parseParams(source, tokens, state, nodes))
+    }
+
+    if (atIdentifierText(source, tokens, state, "where")) {
+        appendChild(nodes, declaration, parseWhere(source, tokens, state, nodes))
+    }
+
+    if (atIdentifierText(source, tokens, state, "based")) {
+        appendChild(nodes, declaration, parseTypeList(source, tokens, state, nodes, NODE_BASED))
+    }
+
+    if (atIdentifierText(source, tokens, state, "implements")) {
+        appendChild(nodes, declaration, parseTypeList(source, tokens, state, nodes, NODE_IMPLEMENTS))
+    }
+}
+
+static method<Bool> atIdentifierText(String source, List<Int> tokens, List<Int> state, String text) {
+    return textAhead(source, tokens, state, AHEAD_CURRENT, TOKEN_IDENTIFIER, text)
+}
+
+// `based A, B` and `implements A, B`: a keyword followed by comma separated types.
+static method<Int> parseTypeList(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    Int list = addEmptyNode(nodes, kind, tokens, state)
+    advanceToken(tokens, state)
+
+    while (true) {
+        appendChild(nodes, list, parseType(source, tokens, state, nodes))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    return list
+}
+
+// `where T, U`: the type parameters of a generic declaration.
+static method<Int> parseWhere(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int where = addEmptyNode(nodes, NODE_WHERE, tokens, state)
+    advanceToken(tokens, state)
+
+    while (true) {
+        Int parameter = addNodeAtToken(nodes, NODE_TYPE_PARAMETER, tokens, state)
+        expectIdentifier(tokens, state)
+        appendChild(nodes, where, parameter)
+
+        if (atSymbol(source, tokens, state, ":")) {
+            advanceToken(tokens, state)
+            appendChild(nodes, parameter, parseType(source, tokens, state, nodes))
+
+            while (atSymbol(source, tokens, state, "&")) {
+                advanceToken(tokens, state)
+                appendChild(nodes, parameter, parseType(source, tokens, state, nodes))
+            }
+        }
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    return where
+}
+
+static method<Int> parseTypeBody(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    Int body = addEmptyNode(nodes, NODE_BODY, tokens, state)
+    expectSymbol(source, tokens, state, "{")
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, body, parseBodyEntry(source, tokens, state, nodes, kind))
+        skipSemicolon(source, tokens, state)
+        ensureProgress(tokens, state, before)
+
+        if (kind == NODE_ENUM && atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return body
+}
+
+static method<Int> parseBodyEntry(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    if (kind == NODE_ENUM) {
+        return parseLeaf(tokens, state, nodes, NODE_ENUM_ENTRY)
+    }
+
+    return parseMember(source, tokens, state, nodes)
+}

@@ -1,0 +1,309 @@
+package ring1.lowering
+
+// The lowered program is one list of records, appended in the order the lowering produces them. A record
+// is [kind, length, fields...] so a reader can walk the list without knowing every kind. Everything after
+// a function record belongs to that function; a block, value or operation is numbered by counting.
+final var REC_FUNCTION = 1
+final var REC_PARAMETER = 2
+final var REC_VALUE = 3
+final var REC_BLOCK = 4
+final var REC_OPERATION = 5
+
+final var RECORD_KIND = 0
+final var RECORD_LENGTH = 1
+final var RECORD_FIELDS = 2
+
+// Function: [name start, name length, return type, parameter count]
+final var FUNCTION_NAME_START = 2
+final var FUNCTION_NAME_LENGTH = 3
+final var FUNCTION_RETURN = 4
+final var FUNCTION_PARAMETERS = 5
+final var FUNCTION_SIZE = 6
+
+// Parameter: [name start, name length, type, passing mode]
+final var PARAMETER_NAME_START = 2
+final var PARAMETER_NAME_LENGTH = 3
+final var PARAMETER_TYPE = 4
+final var PARAMETER_MODE = 5
+final var PARAMETER_SIZE = 6
+
+// Value: [type]
+final var VALUE_TYPE = 2
+final var VALUE_SIZE = 3
+
+// Block: [parameter count, parameters...]
+final var BLOCK_PARAMETER_COUNT = 2
+final var BLOCK_HEADER_SIZE = 3
+
+// Operation: [block, opcode, result, type, reference, int, bool, predicate, target, second target,
+// arguments for the first target, ownership, scope, operand count, then operand pairs...]
+final var OPERATION_BLOCK = 2
+final var OPERATION_CODE = 3
+final var OPERATION_RESULT = 4
+final var OPERATION_TYPE = 5
+final var OPERATION_REFERENCE = 6
+final var OPERATION_INT = 7
+final var OPERATION_BOOL = 8
+final var OPERATION_PREDICATE = 9
+final var OPERATION_TARGET = 10
+final var OPERATION_SECOND_TARGET = 11
+final var OPERATION_TRUE_ARGUMENTS = 12
+final var OPERATION_OWNERSHIP = 13
+final var OPERATION_SCOPE = 14
+final var OPERATION_TEXT_START = 15
+final var OPERATION_TEXT_LENGTH = 16
+final var OPERATION_OPERAND_COUNT = 17
+final var OPERATION_HEADER_SIZE = 18
+
+// Every operand is a pair: the value and how the operation uses it.
+final var MODE_VALUE = 0
+final var MODE_BORROW_READ = 1
+final var MODE_BORROW_WRITE = 2
+final var MODE_OWNED = 3
+final var OPERAND_SIZE = 2
+
+final var OP_CONST_INT = 1
+final var OP_CONST_BOOL = 2
+final var OP_ADD = 3
+final var OP_SUBTRACT = 4
+final var OP_MULTIPLY = 5
+final var OP_DIVIDE = 6
+final var OP_REMAINDER = 7
+final var OP_NEGATE = 8
+final var OP_COMPARE = 9
+final var OP_CALL = 10
+final var OP_BRANCH = 11
+final var OP_CONDITIONAL_BRANCH = 12
+final var OP_RETURN = 13
+final var OP_LIST_NEW = 14
+final var OP_LIST_PUSH = 15
+final var OP_LIST_GET = 16
+final var OP_LIST_SET = 17
+final var OP_LIST_LENGTH = 18
+final var OP_SCOPE_BEGIN = 19
+final var OP_SCOPE_END = 20
+final var OP_CONST_STRING = 21
+final var OP_TEXT_FROM_STR = 22
+final var OP_TEXT_CONCAT = 23
+final var OP_TEXT_SLICE = 24
+final var OP_TEXT_EQUAL = 25
+final var OP_BYTE_TO_INT = 26
+final var OP_LIST_CLEAR = 27
+final var OP_CONST_FLOAT = 28
+final var OP_FLOAT_ADD = 29
+final var OP_FLOAT_SUBTRACT = 30
+final var OP_FLOAT_MULTIPLY = 31
+final var OP_FLOAT_DIVIDE = 32
+final var OP_RECORD_MAKE = 33
+final var OP_RECORD_GET = 34
+final var OP_TEXT_APPEND = 35
+final var OP_BYTE_FROM_INT = 36
+final var OP_FAIL = 37
+
+// A Float multiplied by this constant, -1.0, is negated.
+final var MINUS_ONE_BITS = -4616189618054758400
+
+// A string constant whose text start is this value is a single line feed, which no source span holds.
+final var TEXT_LINE_FEED = -1
+
+// Function 1 of every module copies one text into another; the functions of the program follow it.
+final var TEXT_ASSIGN_FUNCTION = 1
+final var FIRST_USER_FUNCTION = 4
+
+// Functions that have no name in the source are recognized by their name start.
+final var NAME_ENTRY = -1
+final var NAME_TEXT_ASSIGN = -2
+final var NAME_IMPORT_BASE = -10
+
+final var PREDICATE_NONE = 0
+final var PREDICATE_LESS = 1
+final var PREDICATE_LESS_EQUAL = 2
+final var PREDICATE_GREATER = 3
+final var PREDICATE_GREATER_EQUAL = 4
+final var PREDICATE_EQUAL = 5
+final var PREDICATE_NOT_EQUAL = 6
+final var PREDICATE_ORDERED_LESS = 7
+final var PREDICATE_ORDERED_LESS_EQUAL = 8
+final var PREDICATE_ORDERED_GREATER = 9
+final var PREDICATE_ORDERED_GREATER_EQUAL = 10
+final var PREDICATE_ORDERED_EQUAL = 11
+final var PREDICATE_UNORDERED_NOT_EQUAL = 12
+
+// The lowering's own state, indexed by these positions.
+final var LOWER_BLOCK = 0
+final var LOWER_TERMINATED = 1
+final var LOWER_FAILED = 2
+final var LOWER_FAILED_LINE = 3
+final var LOWER_VALUES = 4
+final var LOWER_BLOCKS = 5
+final var LOWER_ENV = 6
+final var LOWER_LAST_OPERATION = 7
+final var LOWER_OPERATIONS = 8
+final var LOWER_LAST_BLOCK = 9
+final var LOWER_BREAK_TARGET = 10
+final var LOWER_CONTINUE_TARGET = 11
+final var LOWER_LOOP_COUNT = 12
+final var LOWER_SCOPE = 13
+final var LOWER_USER_FUNCTIONS = 14
+final var LOWER_WRAPPERS = 15
+// The function numbers of the platform imports a program calls, 0 for the others (one entry per import).
+final var LOWER_IMPORT = 16
+final var LOWER_RETURN_TYPE = 27
+final var LOWER_RECORD_COUNT = 28
+final var LOWER_RESULT_COUNT = 29
+final var LOWER_FIELD_BASE = 30
+final var LOWER_STATE_SIZE = 31
+
+final var WIRE_VOID = 1
+final var WIRE_BOOL = 2
+final var WIRE_INT = 3
+final var WIRE_FLOAT = 4
+final var WIRE_BYTE = 9
+final var WIRE_LIST_BYTE = 10
+final var WIRE_STRING = 11
+final var WIRE_STRING_CONSTANT = 12
+final var NO_VALUE = 0
+final var NO_BLOCK = 0
+// An environment row names a variable by the start of its declaration and holds its current value.
+final var ENV_KEY = 0
+final var ENV_VALUE = 1
+final var ENV_TYPE = 2
+final var ENV_STRIDE = 3
+
+// Adds a value of the current function and returns its number.
+static method<Int> newValue(List<Int> ir, List<Int> state, Int type) {
+    ir.add(REC_VALUE)
+    ir.add(VALUE_SIZE)
+    ir.add(type)
+    state[LOWER_VALUES] = state[LOWER_VALUES] + 1
+    return state[LOWER_VALUES]
+}
+
+// A list or a string is a reference to an owned object: it dominates every block after its creation and is not
+// passed around as a block parameter, so the variables a block carries are the ones that are not lists.
+static method<Bool> isCarried(List<Int> env, Int row) {
+    return !isListWire(env[row * ENV_STRIDE + ENV_TYPE]) && env[row * ENV_STRIDE + ENV_TYPE] != WIRE_STRING
+}
+
+// Adds a block whose parameters are fresh values for the carried variables among the first `count`
+// rows of the environment, and returns its number.
+static method<Int> newBlock(List<Int> ir, List<Int> state, List<Int> env, Int count) {
+    List<Int> parameters = []
+
+    for (Int row = 0; row < count; row++) {
+        if (isCarried(env, row)) {
+            parameters.add(newValue(ir, state, env[row * ENV_STRIDE + ENV_TYPE]))
+        }
+    }
+
+    state[LOWER_LAST_BLOCK] = ir.size()
+    ir.add(REC_BLOCK)
+    ir.add(BLOCK_HEADER_SIZE + parameters.size())
+    ir.add(parameters.size())
+
+    for (Int index = 0; index < parameters.size(); index++) {
+        ir.add(parameters[index])
+    }
+
+    state[LOWER_BLOCKS] = state[LOWER_BLOCKS] + 1
+    return state[LOWER_BLOCKS]
+}
+
+// Adds an operation to the current block. Operands are added afterwards, one by one, to the last operation.
+static method addOperation(List<Int> ir, List<Int> state, Int code, Int result, Int type, Int reference, Int intValue, Bool boolValue, Int predicate) {
+    state[LOWER_LAST_OPERATION] = ir.size()
+    state[LOWER_OPERATIONS] = state[LOWER_OPERATIONS] + 1
+    ir.add(REC_OPERATION)
+    ir.add(OPERATION_HEADER_SIZE)
+    ir.add(state[LOWER_BLOCK])
+    ir.add(code)
+    ir.add(result)
+    ir.add(type)
+    ir.add(reference)
+    ir.add(intValue)
+
+    if (boolValue) {
+        ir.add(1)
+    }
+
+    if (!boolValue) {
+        ir.add(0)
+    }
+
+    ir.add(predicate)
+    ir.add(NO_BLOCK)
+    ir.add(NO_BLOCK)
+    ir.add(0)
+    ir.add(0)
+    ir.add(0)
+    ir.add(0)
+    ir.add(0)
+    ir.add(0)
+}
+
+// A string constant is the span of its content in the source text.
+static method setText(List<Int> ir, List<Int> state, Int start, Int length) {
+    Int operation = state[LOWER_LAST_OPERATION]
+    ir[operation + OPERATION_TEXT_START] = start
+    ir[operation + OPERATION_TEXT_LENGTH] = length
+}
+
+// Marks the last operation as producing an owned value in the function's scope.
+static method setOwned(List<Int> ir, List<Int> state) {
+    Int operation = state[LOWER_LAST_OPERATION]
+    ir[operation + OPERATION_OWNERSHIP] = 1
+    ir[operation + OPERATION_SCOPE] = 1
+}
+
+static method addOperand(List<Int> ir, List<Int> state, Int value) {
+    addOperandMode(ir, state, value, MODE_VALUE)
+}
+
+static method addOperandMode(List<Int> ir, List<Int> state, Int value, Int mode) {
+    Int operation = state[LOWER_LAST_OPERATION]
+    ir.add(value)
+    ir.add(mode)
+    ir[operation + RECORD_LENGTH] = ir[operation + RECORD_LENGTH] + OPERAND_SIZE
+    ir[operation + OPERATION_OPERAND_COUNT] = ir[operation + OPERATION_OPERAND_COUNT] + 1
+}
+
+static method setTargets(List<Int> ir, List<Int> state, Int first, Int second, Int trueArguments) {
+    Int operation = state[LOWER_LAST_OPERATION]
+    ir[operation + OPERATION_TARGET] = first
+    ir[operation + OPERATION_SECOND_TARGET] = second
+    ir[operation + OPERATION_TRUE_ARGUMENTS] = trueArguments
+}
+
+// Passes the carried variables among the first `count` as the operands of the last operation.
+static method addEnvironmentOperands(List<Int> ir, List<Int> state, List<Int> env, Int count) {
+    for (Int row = 0; row < count; row++) {
+        if (isCarried(env, row)) {
+            addOperand(ir, state, env[row * ENV_STRIDE + ENV_VALUE])
+        }
+    }
+}
+
+// Replaces the carried variables among the first `count` by the parameters of a block.
+static method adoptBlockParameters(List<Int> ir, List<Int> env, Int blockRecord, Int count) {
+    Int parameter = 0
+
+    for (Int row = 0; row < count; row++) {
+        if (isCarried(env, row)) {
+            env[row * ENV_STRIDE + ENV_VALUE] = ir[blockRecord + BLOCK_HEADER_SIZE + parameter]
+            parameter = parameter + 1
+        }
+    }
+}
+
+// A block with a single parameter, the result of a short-circuit expression; the parameter is the first
+// entry after the block header.
+static method<Int> newResultBlock(List<Int> ir, List<Int> state, Int type) {
+    Int result = newValue(ir, state, type)
+    state[LOWER_LAST_BLOCK] = ir.size()
+    ir.add(REC_BLOCK)
+    ir.add(BLOCK_HEADER_SIZE + 1)
+    ir.add(1)
+    ir.add(result)
+    state[LOWER_BLOCKS] = state[LOWER_BLOCKS] + 1
+    return state[LOWER_BLOCKS]
+}

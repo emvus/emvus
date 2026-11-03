@@ -1,0 +1,43 @@
+package ring1.lexer
+
+// Entry point of the Ring1 lexer: `lexSource` returns the tokens of a source text.
+
+static method scanToken(String source, List<Int> cursor, List<Int> tokens) {
+    Int current = peek(source, cursor, AHEAD_CURRENT)
+
+    if (isIdentifierStart(current)) {
+        lexIdentifier(source, cursor, tokens)
+        return
+    }
+
+    if (isDigit(current)) {
+        lexNumber(source, cursor, tokens)
+        return
+    }
+
+    if (current == BYTE_QUOTE) {
+        lexString(source, cursor, tokens)
+        return
+    }
+
+    lexSymbol(source, cursor, tokens)
+}
+
+static method tokenize(String source, List<Int> cursor, List<Int> tokens) {
+    while (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE) {
+        if (skipTrivia(source, cursor, tokens)) {
+            continue
+        }
+
+        scanToken(source, cursor, tokens)
+    }
+
+    emit(tokens, TOKEN_EOF, cursor[CURSOR_POSITION], 0, cursor[CURSOR_LINE], columnAt(cursor))
+}
+
+static method<List<Int>> lexSource(String source) {
+    List<Int> cursor = [FIRST_POSITION, FIRST_LINE, FIRST_POSITION]
+    List<Int> tokens = []
+    tokenize(source, cursor, tokens)
+    return tokens
+}

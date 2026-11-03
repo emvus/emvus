@@ -1,0 +1,252 @@
+package ring1.lowering
+
+// Result<T, E> with a primitive T and an exception E that has one primitive field. A Result is a Sublang record
+// {tag, value, e_value}: tag 0 is success and 1 is failure; the unused field holds zero. Result records come after the
+// user's records (wire types and field numbers continue from there). `fail E(x)` and `success v` build a Result and
+// return it, `r?` returns the failure of a Result from the current function, `r!` aborts on a failure and
+// `r.orElse(d)` replaces it by d.
+final var REC_RESULT = 7
+final var RESULT_VALUE_WIRE = 2
+final var RESULT_ERROR_WIRE = 3
+final var RESULT_SIZE = 4
+final var RESULT_FIELDS = 3
+final var TAG_SUCCESS = 0
+final var TAG_FAILURE = 1
+final var PANIC_FAILURE = 2
+
+// The wire type of a primitive binder type; NO_VALUE for any other.
+static method<Int> primitiveOfType(Int type) {
+    if (type == TYPE_INT) {
+        return WIRE_INT
+    }
+
+    if (type == TYPE_BOOLEAN) {
+        return WIRE_BOOL
+    }
+
+    if (type == TYPE_FLOAT) {
+        return WIRE_FLOAT
+    }
+
+    return NO_VALUE
+}
+
+// The wire type of the single field of an exception type; NO_VALUE when the type is no such exception.
+static method<Int> exceptionFieldWire(String source, List<Int> nodes, List<Int> types, Int type) {
+    Int declaration = enumDeclaration(source, nodes, types, type)
+
+    if (declaration == NO_NODE || nodeField(nodes, declaration, NODE_KIND) != NODE_EXCEPTION) {
+        return NO_VALUE
+    }
+
+    Int params = childOfKind(nodes, declaration, NODE_PARAMS)
+
+    if (countChildren(nodes, params) != 1) {
+        return NO_VALUE
+    }
+
+    return primitiveWire(source, nodes, childOfKind(nodes, firstChildOf(nodes, params), NODE_TYPE))
+}
+
+static method<Bool> isResultType(String source, List<Int> types, Int type) {
+    return typeField(types, type, TYPE_KIND) == KIND_APPLIED && spanIs(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), "Result")
+}
+
+// Result<T, E> is supported when T is primitive and E an exception with one primitive field.
+static method<Bool> isSupportedResult(String source, List<Int> nodes, List<Int> types, Int type) {
+    return isResultType(source, types, type) && primitiveOfType(typeArgument(types, type, 0)) != NO_VALUE && exceptionFieldWire(source, nodes, types, typeArgument(types, type, 1)) != NO_VALUE
+}
+
+// One IR record per supported Result type: [value wire, error field wire]; the position is the Result's index.
+static method declareResults(String source, List<Int> nodes, List<Int> types, List<Int> ir, List<Int> state) {
+    for (Int type = 0; type < typeCount(types); type++) {
+        if (isSupportedResult(source, nodes, types, type)) {
+            ir.add(REC_RESULT)
+            ir.add(RESULT_SIZE)
+            ir.add(primitiveOfType(typeArgument(types, type, 0)))
+            ir.add(exceptionFieldWire(source, nodes, types, typeArgument(types, type, 1)))
+            state[LOWER_RESULT_COUNT] = state[LOWER_RESULT_COUNT] + 1
+        }
+    }
+}
+
+static method<Bool> isResultWire(List<Int> state, Int wire) {
+    Int first = WIRE_RECORD_BASE + state[LOWER_RECORD_COUNT]
+    return wire >= first && wire < first + state[LOWER_RESULT_COUNT]
+}
+
+// The IR record of the Result with this wire type.
+static method<Int> resultRecord(List<Int> ir, List<Int> state, Int wire) {
+    Int position = wire - WIRE_RECORD_BASE - state[LOWER_RECORD_COUNT]
+    Int seen = 0
+    Int index = 0
+
+    while (index < ir.size()) {
+        if (ir[index + RECORD_KIND] == REC_RESULT) {
+            if (seen == position) {
+                return index
+            }
+
+            seen = seen + 1
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return -1
+}
+
+// The number of the tag (0), value (1) or e_value (2) field of the Result with this wire type.
+static method<Int> resultField(List<Int> state, Int wire, Int which) {
+    return state[LOWER_FIELD_BASE] + (wire - WIRE_RECORD_BASE - state[LOWER_RECORD_COUNT]) * RESULT_FIELDS + which + 1
+}
+
+static method<Int> zeroOf(List<Int> ir, List<Int> state, Int wire) {
+    if (wire == WIRE_BOOL) {
+        return constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, false)
+    }
+
+    if (wire == WIRE_FLOAT) {
+        Int zero = newValue(ir, state, WIRE_FLOAT)
+        addOperation(ir, state, OP_CONST_FLOAT, zero, WIRE_FLOAT, 0, 0, false, PREDICATE_NONE)
+        return zero
+    }
+
+    return constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+}
+
+static method<Int> readField(List<Int> ir, List<Int> state, Int record, Int field, Int type) {
+    Int value = newValue(ir, state, type)
+    addOperation(ir, state, OP_RECORD_GET, value, type, field, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, record)
+    return value
+}
+
+// A Result of the given wire type with this tag, value and error field.
+static method<Int> makeResult(List<Int> ir, List<Int> state, Int wire, Int tag, Int value, Int errorField) {
+    Int tagValue = constantNumber(ir, state, tag)
+    Int result = newValue(ir, state, wire)
+    addOperation(ir, state, OP_RECORD_MAKE, result, wire, wire, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, tagValue)
+    addOperand(ir, state, value)
+    addOperand(ir, state, errorField)
+    return result
+}
+
+static method emitReturnValue(List<Int> ir, List<Int> state, Int value) {
+    if (state[LOWER_SCOPE] == 1) {
+        addOperation(ir, state, OP_SCOPE_END, NO_VALUE, 0, 1, 0, false, PREDICATE_NONE)
+    }
+
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, value)
+    state[LOWER_TERMINATED] = 1
+}
+
+// `fail E(x)`: the exception's field becomes the error field of a failed Result.
+static method lowerFail(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
+    Int call = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    Int wire = state[LOWER_RETURN_TYPE]
+    Int exception = lowerExpression(source, nodes, annotations, ir, env, functions, state, call)
+    Int declaration = declarationOfType(state, annotationField(annotations, call, ANNOTATION_TYPE))
+
+    if (exception == NO_VALUE || !isResultWire(state, wire) || declaration == NO_NODE) {
+        markUnsupported(nodes, state, statement)
+        return
+    }
+
+    Int record = resultRecord(ir, state, wire)
+    Int field = fieldNumber(nodes, nodeField(nodes, firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS)), NODE_TEXT_START))
+    Int carried = readField(ir, state, exception, field, ir[record + RESULT_ERROR_WIRE])
+    emitReturnValue(ir, state, makeResult(ir, state, wire, TAG_FAILURE, zeroOf(ir, state, ir[record + RESULT_VALUE_WIRE]), carried))
+}
+
+// `success v`
+static method lowerSuccess(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
+    Int wire = state[LOWER_RETURN_TYPE]
+    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, statement, NODE_FIRST_CHILD))
+
+    if (value == NO_VALUE || !isResultWire(state, wire)) {
+        markUnsupported(nodes, state, statement)
+        return
+    }
+
+    Int record = resultRecord(ir, state, wire)
+    emitReturnValue(ir, state, makeResult(ir, state, wire, TAG_SUCCESS, value, zeroOf(ir, state, ir[record + RESULT_ERROR_WIRE])))
+}
+
+// Splits on the tag of a Result: the failure block gets the failure of the Result, the other block carries on.
+// `r?` returns the failure from the current function, `r!` aborts.
+static method<Int> lowerResultTest(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Bool propagate) {
+    Int result = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, node, NODE_FIRST_CHILD))
+    Int wire = wireType(state, annotationField(annotations, nodeField(nodes, node, NODE_FIRST_CHILD), ANNOTATION_TYPE))
+
+    if (result == NO_VALUE || !isResultWire(state, wire)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int record = resultRecord(ir, state, wire)
+    Int tag = readField(ir, state, result, resultField(state, wire, 0), WIRE_INT)
+    Int failed = compareValues(ir, state, PREDICATE_EQUAL, tag, constantNumber(ir, state, TAG_FAILURE))
+    List<Int> none = []
+    Int failureBlock = newBlock(ir, state, none, 0)
+    Int successBlock = newBlock(ir, state, none, 0)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, failed)
+    setTargets(ir, state, failureBlock, successBlock, 0)
+    state[LOWER_BLOCK] = failureBlock
+
+    if (propagate) {
+        propagateFailure(ir, state, result, wire)
+    }
+
+    if (!propagate) {
+        addOperation(ir, state, OP_FAIL, NO_VALUE, 0, PANIC_FAILURE, 0, false, PREDICATE_NONE)
+    }
+
+    state[LOWER_TERMINATED] = 0
+    state[LOWER_BLOCK] = successBlock
+    return readField(ir, state, result, resultField(state, wire, 1), ir[record + RESULT_VALUE_WIRE])
+}
+
+// Returns a failed Result of the current function's type that carries the error field of `result`.
+static method propagateFailure(List<Int> ir, List<Int> state, Int result, Int wire) {
+    Int own = state[LOWER_RETURN_TYPE]
+    Int ownRecord = resultRecord(ir, state, own)
+    Int carried = readField(ir, state, result, resultField(state, wire, 2), ir[resultRecord(ir, state, wire) + RESULT_ERROR_WIRE])
+    emitReturnValue(ir, state, makeResult(ir, state, own, TAG_FAILURE, zeroOf(ir, state, ir[ownRecord + RESULT_VALUE_WIRE]), carried))
+}
+
+// `result.orElse(default)`: the value on success, the default on failure.
+static method<Int> lowerOrElse(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int receiverNode = nodeField(nodes, callee, NODE_FIRST_CHILD)
+    Int result = lowerExpression(source, nodes, annotations, ir, env, functions, state, receiverNode)
+    Int fallback = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, callee, NODE_NEXT_SIBLING))
+    Int wire = wireType(state, annotationField(annotations, receiverNode, ANNOTATION_TYPE))
+
+    if (result == NO_VALUE || fallback == NO_VALUE || !isResultWire(state, wire) || !nodeIs(source, nodes, callee, "orElse")) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int record = resultRecord(ir, state, wire)
+    Int valueWire = ir[record + RESULT_VALUE_WIRE]
+    Int tag = readField(ir, state, result, resultField(state, wire, 0), WIRE_INT)
+    Int failed = compareValues(ir, state, PREDICATE_EQUAL, tag, constantNumber(ir, state, TAG_FAILURE))
+    Int value = readField(ir, state, result, resultField(state, wire, 1), valueWire)
+    List<Int> none = []
+    Int useFallback = newBlock(ir, state, none, 0)
+    Int useValue = newBlock(ir, state, none, 0)
+    Int join = newResultBlock(ir, state, valueWire)
+    Int chosen = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, failed)
+    setTargets(ir, state, useFallback, useValue, 0)
+    state[LOWER_BLOCK] = useFallback
+    jump(ir, state, join, [fallback])
+    state[LOWER_BLOCK] = useValue
+    jump(ir, state, join, [value])
+    state[LOWER_BLOCK] = join
+    return chosen
+}

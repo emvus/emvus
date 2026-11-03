@@ -1,0 +1,167 @@
+package ring1.binder
+
+// Generic declarations name their type parameters in a `where` clause (`where T, U`). A call is
+// described by a few Ints so the helpers below need no long parameter lists: the declaration that
+// holds the parameters, the declaration that holds the type parameters, the element type of a list
+// receiver, whether the call shows its type arguments, and what is known about up to three type
+// parameters so far.
+final var CALL_PARAMS = 0
+final var CALL_TYPE_HOLDER = 1
+final var CALL_ELEMENT = 2
+final var CALL_SHOWS_ARGUMENTS = 3
+final var CALL_BINDING = 4
+final var CALL_SIZE = 7
+
+static method<List<Int>> newCall(Int params, Int typeHolder, Int element) {
+    List<Int> call = [params, typeHolder, element, 0, NO_TYPE, NO_TYPE, NO_TYPE]
+    return call
+}
+
+static method<Int> typeParameterCount(List<Int> nodes, Int holder) {
+    if (holder == NO_NODE) {
+        return 0
+    }
+
+    return countChildren(nodes, childOfKind(nodes, holder, NODE_WHERE))
+}
+
+static method<Int> typeParameterNode(List<Int> nodes, Int holder, Int position) {
+    Int parameter = firstChildOf(nodes, childOfKind(nodes, holder, NODE_WHERE))
+
+    for (Int index = 0; index < position && parameter != NO_NODE; index++) {
+        parameter = nodeField(nodes, parameter, NODE_NEXT_SIBLING)
+    }
+
+    return parameter
+}
+
+// The position of the type parameter a type names, or NO_TYPE when it names none.
+static method<Int> typeParameterIndex(String source, List<Int> nodes, List<Int> types, List<Int> call, Int type) {
+    if (typeField(types, type, TYPE_KIND) != KIND_NAMED || call[CALL_TYPE_HOLDER] == NO_NODE) {
+        return NO_TYPE
+    }
+
+    for (Int position = 0; position < typeParameterCount(nodes, call[CALL_TYPE_HOLDER]) && position < MAX_ARGUMENTS; position++) {
+        Int parameter = typeParameterNode(nodes, call[CALL_TYPE_HOLDER], position)
+
+        if (sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, parameter, NODE_TEXT_START), nodeField(nodes, parameter, NODE_TEXT_LENGTH))) {
+            return position
+        }
+    }
+
+    return NO_TYPE
+}
+
+static method<Bool> isCompound(Int kind) {
+    return kind == KIND_LIST || kind == KIND_APPLIED || kind == KIND_TUPLE || kind == KIND_DICTIONARY || kind == KIND_FIBER || kind == KIND_FUNCTION || kind == KIND_BIFUNCTION
+}
+
+// The type with every type parameter replaced by what is known about it; parameters that are not
+// known yet become the unknown type.
+static method<Int> substitute(String source, List<Int> nodes, List<Int> types, List<Int> call, Int type) {
+    Int index = typeParameterIndex(source, nodes, types, call, type)
+
+    if (index != NO_TYPE) {
+        return typeOrUnknown(call[CALL_BINDING + index])
+    }
+
+    Int kind = typeField(types, type, TYPE_KIND)
+
+    if (kind == KIND_LIST) {
+        return listType(types, substitute(source, nodes, types, call, typeField(types, type, TYPE_ELEMENT)))
+    }
+
+    if (!isCompound(kind)) {
+        return type
+    }
+
+    return appliedType(source, types, kind, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), substituteArgument(source, nodes, types, call, type, 0), substituteArgument(source, nodes, types, call, type, 1), substituteArgument(source, nodes, types, call, type, 2))
+}
+
+static method<Int> substituteArgument(String source, List<Int> nodes, List<Int> types, List<Int> call, Int type, Int position) {
+    Int argument = typeArgument(types, type, position)
+
+    if (argument == NO_TYPE) {
+        return NO_TYPE
+    }
+
+    return substitute(source, nodes, types, call, argument)
+}
+
+// Learns what the type parameters in `declared` stand for from the type an argument actually has.
+static method unify(String source, List<Int> nodes, List<Int> types, List<Int> call, Int declared, Int actual) {
+    Int index = typeParameterIndex(source, nodes, types, call, declared)
+
+    if (index != NO_TYPE && call[CALL_BINDING + index] == NO_TYPE && actual != TYPE_UNKNOWN) {
+        call[CALL_BINDING + index] = actual
+    }
+
+    Int kind = typeField(types, declared, TYPE_KIND)
+
+    if (index != NO_TYPE || !isCompound(kind) || typeField(types, actual, TYPE_KIND) != kind) {
+        return
+    }
+
+    for (Int position = 0; position < MAX_ARGUMENTS; position++) {
+        Int inner = typeArgument(types, declared, position)
+
+        if (inner != NO_TYPE && typeArgument(types, actual, position) != NO_TYPE) {
+            unify(source, nodes, types, call, inner, typeArgument(types, actual, position))
+        }
+    }
+}
+
+// The type arguments a call ended up with, as one type that prints as `Int,Float`.
+static method<Int> bindingsType(String source, List<Int> nodes, List<Int> types, List<Int> call) {
+    Int count = typeParameterCount(nodes, call[CALL_TYPE_HOLDER])
+    return appliedType(source, types, KIND_ARGUMENTS, 0, 0, bindingAt(call, count, 0), bindingAt(call, count, 1), bindingAt(call, count, 2))
+}
+
+static method<Int> bindingAt(List<Int> call, Int count, Int position) {
+    if (position >= count) {
+        return NO_TYPE
+    }
+
+    return typeOrUnknown(call[CALL_BINDING + position])
+}
+
+// Seeds the call with the type arguments of the receiver of a member of a generic type.
+static method seedFromReceiver(List<Int> types, List<Int> call, Int receiver) {
+    if (typeField(types, receiver, TYPE_KIND) != KIND_APPLIED) {
+        return
+    }
+
+    for (Int position = 0; position < MAX_ARGUMENTS; position++) {
+        call[CALL_BINDING + position] = typeArgument(types, receiver, position)
+    }
+}
+
+// A generic type applied to its own type parameters, the type of `this` inside it.
+static method<Int> selfType(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int plain) {
+    Int row = classRow(symbols, state, plain)
+
+    if (row == NO_SYMBOL || typeParameterCount(nodes, symbolField(symbols, row, SYMBOL_NODE)) == 0) {
+        return plain
+    }
+
+    Int declaration = symbolField(symbols, row, SYMBOL_NODE)
+    return appliedType(source, types, KIND_APPLIED, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), parameterType(source, nodes, types, declaration, 0), parameterType(source, nodes, types, declaration, 1), parameterType(source, nodes, types, declaration, 2))
+}
+
+static method<Int> parameterType(String source, List<Int> nodes, List<Int> types, Int declaration, Int position) {
+    if (position >= typeParameterCount(nodes, declaration)) {
+        return NO_TYPE
+    }
+
+    Int parameter = typeParameterNode(nodes, declaration, position)
+    return namedType(source, types, nodeField(nodes, parameter, NODE_TEXT_START), nodeField(nodes, parameter, NODE_TEXT_LENGTH))
+}
+
+// The declared type without its arguments, which is how members are owned.
+static method<Int> plainType(String source, List<Int> types, Int type) {
+    if (typeField(types, type, TYPE_KIND) != KIND_APPLIED) {
+        return type
+    }
+
+    return namedType(source, types, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH))
+}

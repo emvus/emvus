@@ -1,0 +1,242 @@
+package ring1.lowering
+
+// The platform imports of Sublang (docs/Sublang_Runtime_IR.md, "Platform imports"): external contracts named
+// `platform.<area>.<name>` with a fixed signature. A program that calls one declares it as a function without a
+// body after its own functions. Signature letters: `t` text borrowed for reading, `i` Int, `b` Bool, `T` owned
+// text, `v` nothing; a signature reads `parameters>result`.
+final var IMPORT_READ_FILE = 0
+final var IMPORT_WRITE_FILE = 1
+final var IMPORT_FILE_EXISTS = 2
+final var IMPORT_PRINT = 3
+final var IMPORT_PRINT_ERROR = 4
+final var IMPORT_ARGUMENT = 5
+final var IMPORT_ARGUMENT_COUNT = 6
+final var IMPORT_EXIT = 7
+final var IMPORT_LAST_ERROR = 8
+final var IMPORT_MILLISECONDS = 9
+final var IMPORT_ENVIRONMENT = 10
+final var IMPORT_COUNT = 11
+final var NO_IMPORT = -1
+
+final var GREATER_BYTE = 62
+
+// Where the parameters end and the result begins: the position of the `>`.
+static method<Int> splitOf(String signature) {
+    for (Int index = 0; index < signature.length(); index++) {
+        if (signature.byteAt(index) == GREATER_BYTE) {
+            return index
+        }
+    }
+
+    return signature.length()
+}
+
+static method<String> importName(Int slot) {
+    if (slot == IMPORT_READ_FILE) {
+        return "platform.io.read_file"
+    }
+
+    if (slot == IMPORT_WRITE_FILE) {
+        return "platform.io.write_file"
+    }
+
+    if (slot == IMPORT_FILE_EXISTS) {
+        return "platform.io.file_exists"
+    }
+
+    if (slot == IMPORT_PRINT) {
+        return "platform.io.print"
+    }
+
+    if (slot == IMPORT_PRINT_ERROR) {
+        return "platform.io.print_error"
+    }
+
+    if (slot == IMPORT_ARGUMENT) {
+        return "platform.process.argument"
+    }
+
+    if (slot == IMPORT_ARGUMENT_COUNT) {
+        return "platform.process.argument_count"
+    }
+
+    if (slot == IMPORT_LAST_ERROR) {
+        return "platform.io.last_error"
+    }
+
+    if (slot == IMPORT_MILLISECONDS) {
+        return "platform.time.milliseconds"
+    }
+
+    if (slot == IMPORT_ENVIRONMENT) {
+        return "platform.env.variable"
+    }
+
+    return "platform.process.exit"
+}
+
+static method<String> importSignature(Int slot) {
+    if (slot == IMPORT_READ_FILE || slot == IMPORT_ENVIRONMENT) {
+        return "t>T"
+    }
+
+    if (slot == IMPORT_WRITE_FILE) {
+        return "tt>b"
+    }
+
+    if (slot == IMPORT_FILE_EXISTS) {
+        return "t>b"
+    }
+
+    if (slot == IMPORT_PRINT || slot == IMPORT_PRINT_ERROR) {
+        return "t>v"
+    }
+
+    if (slot == IMPORT_ARGUMENT) {
+        return "i>T"
+    }
+
+    if (slot == IMPORT_ARGUMENT_COUNT || slot == IMPORT_LAST_ERROR || slot == IMPORT_MILLISECONDS) {
+        return ">i"
+    }
+
+    return "i>v"
+}
+
+// The import an Emvus function name needs, NO_IMPORT for any other name. `println` is a print and a line feed.
+static method<Int> importForName(String source, List<Int> nodes, Int callee) {
+    if (nodeIs(source, nodes, callee, "print") || nodeIs(source, nodes, callee, "println")) {
+        return IMPORT_PRINT
+    }
+
+    if (nodeIs(source, nodes, callee, "errprint") || nodeIs(source, nodes, callee, "errprintln")) {
+        return IMPORT_PRINT_ERROR
+    }
+
+    if (nodeIs(source, nodes, callee, "readFile")) {
+        return IMPORT_READ_FILE
+    }
+
+    if (nodeIs(source, nodes, callee, "writeFile")) {
+        return IMPORT_WRITE_FILE
+    }
+
+    if (nodeIs(source, nodes, callee, "fileExists")) {
+        return IMPORT_FILE_EXISTS
+    }
+
+    if (nodeIs(source, nodes, callee, "argument")) {
+        return IMPORT_ARGUMENT
+    }
+
+    if (nodeIs(source, nodes, callee, "argumentCount")) {
+        return IMPORT_ARGUMENT_COUNT
+    }
+
+    if (nodeIs(source, nodes, callee, "milliseconds")) {
+        return IMPORT_MILLISECONDS
+    }
+
+    if (nodeIs(source, nodes, callee, "environmentVariable")) {
+        return IMPORT_ENVIRONMENT
+    }
+
+    if (nodeIs(source, nodes, callee, "lastError")) {
+        return IMPORT_LAST_ERROR
+    }
+
+    if (nodeIs(source, nodes, callee, "exit")) {
+        return IMPORT_EXIT
+    }
+
+    return NO_IMPORT
+}
+
+static method<Int> importResultType(String letter) {
+    if (letter == "T") {
+        return WIRE_STRING
+    }
+
+    if (letter == "b") {
+        return WIRE_BOOL
+    }
+
+    if (letter == "i") {
+        return WIRE_INT
+    }
+
+    return WIRE_VOID
+}
+
+// Marks in the state which imports the program calls and gives them function numbers after its own functions
+// (and the entry wrapper). Returns the number of imports used.
+static method<Int> assignImports(String source, List<Int> nodes, List<Int> annotations, List<Int> functions, List<Int> state, Int node, Int nextNumber) {
+    Int number = nextNumber
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_CALL) {
+        Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+        Int slot = importForName(source, nodes, callee)
+        Bool declared = findFunction(functions, annotationField(annotations, node, ANNOTATION_NAME_START)) >= 0
+
+        if (slot != NO_IMPORT && !declared && nodeField(nodes, callee, NODE_KIND) == NODE_NAME && state[LOWER_IMPORT + slot] == 0) {
+            state[LOWER_IMPORT + slot] = number
+            number = number + 1
+        }
+    }
+
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        number = assignImports(source, nodes, annotations, functions, state, child, number)
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return number
+}
+
+// The records of the imports that were assigned a number, in number order: a function without a body whose
+// parameters and values describe the signature.
+static method addImportRecords(List<Int> ir, List<Int> state) {
+    Int number = 0
+
+    while (number < IMPORT_COUNT) {
+        for (Int slot = 0; slot < IMPORT_COUNT; slot++) {
+            if (state[LOWER_IMPORT + slot] == FIRST_USER_FUNCTION + state[LOWER_USER_FUNCTIONS] + state[LOWER_WRAPPERS] + number) {
+                addImportRecord(ir, state, slot)
+            }
+        }
+
+        number = number + 1
+    }
+}
+
+static method addImportRecord(List<Int> ir, List<Int> state, Int slot) {
+    String signature = importSignature(slot)
+    Int split = splitOf(signature)
+    state[LOWER_VALUES] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(NAME_IMPORT_BASE - slot)
+    ir.add(0)
+    ir.add(importResultType(signature.substring(split + 1, signature.length())))
+    ir.add(split)
+
+    for (Int position = 0; position < split; position++) {
+        String letter = signature.substring(position, position + 1)
+        Int type = WIRE_INT
+        Int mode = MODE_VALUE
+
+        if (letter == "t") {
+            type = WIRE_STRING
+            mode = MODE_BORROW_READ
+        }
+
+        ir.add(REC_PARAMETER)
+        ir.add(PARAMETER_SIZE)
+        ir.add(0)
+        ir.add(0)
+        ir.add(type)
+        ir.add(mode)
+        newValue(ir, state, type)
+    }
+}

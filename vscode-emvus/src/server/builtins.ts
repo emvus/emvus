@@ -42,7 +42,7 @@ export const MEMBER_LINES: string[] = [
   'Comparable<T>.compareTo(T):Int', 'IPredicate<T>.test(T):Boolean',
   'static Files.readText(String):Result<String,?>', 'static Files.open(String):?', 'static Files.exists(String):Boolean',
   'static Files.writeText(String,String):Result<Void,?>',
-  'fn println(dynamic):Void', 'fn print(dynamic):Void', 'fn errprintln(dynamic):Void', 'fn panic(String):Void',
+  'fn readFile(String):String', 'fn writeFile(String,String):Boolean', 'fn argument(Int):String', 'fn println(dynamic):Void', 'fn print(dynamic):Void', 'fn errprintln(dynamic):Void', 'fn panic(String):Void',
 ];
 
 /** `use std.collections.IList` style paths seen in the language draft (tests/showcase.ev). */

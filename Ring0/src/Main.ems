@@ -4,33 +4,46 @@ use ring0::binding::TypeDump;
 use ring0::diagnostic::DiagnosticBag;
 use ring0::syntax::Lexer;
 use ring0::syntax::Node;
-use ring0::syntax::Parser;
+use ring0::syntax::SourceSet;
+use ring0::Version;
 use ring0::syntax::Token;
 use Std::Io::File;
 use Std::Process::Process;
 
 // Ring0: bootstrap compiler for Emvus, written in Emerald.
-// Usage: ring0 <file.ev> [--tokens | --check [--types]]
+// Usage: ring0 <file.ev>... [--tokens | --ast | --check [--types]] | ring0 --version
+// Several files form one program; --tokens reads the first file only.
 main() {
     List<String> args = Process.args();
 
-    if (args.length() < 1) {
-        println("Usage: ring0 <file.ev> [--tokens]");
+    if (args.length() == 1 && args.get(0) == "--version") {
+        println(Version.product());
+        return;
+    }
+
+    Int sources = SourceSet.leadingSources(args);
+
+    if (sources < 1) {
+        println("Usage: ring0 <file.ev>... [--tokens | --check [--types]]");
         Process.exit(1);
     }
 
-    File file = File(args.get(0));
+    Int existing = 0;
 
-    if (!file.exists()) {
-        println("Source file does not exist: " + args.get(0));
-        Process.exit(1);
+    while (existing < sources) {
+        if (!File(args.get(existing)).exists()) {
+            println("Source file does not exist: " + args.get(existing));
+            Process.exit(1);
+        }
+
+        existing = existing + 1;
     }
 
     DiagnosticBag bag = DiagnosticBag();
-    Lexer lexer = Lexer(file.readText(), bag);
-    List<Token> tokens = lexer.tokenize();
 
-    if (args.length() > 1 && args.get(1) == "--tokens") {
+    if (args.length() > sources && args.get(sources) == "--tokens") {
+        Lexer lexer = Lexer(File(args.get(0)).readText(), bag);
+        List<Token> tokens = lexer.tokenize();
         Int index = 0;
 
         while (index < tokens.length()) {
@@ -49,27 +62,33 @@ main() {
         return;
     }
 
+    Node tree = SourceSet.parseAll(args, sources, bag);
+
     if (bag.hasErrors()) {
+        SourceSet.printIndex(args, sources, bag);
         bag.printAll();
         Process.exit(1);
     }
 
-    Parser parser = Parser(tokens, bag);
-    Node tree = parser.parse();
+    if (args.length() > sources && args.get(sources) == "--ast") {
+        println(tree.dumpEscaped(0));
+        return;
+    }
 
-    if (args.length() > 1 && args.get(1) == "--check") {
+    if (args.length() > sources && args.get(sources) == "--check") {
         if (!bag.hasErrors()) {
             Binder binder = Binder(bag);
             binder.bind(tree);
         }
 
+        SourceSet.printIndex(args, sources, bag);
         bag.printAll();
 
         if (bag.hasErrors()) {
             Process.exit(1);
         }
 
-        if (args.length() > 2 && args.get(2) == "--types") {
+        if (args.length() > sources + 1 && args.get(sources + 1) == "--types") {
             TypeDump typeDump = TypeDump();
             println(typeDump.dump(tree));
         }

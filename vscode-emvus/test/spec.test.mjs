@@ -49,3 +49,32 @@ test('showcase.ev checks ok', () => {
   const errs = errorsOf(text);
   assert.deepEqual(errs, [], '\n    ' + show(errs));
 });
+
+// Ring1 is written in Emvus; its files form one program (Ring0 merges them), so they are checked together.
+const ring1 = process.env.EMVUS_RING1 || path.join(here, '..', '..', 'Ring1');
+const ring1Sources = d => {
+  const dir = path.join(ring1, d);
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name)).flatMap(entry =>
+    entry.isDirectory() ? ring1Sources(path.join(d, entry.name)) : entry.name.endsWith('.ev') ? [path.join(dir, entry.name)] : []);
+};
+
+for (const f of [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser')), ...ring1Sources(path.join('src', 'binder')), ...ring1Sources('tests')]) {
+  test(`ring1/${path.relative(ring1, f)} parses`, () => {
+    const errs = errorsOf(fs.readFileSync(f, 'utf8'), false);
+    assert.deepEqual(errs, [], '\n    ' + show(errs));
+  });
+}
+
+test('ring1 lexer and parser check ok as one program', () => {
+  const files = [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser')), ...ring1Sources(path.join('src', 'binder'))];
+  if (files.length === 0) return;
+  const text = files.map(f => fs.readFileSync(f, 'utf8').replace(/^package .*$/m, '')).join('\n');
+  const errs = errorsOf(text);
+  assert.deepEqual(errs, [], '\n    ' + show(errs));
+});
+
+test('Bool is accepted as an alias of Boolean', () => {
+  const errs = errorsOf('static method<Bool> yes {\n    Bool flag = true\n    return flag\n}\n');
+  assert.deepEqual(errs, [], '\n    ' + show(errs));
+});

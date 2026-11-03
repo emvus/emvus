@@ -1,0 +1,291 @@
+package ring1.binder
+
+// The annotations as text, in the format of Ring0's `--check --types`: one line per annotated node,
+// `line:column kind text : type @ symbol`, parents before children.
+final var RADIX = 10
+
+static method<String> intText(Int value) {
+    if (value == 0) {
+        return "0"
+    }
+
+    if (value < 0) {
+        return "-" + intText(0 - value)
+    }
+
+    String digits = ""
+    Int rest = value
+
+    while (rest > 0) {
+        digits = digitText(rest % RADIX) + digits
+        rest = rest / RADIX
+    }
+
+    return digits
+}
+
+static method<String> digitText(Int digit) {
+    return "0123456789".substring(digit, digit + 1)
+}
+
+static method<String> typesNode(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
+    String text = ""
+
+    if (annotationField(annotations, node, ANNOTATION_TYPE) != NO_TYPE) {
+        text = typesLine(source, nodes, types, annotations, node) + "\n"
+    }
+
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        if (nodeField(nodes, child, NODE_KIND) == NODE_INTERPOLATION) {
+            child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+            continue
+        }
+
+        text = text + typesNode(source, nodes, types, annotations, child)
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return text
+}
+
+static method<String> typesLine(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
+    String line = intText(nodeField(nodes, node, NODE_LINE)) + ":" + intText(nodeField(nodes, node, NODE_COLUMN)) + " " + kindName(nodeField(nodes, node, NODE_KIND))
+    Int length = nodeField(nodes, node, NODE_TEXT_LENGTH)
+
+    if (length > 0) {
+        line = line + " " + nodeText(source, nodes, node, nodeField(nodes, node, NODE_TEXT_START), length) + extraText(source, nodes, node)
+    }
+
+    if (annotationField(annotations, node, ANNOTATION_TYPE) != TYPE_STATEMENT) {
+        line = line + " : " + typeText(source, types, annotationField(annotations, node, ANNOTATION_TYPE))
+    }
+
+    return line + symbolText(source, nodes, types, annotations, node)
+}
+
+static method<String> symbolText(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
+    Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+    Int start = annotationField(annotations, node, ANNOTATION_NAME_START)
+    String name = source.substring(start, start + annotationField(annotations, node, ANNOTATION_NAME_LENGTH))
+
+    if (symbol == REFERENCE_LOCAL) {
+        return " @ local " + name
+    }
+
+    if (symbol == REFERENCE_PARAMETER) {
+        return " @ parameter " + name
+    }
+
+    if (symbol == REFERENCE_VARIABLE) {
+        return " @ variable " + name
+    }
+
+    if (symbol == REFERENCE_METHOD) {
+        return " @ method " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|" + argumentText(source, types, annotations, node) + ")"
+    }
+
+    if (symbol == REFERENCE_VALUE) {
+        return " @ value " + name
+    }
+
+    if (symbol == REFERENCE_TYPE) {
+        return " @ type " + name + " (" + typeKindWord(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + ")"
+    }
+
+    if (symbol == REFERENCE_SWITCH) {
+        return " @ switch " + switchWord(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + ")"
+    }
+
+    if (symbol == REFERENCE_PROPERTY || symbol == REFERENCE_FIELD || symbol == REFERENCE_ENTRY) {
+        return " @ " + referenceWord(symbol) + " " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + ")"
+    }
+
+    if (symbol == REFERENCE_CONSTRUCTOR) {
+        return " @ constructor " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|" + argumentText(source, types, annotations, node) + ")"
+    }
+
+    if (symbol == REFERENCE_LITERAL) {
+        return " @ literal " + kindName(nodeField(nodes, node, NODE_KIND))
+    }
+
+    return ""
+}
+
+static method<String> typeKindWord(Int kind) {
+    if (kind == TYPE_IS_ENUM) {
+        return "enum"
+    }
+
+    return "class"
+}
+
+static method<String> switchWord(Int ending) {
+    if (ending == SWITCH_BOOLEAN) {
+        return "boolean"
+    }
+
+    if (ending == SWITCH_RESULT) {
+        return "result"
+    }
+
+    if (ending == SWITCH_CATCH_ALL) {
+        return "catch-all"
+    }
+
+    return "enum"
+}
+
+static method<String> referenceWord(Int symbol) {
+    if (symbol == REFERENCE_ENTRY) {
+        return "entry"
+    }
+
+    if (symbol == REFERENCE_FIELD) {
+        return "field"
+    }
+
+    return "property"
+}
+
+// Built-in owners have fixed names; any other owner is a type of the program.
+static method<String> ownerText(String source, List<Int> types, Int owner) {
+    if (owner >= 0) {
+        return typeText(source, types, owner)
+    }
+
+    if (owner == OWNER_STRING) {
+        return "String"
+    }
+
+    if (owner == OWNER_COMPARABLE) {
+        return "Comparable"
+    }
+
+    if (owner == OWNER_EXCEPTION) {
+        return "Exception"
+    }
+
+    if (owner == OWNER_FIBER) {
+        return "Fiber"
+    }
+
+    if (owner == OWNER_RESULT) {
+        return "Result"
+    }
+
+    if (owner == OWNER_LIST) {
+        return "List"
+    }
+
+    return ""
+}
+
+// Parses and binds a source text and returns its annotations as text.
+static method<String> typesSource(String source) {
+    List<Int> nodes = parseSource(source)
+    List<Int> types = newTypeTable()
+    List<Int> symbols = []
+    List<Int> annotations = newAnnotations(nodes)
+    List<Int> state = [0, 0, NO_TYPE, TYPE_UNKNOWN]
+    bindProgram(source, nodes, types, symbols, annotations, state)
+    return typesNode(source, nodes, types, annotations, ROOT_NODE)
+}
+
+static method<String> argumentText(String source, List<Int> types, List<Int> annotations, Int node) {
+    Int argument = annotationField(annotations, node, ANNOTATION_ARGUMENT)
+
+    if (argument == NO_TYPE) {
+        return ""
+    }
+
+    return typeText(source, types, argument)
+}
+
+// Null-flow diagnostics are separate from the type dump, preserving its stable format.
+static method<String> diagnosticsSource(String source) {
+    List<Int> nodes = parseSource(source)
+    List<Int> types = newTypeTable()
+    List<Int> symbols = []
+    List<Int> annotations = newAnnotations(nodes)
+    List<Int> state = [0, 0, NO_TYPE, TYPE_UNKNOWN]
+    bindProgram(source, nodes, types, symbols, annotations, state)
+    String text = ""
+
+    for (Int index = BINDER_REGISTERS; index < state.size(); index += 3) {
+        Int node = state[index]
+        String name = flowDescription(source, nodes, node)
+        String message = "'" + name + "' may be null; check it first"
+
+        Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+
+        if (symbol == REFERENCE_PROPERTY || symbol == REFERENCE_FIELD) {
+            message = "'" + name + "' may be null; copy it into a final var and check that instead"
+        }
+
+        if (state[index + 1] == FLOW_NULL) {
+            String purpose = flowPurpose(state[index + 2])
+
+
+            message = "'" + name + "' is null; " + purpose
+        }
+
+        text = text + "error " + intText(nodeField(nodes, node, NODE_LINE)) + ":" + intText(nodeField(nodes, node, NODE_COLUMN)) + ": " + message + "\n"
+    }
+
+    return text
+}
+
+static method<String> flowPurpose(Int purpose) {
+    if (purpose == FLOW_OPERAND) {
+        return "it cannot be used as an operand"
+    }
+
+    if (purpose == FLOW_INDEX) {
+        return "it cannot be indexed"
+    }
+
+    if (purpose == FLOW_ARGUMENT) {
+        return "it is passed to a non-null parameter"
+    }
+
+    if (purpose == FLOW_UPDATE) {
+        return "it cannot be updated"
+    }
+
+    if (purpose == FLOW_RETURN) {
+        return "a non-null value must be returned"
+    }
+
+    if (purpose == FLOW_UNPACK) {
+        return "it cannot be unpacked"
+    }
+
+    return "it cannot be dereferenced"
+}
+
+static method<String> flowDescription(String source, List<Int> nodes, Int node) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_NULL_LITERAL) {
+        return "null"
+    }
+
+    if (kind == NODE_NAME || kind == NODE_MEMBER) {
+        Int start = nodeField(nodes, node, NODE_TEXT_START)
+        String name = source.substring(start, start + nodeField(nodes, node, NODE_TEXT_LENGTH))
+
+        if (kind == NODE_MEMBER && firstChildOf(nodes, node) != NO_NODE) {
+            return flowDescription(source, nodes, firstChildOf(nodes, node)) + "." + name
+        }
+
+        return name
+    }
+
+    if (kind == NODE_CALL && firstChildOf(nodes, node) != NO_NODE) {
+        return flowDescription(source, nodes, firstChildOf(nodes, node)) + "()"
+    }
+
+    return "value"
+}

@@ -1,0 +1,272 @@
+package ring1.lowering
+
+// A decimal Float literal as the IEEE-754 binary64 bit pattern Sublang expects for float constants, rounded to
+// nearest even, using only 64-bit integer arithmetic (the algorithm of Ring0's FloatBits). Supported: at most 18
+// significant digits and a magnitude between 1e-18 and about 9.2e18, no subnormals. The result is -1 outside that
+// range.
+final var DECIMAL_DIGITS = 0
+final var DECIMAL_EXPONENT = 1
+final var DECIMAL_EXACT = 2
+final var DECIMAL_SIZE = 3
+final var MOST_DIGITS = 99999999999999999
+final var LIMIT_BEFORE_OVERFLOW = 922337203685477580
+final var MOST_NEGATIVE_EXPONENT = -18
+final var MANTISSA_BITS = 55
+final var EXPONENT_BIAS = 1023
+final var HIDDEN_BIT_POWER = 52
+final var LOWEST_BIASED = 1
+final var HIGHEST_BIASED = 2046
+final var LOWER_E = 101
+final var UPPER_E = 69
+final var DOT = 46
+final var DIGIT_ZERO = 48
+final var MINUS = 45
+final var PLUS = 43
+final var EXPONENT_LIMIT = 10000
+
+// The quotient being built: divisor, remainder, accumulator, bit length, binary exponent and a sticky flag.
+final var Q_DIVISOR = 0
+final var Q_REMAINDER = 1
+final var Q_ACCUMULATOR = 2
+final var Q_LENGTH = 3
+final var Q_EXPONENT = 4
+final var Q_STICKY = 5
+final var Q_SIZE = 6
+
+static method<Int> floatBits(String source, Int start, Int length) {
+    List<Int> parts = parseDecimal(source, start, length)
+
+    if (parts[DECIMAL_EXACT] == 0) {
+        return -1
+    }
+
+    Int digits = parts[DECIMAL_DIGITS]
+    Int exponent = parts[DECIMAL_EXPONENT]
+
+    if (digits == 0) {
+        return 0
+    }
+
+    Int whole = scaleUp(digits, exponent)
+    Int divisor = scaleDivisor(exponent)
+
+    if (whole < 0 || divisor < 0) {
+        return -1
+    }
+
+    if (exponent >= 0) {
+        return encodeFloat(newQuotient(whole, 0, 1))
+    }
+
+    return encodeFloat(newQuotient(digits / divisor, digits % divisor, divisor))
+}
+
+// digits and exponent of the literal; trailing zeros of the digits move into the exponent.
+static method<List<Int>> parseDecimal(String source, Int start, Int length) {
+    List<Int> parts = [0, 0, 1]
+    Int fraction = 0
+    Bool afterPoint = false
+    Int index = 0
+
+    while (index < length && source.byteAt(start + index) != LOWER_E && source.byteAt(start + index) != UPPER_E) {
+        Int byte = source.byteAt(start + index)
+
+        if (byte == DOT) {
+            afterPoint = true
+        }
+
+        if (byte != DOT) {
+            if (parts[DECIMAL_DIGITS] > MOST_DIGITS) {
+                parts[DECIMAL_EXACT] = 0
+                return parts
+            }
+
+            parts[DECIMAL_DIGITS] = parts[DECIMAL_DIGITS] * 10 + (byte - DIGIT_ZERO)
+
+            if (afterPoint) {
+                fraction = fraction + 1
+            }
+        }
+
+        index = index + 1
+    }
+
+    parts[DECIMAL_EXPONENT] = parseExponent(source, start + index + 1, start + length) - fraction
+
+    while (parts[DECIMAL_DIGITS] > 0 && parts[DECIMAL_DIGITS] % 10 == 0) {
+        parts[DECIMAL_DIGITS] = parts[DECIMAL_DIGITS] / 10
+        parts[DECIMAL_EXPONENT] = parts[DECIMAL_EXPONENT] + 1
+    }
+
+    return parts
+}
+
+static method<Int> parseExponent(String source, Int start, Int end) {
+    if (start >= end) {
+        return 0
+    }
+
+    Bool negative = source.byteAt(start) == MINUS
+    Int index = start
+
+    if (negative || source.byteAt(start) == PLUS) {
+        index = index + 1
+    }
+
+    Int value = 0
+
+    while (index < end && value < EXPONENT_LIMIT) {
+        value = value * 10 + (source.byteAt(index) - DIGIT_ZERO)
+        index = index + 1
+    }
+
+    if (negative) {
+        return 0 - value
+    }
+
+    return value
+}
+
+// digits x 10^exponent for a non-negative exponent, -1 on overflow; for a negative exponent the digits unchanged.
+static method<Int> scaleUp(Int digits, Int exponent) {
+    Int value = digits
+
+    for (Int index = 0; index < exponent; index++) {
+        if (value > LIMIT_BEFORE_OVERFLOW) {
+            return -1
+        }
+
+        value = value * 10
+    }
+
+    return value
+}
+
+// 10^-exponent for a negative exponent (at most 10^18), 1 otherwise, -1 when it is too small.
+static method<Int> scaleDivisor(Int exponent) {
+    if (exponent >= 0) {
+        return 1
+    }
+
+    if (exponent < MOST_NEGATIVE_EXPONENT) {
+        return -1
+    }
+
+    Int divisor = 1
+
+    for (Int index = 0; index < 0 - exponent; index++) {
+        divisor = divisor * 10
+    }
+
+    return divisor
+}
+
+static method<Int> powerOfTwo(Int exponent) {
+    Int result = 1
+
+    for (Int index = 0; index < exponent; index++) {
+        result = result * 2
+    }
+
+    return result
+}
+
+static method<Int> bitLength(Int value) {
+    Int count = 0
+    Int rest = value
+
+    while (rest > 0) {
+        rest = rest / 2
+        count = count + 1
+    }
+
+    return count
+}
+
+// Long division of whole + rest / divisor into exactly 55 significant bits plus a sticky flag.
+static method<List<Int>> newQuotient(Int whole, Int rest, Int divisor) {
+    List<Int> quotient = [divisor, rest, 0, 0, 0, 0]
+
+    if (whole > 0) {
+        quotient[Q_ACCUMULATOR] = whole
+        quotient[Q_LENGTH] = bitLength(whole)
+        quotient[Q_EXPONENT] = quotient[Q_LENGTH] - 1
+        dropExcessBits(quotient)
+    }
+
+    if (whole <= 0) {
+        Int zeros = 0
+
+        while (quotient[Q_ACCUMULATOR] == 0) {
+            shiftRemainder(quotient)
+
+            if (quotient[Q_ACCUMULATOR] == 0) {
+                zeros = zeros + 1
+            }
+        }
+
+        quotient[Q_LENGTH] = 1
+        quotient[Q_EXPONENT] = 0 - (zeros + 1)
+    }
+
+    while (quotient[Q_LENGTH] < MANTISSA_BITS) {
+        shiftRemainder(quotient)
+        quotient[Q_LENGTH] = quotient[Q_LENGTH] + 1
+    }
+
+    return quotient
+}
+
+// Shifts one fractional bit out of the remainder; it becomes the lowest bit of the accumulator.
+static method shiftRemainder(List<Int> quotient) {
+    quotient[Q_REMAINDER] = quotient[Q_REMAINDER] * 2
+    Int bit = 0
+
+    if (quotient[Q_REMAINDER] >= quotient[Q_DIVISOR]) {
+        quotient[Q_REMAINDER] = quotient[Q_REMAINDER] - quotient[Q_DIVISOR]
+        bit = 1
+    }
+
+    quotient[Q_ACCUMULATOR] = quotient[Q_ACCUMULATOR] * 2 + bit
+}
+
+static method dropExcessBits(List<Int> quotient) {
+    if (quotient[Q_LENGTH] <= MANTISSA_BITS) {
+        return
+    }
+
+    Int factor = powerOfTwo(quotient[Q_LENGTH] - MANTISSA_BITS)
+
+    if (quotient[Q_ACCUMULATOR] % factor != 0) {
+        quotient[Q_STICKY] = 1
+    }
+
+    quotient[Q_ACCUMULATOR] = quotient[Q_ACCUMULATOR] / factor
+    quotient[Q_LENGTH] = MANTISSA_BITS
+}
+
+static method<Int> encodeFloat(List<Int> quotient) {
+    Int mantissa = quotient[Q_ACCUMULATOR] / 4
+    Int guard = quotient[Q_ACCUMULATOR] / 2 % 2
+    Bool rest = quotient[Q_ACCUMULATOR] % 2 == 1 || quotient[Q_STICKY] == 1 || quotient[Q_REMAINDER] != 0
+    Int exponent = quotient[Q_EXPONENT]
+
+    if (guard == 1 && (rest || mantissa % 2 == 1)) {
+        mantissa = mantissa + 1
+    }
+
+    Int hidden = powerOfTwo(HIDDEN_BIT_POWER)
+
+    if (mantissa == hidden * 2) {
+        mantissa = hidden
+        exponent = exponent + 1
+    }
+
+    Int biased = exponent + EXPONENT_BIAS
+
+    if (biased < LOWEST_BIASED || biased > HIGHEST_BIASED) {
+        return -1
+    }
+
+    return biased * hidden + (mantissa - hidden)
+}

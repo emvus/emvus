@@ -1,0 +1,94 @@
+package ring1.parser
+
+final var NO_POSITION = -1
+final var DOT_LENGTH = 1
+final var INTERPOLATION_OPENING = 2
+
+// A string with `${expression}` parts gets one interpolation child per part. The text is searched
+// raw, so `\${x}` counts too, as in Ring0, which resolves the escapes before it looks for parts.
+// A part that does not parse as one expression stays in the text only.
+static method parseInterpolations(String source, List<Int> nodes, Int string) {
+    Int position = nodeField(nodes, string, NODE_TEXT_START)
+    Int end = position + nodeField(nodes, string, NODE_TEXT_LENGTH)
+
+    while (position + 1 < end) {
+        if (source.byteAt(position) == BYTE_DOLLAR && source.byteAt(position + 1) == BYTE_OPEN_BRACE) {
+            Int close = interpolationEnd(source, position + INTERPOLATION_OPENING, end)
+
+            if (close != NO_POSITION) {
+                parseInterpolation(source, nodes, string, position + INTERPOLATION_OPENING, close)
+                position = close
+            }
+        }
+
+        position = position + 1
+    }
+}
+
+// Position of the `}` that closes the part starting at `from`; nested braces and strings are skipped.
+static method<Int> interpolationEnd(String source, Int from, Int end) {
+    Int depth = 1
+    Int position = from
+
+    while (position < end) {
+        Int value = source.byteAt(position)
+
+        if (value == BYTE_QUOTE) {
+            position = quotedEnd(source, position + 1, end)
+        }
+
+        if (value == BYTE_OPEN_BRACE) {
+            depth = depth + 1
+        }
+
+        if (value == BYTE_CLOSE_BRACE) {
+            depth = depth - 1
+        }
+
+        if (value == BYTE_CLOSE_BRACE && depth == 0) {
+            return position
+        }
+
+        position = position + 1
+    }
+
+    return NO_POSITION
+}
+
+// Position of the quote that ends a nested string whose content starts at `from`.
+static method<Int> quotedEnd(String source, Int from, Int end) {
+    Int position = from
+
+    while (position < end && source.byteAt(position) != BYTE_QUOTE) {
+        if (source.byteAt(position) == BYTE_BACKSLASH) {
+            position = position + 1
+        }
+
+        position = position + 1
+    }
+
+    return position
+}
+
+// Parses source[from, to) as one expression. Its tokens are moved to their place in the source, so
+// the nodes' texts index into the same text as every other node.
+static method parseInterpolation(String source, List<Int> nodes, Int string, Int from, Int to) {
+    List<Int> inner = lexSource(source.substring(from, to))
+    shiftTokens(inner, from)
+    List<Int> state = [FIRST_TOKEN, NO_ERRORS, CASCADE_OPEN]
+    Int interpolation = addNode(nodes, NODE_INTERPOLATION, from, 0, nodeField(nodes, string, NODE_LINE), nodeField(nodes, string, NODE_COLUMN))
+    Int value = parseExpression(source, inner, state, nodes)
+
+    if (state[STATE_ERRORS] != NO_ERRORS || !atEnd(inner, state)) {
+        return
+    }
+
+    appendChild(nodes, interpolation, value)
+    appendChild(nodes, string, interpolation)
+}
+
+static method shiftTokens(List<Int> tokens, Int offset) {
+    for (Int index = 0; index < tokenCount(tokens); index++) {
+        tokens[index * TOKEN_STRIDE + TOKEN_START] = tokens[index * TOKEN_STRIDE + TOKEN_START] + offset
+    }
+}

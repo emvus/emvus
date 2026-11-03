@@ -1,0 +1,185 @@
+package ring1.parser
+
+// Operators: assignment, ternary, binary levels, unary and type tests.
+
+final var LEVEL_LOWEST = 1
+final var LEVEL_NONE = 0
+final var LEVEL_OR = 1
+final var LEVEL_AND = 2
+final var LEVEL_EQUALITY = 3
+final var LEVEL_COMPARISON = 4
+final var LEVEL_ADDITIVE = 5
+final var LEVEL_MULTIPLICATIVE = 6
+final var TERNARY_LINES = 3
+
+// An expression, optionally the target of an assignment (right associative).
+static method<Int> parseExpression(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int target = parseBinary(source, tokens, state, nodes, LEVEL_LOWEST)
+
+    if (atTernaryQuestion(source, tokens, state)) {
+        target = parseTernary(source, tokens, state, nodes, target)
+    }
+
+    if (!atAssignOperator(source, tokens, state)) {
+        return target
+    }
+
+    Int assign = addNodeAtToken(nodes, NODE_ASSIGN, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, assign, target)
+    appendChild(nodes, assign, parseExpression(source, tokens, state, nodes))
+    return assign
+}
+
+// `condition ? a : b`. A `?` that ends the line, or is followed by a closing bracket or separator, is
+// error propagation instead.
+static method<Bool> atTernaryQuestion(String source, List<Int> tokens, List<Int> state) {
+    if (!atSymbol(source, tokens, state, "?")) {
+        return false
+    }
+
+    if (!nextOnSameLine(tokens, state)) {
+        return colonFollows(source, tokens, state)
+    }
+
+    return !symbolAhead(source, tokens, state, AHEAD_NEXT, ")") && !symbolAhead(source, tokens, state, AHEAD_NEXT, "]") && !symbolAhead(source, tokens, state, AHEAD_NEXT, "}") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ",") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ";") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ":")
+}
+
+// A `?` that ends its line is a ternary when a `:` follows within the next lines at the same bracket
+// depth, before another `?`, a `;`, `->` or `=`.
+static method<Bool> colonFollows(String source, List<Int> tokens, List<Int> state) {
+    Int lastLine = tokenValue(tokens, tokenIndexAhead(tokens, state, AHEAD_CURRENT), TOKEN_LINE) + TERNARY_LINES
+    Int depth = 0
+    Int offset = AHEAD_NEXT
+
+    while (tokenKindAhead(tokens, state, offset) != TOKEN_EOF && tokenValue(tokens, tokenIndexAhead(tokens, state, offset), TOKEN_LINE) <= lastLine) {
+        if (symbolAhead(source, tokens, state, offset, "(") || symbolAhead(source, tokens, state, offset, "[") || symbolAhead(source, tokens, state, offset, "{")) {
+            depth = depth + 1
+        }
+
+        if (symbolAhead(source, tokens, state, offset, ")") || symbolAhead(source, tokens, state, offset, "]") || symbolAhead(source, tokens, state, offset, "}")) {
+            depth = depth - 1
+        }
+
+        if (depth < 0) {
+            return false
+        }
+
+        if (depth == 0 && symbolAhead(source, tokens, state, offset, ":")) {
+            return true
+        }
+
+        if (depth == 0 && (symbolAhead(source, tokens, state, offset, "?") || symbolAhead(source, tokens, state, offset, ";") || symbolAhead(source, tokens, state, offset, "->") || symbolAhead(source, tokens, state, offset, "="))) {
+            return false
+        }
+
+        offset = offset + 1
+    }
+
+    return false
+}
+
+static method<Int> parseTernary(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int condition) {
+    Int ternary = addEmptyNode(nodes, NODE_TERNARY, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, ternary, condition)
+    appendChild(nodes, ternary, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ":")
+    appendChild(nodes, ternary, parseExpression(source, tokens, state, nodes))
+    return ternary
+}
+
+static method<Bool> atAssignOperator(String source, List<Int> tokens, List<Int> state) {
+    return atSymbol(source, tokens, state, "=") || atSymbol(source, tokens, state, "+=") || atSymbol(source, tokens, state, "-=") || atSymbol(source, tokens, state, "*=") || atSymbol(source, tokens, state, "/=") || atSymbol(source, tokens, state, "%=")
+}
+
+static method<Int> binaryLevel(String source, List<Int> tokens, List<Int> state) {
+    if (!atKind(tokens, state, TOKEN_SYMBOL)) {
+        return LEVEL_NONE
+    }
+
+    String text = tokenText(source, tokens, tokenIndexAhead(tokens, state, AHEAD_CURRENT))
+
+    if (text == "||") {
+        return LEVEL_OR
+    }
+
+    if (text == "&&") {
+        return LEVEL_AND
+    }
+
+    if (text == "==" || text == "!=") {
+        return LEVEL_EQUALITY
+    }
+
+    if (text == "<" || text == ">" || text == "<=" || text == ">=") {
+        return LEVEL_COMPARISON
+    }
+
+    if (text == "+" || text == "-") {
+        return LEVEL_ADDITIVE
+    }
+
+    if (text == "*" || text == "/" || text == "%") {
+        return LEVEL_MULTIPLICATIVE
+    }
+
+    return LEVEL_NONE
+}
+
+// Precedence climbing: operators of at least `minimum` bind here, tighter ones in the recursion.
+static method<Int> parseBinary(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int minimum) {
+    Int left = parseUnary(source, tokens, state, nodes)
+
+    while (true) {
+        if (minimum <= LEVEL_COMPARISON && atTypeTest(source, tokens, state)) {
+            left = parseTypeTest(source, tokens, state, nodes, left)
+            continue
+        }
+
+        Int level = binaryLevel(source, tokens, state)
+
+        if (level == LEVEL_NONE || level < minimum) {
+            break
+        }
+
+        Int operator = addNodeAtToken(nodes, NODE_BINARY, tokens, state)
+        advanceToken(tokens, state)
+        Int right = parseBinary(source, tokens, state, nodes, level + 1)
+        appendChild(nodes, operator, left)
+        appendChild(nodes, operator, right)
+        left = operator
+    }
+
+    return left
+}
+
+static method<Bool> atTypeTest(String source, List<Int> tokens, List<Int> state) {
+    return onPreviousLine(tokens, state) && (atKeyword(source, tokens, state, "is") || atKeyword(source, tokens, state, "as"))
+}
+
+// `value is Type` and `value as Type`.
+static method<Int> parseTypeTest(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int value) {
+    Int kind = NODE_AS
+
+    if (atKeyword(source, tokens, state, "is")) {
+        kind = NODE_IS
+    }
+
+    Int test = addEmptyNode(nodes, kind, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, test, value)
+    appendChild(nodes, test, parseType(source, tokens, state, nodes))
+    return test
+}
+
+static method<Int> parseUnary(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (!atSymbol(source, tokens, state, "-") && !atSymbol(source, tokens, state, "!")) {
+        return parsePostfix(source, tokens, state, nodes)
+    }
+
+    Int unary = addNodeAtToken(nodes, NODE_UNARY, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, unary, parseUnary(source, tokens, state, nodes))
+    return unary
+}

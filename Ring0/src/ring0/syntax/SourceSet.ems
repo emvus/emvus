@@ -1,0 +1,102 @@
+namespace ring0::syntax;
+
+use ring0::diagnostic::DiagnosticBag;
+use ring0::syntax::Lexer;
+use ring0::syntax::Node;
+use ring0::syntax::Parser;
+use Std::Io::File;
+
+// Several .ev files form one program: their top-level declarations are merged in the order given,
+// as if they had been written in one file. The package and imports of the first file apply to the
+// whole program. The checker identifies a declaration by kind, line and column, so every file gets
+// its own line range (each starts one line after the file before it); a diagnostic's line therefore
+// tells which file it belongs to, see `printIndex`.
+public class SourceSet {
+    public SourceSet() {
+    }
+
+    // Number of leading arguments that name .ev files; flags and output paths follow.
+    public static Int leadingSources(List<String> args) {
+        Int count = 0;
+
+        while (count < args.length() && SourceSet.isSourcePath(args.get(count))) {
+            count = count + 1;
+        }
+
+        return count;
+    }
+
+    private static Bool isSourcePath(String argument) {
+        Int length = argument.length();
+        return length > 3 && argument.substring(length - 3, length) == ".ev";
+    }
+
+    public static Node parseAll(List<String> args, Int count, DiagnosticBag bag) {
+        String firstText = File(args.get(0)).readText();
+        Node program = SourceSet.parse(firstText, 1, bag);
+        Int nextLine = SourceSet.lineAfter(1, firstText);
+        Int index = 1;
+
+        while (index < count) {
+            String text = File(args.get(index)).readText();
+            SourceSet.append(program, SourceSet.parse(text, nextLine, bag));
+            nextLine = SourceSet.lineAfter(nextLine, text);
+            index = index + 1;
+        }
+
+        return program;
+    }
+
+    // Tells which line range belongs to which file; printed only when there are several files and errors.
+    public static Void printIndex(List<String> args, Int count, DiagnosticBag bag) {
+        if (count < 2 || !bag.hasErrors()) {
+            return;
+        }
+
+        Int line = 1;
+        Int index = 0;
+
+        while (index < count) {
+            println("file " + args.get(index) + " starts at line " + line.toString());
+            line = SourceSet.lineAfter(line, File(args.get(index)).readText());
+            index = index + 1;
+        }
+    }
+
+    private static Node parse(String text, Int firstLine, DiagnosticBag bag) {
+        Lexer lexer = Lexer(text, bag);
+        lexer.startAtLine(firstLine);
+        Parser parser = Parser(lexer.tokenize(), bag);
+        return parser.parse();
+    }
+
+    // First line of the next file: after the last line of this one, with one line in between.
+    private static Int lineAfter(Int firstLine, String text) {
+        Int lines = 1;
+        Int index = 0;
+
+        while (index < text.length()) {
+            if (text.charAt(index).toString() == "\n") {
+                lines = lines + 1;
+            }
+
+            index = index + 1;
+        }
+
+        return firstLine + lines + 1;
+    }
+
+    private static Void append(Node program, Node other) {
+        Int index = 0;
+
+        while (index < other.count()) {
+            Node declaration = other.child(index);
+
+            if (declaration.kind() != "package") {
+                program.add(declaration);
+            }
+
+            index = index + 1;
+        }
+    }
+}

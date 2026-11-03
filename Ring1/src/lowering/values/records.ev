@@ -1,0 +1,324 @@
+package ring1.lowering
+
+// Records of primitive fields (`record Point(Int x, Int y)`) are Sublang record types: `record.make` builds a value,
+// `record.get` reads a field. Record types come after the list and text types of every module (wire types 13 and
+// up, in declaration order) and their fields are numbered across all records from 1.
+final var REC_RECORD = 6
+final var WIRE_RECORD_BASE = 13
+final var RECORD_NAME_START = 2
+final var RECORD_NAME_LENGTH = 3
+final var RECORD_FIELD_COUNT = 4
+final var RECORD_HEADER_SIZE = 5
+final var RECORD_FIELD_SIZE = 3
+final var NO_FIELD = 0
+
+// A record declaration becomes one IR record: [name start, name length, field count, fields...] where a field is
+// [name start, name length, wire type].
+static method declareRecords(String source, List<Int> nodes, List<Int> ir, List<Int> state) {
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
+            declareRecord(source, nodes, ir, state, declaration)
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+}
+
+// Records, data classes and exceptions are all Sublang record types.
+static method<Bool> isRecordKind(Int kind) {
+    return kind == NODE_RECORD || kind == NODE_DATA_CLASS || kind == NODE_EXCEPTION
+}
+
+static method declareRecord(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int declaration) {
+    Int count = countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+    state[LOWER_RECORD_COUNT] = state[LOWER_RECORD_COUNT] + 1
+    state[LOWER_FIELD_BASE] = state[LOWER_FIELD_BASE] + count
+    ir.add(REC_RECORD)
+    ir.add(RECORD_HEADER_SIZE + count * RECORD_FIELD_SIZE)
+    ir.add(nodeField(nodes, declaration, NODE_TEXT_START))
+    ir.add(nodeField(nodes, declaration, NODE_TEXT_LENGTH))
+    ir.add(count)
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+
+    while (param != NO_NODE) {
+        Int type = primitiveWire(source, nodes, childOfKind(nodes, param, NODE_TYPE))
+
+        if (type == NO_VALUE) {
+            markUnsupported(nodes, state, param)
+        }
+
+        ir.add(nodeField(nodes, param, NODE_TEXT_START))
+        ir.add(nodeField(nodes, param, NODE_TEXT_LENGTH))
+        ir.add(type)
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+}
+
+// The wire type of a field declared Int, Boolean, Bool or Float; NO_VALUE for anything else.
+static method<Int> primitiveWire(String source, List<Int> nodes, Int typeNode) {
+    if (typeNode == NO_NODE) {
+        return NO_VALUE
+    }
+
+    Int start = nodeField(nodes, typeNode, NODE_TEXT_START)
+    Int length = nodeField(nodes, typeNode, NODE_TEXT_LENGTH)
+
+    if (spanIs(source, start, length, "Int")) {
+        return WIRE_INT
+    }
+
+    if (spanIs(source, start, length, "Boolean") || spanIs(source, start, length, "Bool")) {
+        return WIRE_BOOL
+    }
+
+    if (spanIs(source, start, length, "Float")) {
+        return WIRE_FLOAT
+    }
+
+    return NO_VALUE
+}
+
+// The position of a record declaration among the records of the program.
+static method<Int> recordIndex(List<Int> nodes, Int declaration) {
+    Int index = 0
+    Int other = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (other != declaration && other != NO_NODE) {
+        if (isRecordKind(nodeField(nodes, other, NODE_KIND))) {
+            index = index + 1
+        }
+
+        other = nodeField(nodes, other, NODE_NEXT_SIBLING)
+    }
+
+    return index
+}
+
+// The number of the field that the record parameter starting at this position declares.
+static method<Int> fieldNumber(List<Int> nodes, Int paramStart) {
+    Int number = 0
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
+            Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+
+            while (param != NO_NODE) {
+                number = number + 1
+
+                if (nodeField(nodes, param, NODE_TEXT_START) == paramStart) {
+                    return number
+                }
+
+                param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+            }
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return NO_FIELD
+}
+
+// `Point(1, 2)`: the arguments become the fields in order.
+static method<Int> lowerRecordConstruction(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int type = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+    List<Int> arguments = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    Int declaration = declarationOfType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (type < WIRE_RECORD_BASE || declaration == NO_NODE || hasNoValue(arguments)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    addMissingDefaults(source, nodes, annotations, ir, env, functions, state, declaration, arguments)
+
+    if (hasNoValue(arguments)) {
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, type)
+    addOperation(ir, state, OP_RECORD_MAKE, result, type, type, 0, false, PREDICATE_NONE)
+
+    for (Int position = 0; position < arguments.size(); position++) {
+        addOperand(ir, state, arguments[position])
+    }
+
+    return result
+}
+
+// `point.x`
+static method<Int> lowerRecordRead(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int receiver = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, node, NODE_FIRST_CHILD))
+    Int field = fieldNumber(nodes, annotationField(annotations, node, ANNOTATION_NAME_START))
+    Int type = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (receiver == NO_VALUE || field == NO_FIELD || type == NO_VALUE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, type)
+    addOperation(ir, state, OP_RECORD_GET, result, type, field, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, receiver)
+    return result
+}
+
+// The `type` and `field` records of the module's records, after the list and text types.
+static method<String> recordTypesText(String source, List<Int> ir) {
+    String text = ""
+    Int number = WIRE_RECORD_BASE
+    Int index = 0
+
+    while (index < ir.size()) {
+        if (ir[index + RECORD_KIND] == REC_RECORD) {
+            Int start = ir[index + RECORD_NAME_START]
+            text = text + "type id=" + intText(number) + " kind=\"Record\" name=\"" + source.substring(start, start + ir[index + RECORD_NAME_LENGTH]) + "\" width=0 signed=false target=0 nullable=false span=1\n"
+            number = number + 1
+        }
+
+        if (ir[index + RECORD_KIND] == REC_RESULT) {
+            text = text + "type id=" + intText(number) + " kind=\"Record\" name=\"Result$" + intText(number) + "\" width=0 signed=false target=0 nullable=false span=1\n"
+            number = number + 1
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return text
+}
+
+static method<String> recordFieldsText(String source, List<Int> ir) {
+    String text = ""
+    Int owner = WIRE_RECORD_BASE
+    Int field = 1
+    Int index = 0
+
+    while (index < ir.size()) {
+        if (ir[index + RECORD_KIND] == REC_RECORD) {
+            for (Int position = 0; position < ir[index + RECORD_FIELD_COUNT]; position++) {
+                Int base = index + RECORD_HEADER_SIZE + position * RECORD_FIELD_SIZE
+                text = text + "field id=" + intText(field) + " owner=" + intText(owner) + " name=\"" + source.substring(ir[base], ir[base] + ir[base + 1]) + "\" type=" + intText(ir[base + 2]) + " mutable=false span=1\n"
+                field = field + 1
+            }
+
+            owner = owner + 1
+        }
+
+        if (ir[index + RECORD_KIND] == REC_RESULT) {
+            text = text + "field id=" + intText(field) + " owner=" + intText(owner) + " name=\"tag\" type=3 mutable=false span=1\n"
+            text = text + "field id=" + intText(field + 1) + " owner=" + intText(owner) + " name=\"value\" type=" + intText(ir[index + RESULT_VALUE_WIRE]) + " mutable=false span=1\n"
+            text = text + "field id=" + intText(field + 2) + " owner=" + intText(owner) + " name=\"e_value\" type=" + intText(ir[index + RESULT_ERROR_WIRE]) + " mutable=false span=1\n"
+            field = field + RESULT_FIELDS
+            owner = owner + 1
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return text
+}
+
+// A data class parameter may end in a default value, which stands in for an argument that was left out.
+static method addMissingDefaults(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int declaration, List<Int> arguments) {
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+
+    for (Int position = 0; position < arguments.size() && param != NO_NODE; position++) {
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    while (param != NO_NODE) {
+        Int fallback = nodeField(nodes, childOfKind(nodes, param, NODE_TYPE), NODE_NEXT_SIBLING)
+
+        if (fallback == NO_NODE) {
+            markUnsupported(nodes, state, param)
+            arguments.add(NO_VALUE)
+        }
+
+        if (fallback != NO_NODE) {
+            arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, fallback))
+        }
+
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+}
+
+// `value.withName(x)`: a copy of the record with that field replaced.
+static method<Int> lowerWith(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int receiverNode = nodeField(nodes, callee, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, callee, NODE_NEXT_SIBLING) == NO_NODE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int receiver = lowerExpression(source, nodes, annotations, ir, env, functions, state, receiverNode)
+    Int replacement = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, callee, NODE_NEXT_SIBLING))
+    Int type = wireType(state, annotationField(annotations, receiverNode, ANNOTATION_TYPE))
+    Int declaration = declarationOfType(state, annotationField(annotations, receiverNode, ANNOTATION_TYPE))
+
+    if (receiver == NO_VALUE || replacement == NO_VALUE || declaration == NO_NODE || type < WIRE_RECORD_BASE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    List<Int> values = []
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+    Int replaced = nodeField(nodes, callee, NODE_TEXT_START) + 4
+
+    while (param != NO_NODE) {
+        if (sameSpans(source, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), replaced, nodeField(nodes, callee, NODE_TEXT_LENGTH) - 4)) {
+            values.add(replacement)
+        }
+
+        if (!sameSpans(source, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), replaced, nodeField(nodes, callee, NODE_TEXT_LENGTH) - 4)) {
+            values.add(readField(ir, state, receiver, fieldNumber(nodes, nodeField(nodes, param, NODE_TEXT_START)), primitiveWire(source, nodes, childOfKind(nodes, param, NODE_TYPE))))
+        }
+
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    Int result = newValue(ir, state, type)
+    addOperation(ir, state, OP_RECORD_MAKE, result, type, type, 0, false, PREDICATE_NONE)
+
+    for (Int position = 0; position < values.size(); position++) {
+        addOperand(ir, state, values[position])
+    }
+
+    return result
+}
+
+// `var { a, b } = value`: the bindings take the fields in order.
+static method lowerDestructure(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
+    Int init = childOfKind(nodes, statement, NODE_INIT)
+    Int valueNode = nodeField(nodes, init, NODE_FIRST_CHILD)
+    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, valueNode)
+    Int declaration = declarationOfType(state, annotationField(annotations, valueNode, ANNOTATION_TYPE))
+
+    if (value == NO_VALUE || declaration == NO_NODE) {
+        markUnsupported(nodes, state, statement)
+        return
+    }
+
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+    Int binding = nodeField(nodes, statement, NODE_FIRST_CHILD)
+
+    while (binding != NO_NODE && param != NO_NODE) {
+        if (nodeField(nodes, binding, NODE_KIND) == NODE_BINDING) {
+            Int type = primitiveWire(source, nodes, childOfKind(nodes, param, NODE_TYPE))
+            addVariable(env, state, nodeField(nodes, binding, NODE_TEXT_START), readField(ir, state, value, fieldNumber(nodes, nodeField(nodes, param, NODE_TEXT_START)), type), type)
+            param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+        }
+
+        binding = nodeField(nodes, binding, NODE_NEXT_SIBLING)
+    }
+}

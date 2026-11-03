@@ -1,0 +1,211 @@
+package ring1.lowering
+
+// Enums and switches. An enum value is its ordinal, an Int. A switch compares its subject with the pattern of each
+// case in turn and runs the body of the first that matches; the last case also matches when no earlier one did, which
+// is how an exhaustive switch over an enum ends and what a catch-all name means. A switch expression leaves its value
+// as the parameter of the block the cases join; a switch statement carries the variables in scope like `if` does.
+static method<Int> lowerEnumEntry(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node) {
+    if (annotationField(annotations, node, ANNOTATION_SYMBOL) != REFERENCE_ENTRY) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int ordinal = entryOrdinal(source, nodes, declarationOfType(state, annotationField(annotations, node, ANNOTATION_OWNER)), nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+
+    if (ordinal < 0) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    return constantValue(ir, state, OP_CONST_INT, WIRE_INT, ordinal, false)
+}
+
+// The position of the entry with this name in an enum declaration, -1 when there is none.
+static method<Int> entryOrdinal(String source, List<Int> nodes, Int declaration, Int start, Int length) {
+    if (declaration == NO_NODE) {
+        return -1
+    }
+
+    Int ordinal = 0
+    Int entry = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_BODY))
+
+    while (entry != NO_NODE) {
+        if (sameSpans(source, nodeField(nodes, entry, NODE_TEXT_START), nodeField(nodes, entry, NODE_TEXT_LENGTH), start, length)) {
+            return ordinal
+        }
+
+        ordinal = ordinal + 1
+        entry = nodeField(nodes, entry, NODE_NEXT_SIBLING)
+    }
+
+    return -1
+}
+
+static method<Int> lowerSwitch(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Bool expression) {
+    Int subjectNode = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int subject = lowerExpression(source, nodes, annotations, ir, env, functions, state, subjectNode)
+    Int resultType = WIRE_VOID
+
+    if (expression) {
+        resultType = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+    }
+
+    if (subject == NO_VALUE || resultType == NO_VALUE || isReferenceWire(resultType)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int count = state[LOWER_ENV]
+    Int join = NO_BLOCK
+    Int joinRecord = 0
+    Int result = NO_VALUE
+
+    if (expression) {
+        join = newResultBlock(ir, state, resultType)
+        joinRecord = state[LOWER_LAST_BLOCK]
+        result = ir[joinRecord + BLOCK_HEADER_SIZE]
+    }
+
+    if (!expression) {
+        join = newBlock(ir, state, env, count)
+        joinRecord = state[LOWER_LAST_BLOCK]
+    }
+
+    Int enumNode = declarationOfType(state, annotationField(annotations, subjectNode, ANNOTATION_TYPE))
+    Int branch = nodeField(nodes, subjectNode, NODE_NEXT_SIBLING)
+
+    while (branch != NO_NODE) {
+        lowerCase(source, nodes, annotations, ir, env, functions, state, branch, subject, enumNode, join, count, expression)
+        branch = nodeField(nodes, branch, NODE_NEXT_SIBLING)
+    }
+
+    state[LOWER_BLOCK] = join
+    state[LOWER_ENV] = count
+
+    if (!expression) {
+        adoptBlockParameters(ir, env, joinRecord, count)
+    }
+
+    return result
+}
+
+static method lowerCase(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int branch, Int subject, Int enumNode, Int join, Int count, Bool expression) {
+    Int head = nodeField(nodes, branch, NODE_FIRST_CHILD)
+    Bool several = nodeField(nodes, head, NODE_KIND) == NODE_PATTERNS
+    Int body = nodeField(nodes, head, NODE_NEXT_SIBLING)
+    Bool last = nodeField(nodes, branch, NODE_NEXT_SIBLING) == NO_NODE
+    Int bodyBlock = newBlock(ir, state, env, 0)
+    Int nextBlock = NO_BLOCK
+
+    if (!last) {
+        nextBlock = newBlock(ir, state, env, 0)
+    }
+
+    Int patterns = head
+
+    if (several) {
+        patterns = nodeField(nodes, head, NODE_FIRST_CHILD)
+    }
+
+    Int name = emitTests(source, nodes, ir, env, state, patterns, several, subject, enumNode, bodyBlock, nextBlock, last)
+    state[LOWER_BLOCK] = bodyBlock
+
+    if (name != NO_NODE) {
+        addVariable(env, state, nodeField(nodes, name, NODE_TEXT_START), subject, WIRE_INT)
+    }
+
+    if (expression) {
+        Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, body)
+
+        if (value != NO_VALUE) {
+            addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+            addOperand(ir, state, value)
+            setTargets(ir, state, join, NO_BLOCK, 0)
+        }
+    }
+
+    if (!expression) {
+        lowerStatement(source, nodes, annotations, ir, env, functions, state, body)
+        branchTo(ir, state, env, join, count)
+    }
+
+    state[LOWER_ENV] = count
+    state[LOWER_BLOCK] = nextBlock
+}
+
+// Ends the current block with the tests of one case: each pattern that matches goes to the body. The last case needs
+// no test. Returns the catch-all name pattern, NO_NODE if there is none.
+static method<Int> emitTests(String source, List<Int> nodes, List<Int> ir, List<Int> env, List<Int> state, Int first, Bool several, Int subject, Int enumNode, Int bodyBlock, Int nextBlock, Bool last) {
+    Int name = NO_NODE
+    Int pattern = first
+    Bool jumped = false
+
+    while (pattern != NO_NODE && !jumped) {
+        Int value = patternValue(source, nodes, ir, state, pattern, enumNode)
+
+        if (value == NO_VALUE) {
+            name = pattern
+            jumped = true
+        }
+
+        if (value != NO_VALUE && !last) {
+            Int test = newValue(ir, state, WIRE_BOOL)
+            addOperation(ir, state, OP_COMPARE, test, WIRE_BOOL, 0, 0, false, PREDICATE_EQUAL)
+            addOperand(ir, state, subject)
+            addOperand(ir, state, value)
+            Int onward = newBlock(ir, state, env, 0)
+            addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+            addOperand(ir, state, test)
+            setTargets(ir, state, bodyBlock, onward, 0)
+            state[LOWER_BLOCK] = onward
+        }
+
+        pattern = nodeField(nodes, pattern, NODE_NEXT_SIBLING)
+
+        if (!several) {
+            pattern = NO_NODE
+        }
+    }
+
+    if (last || jumped) {
+        addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        setTargets(ir, state, bodyBlock, NO_BLOCK, 0)
+        return name
+    }
+
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    setTargets(ir, state, nextBlock, NO_BLOCK, 0)
+    return name
+}
+
+// The value a pattern compares the subject with; NO_VALUE for a name that matches everything.
+static method<Int> patternValue(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int pattern, Int enumNode) {
+    Int kind = nodeField(nodes, pattern, NODE_KIND)
+
+    if (kind == NODE_PATTERN_LITERAL) {
+        List<Int> noAnnotations = []
+        List<Int> noEnvironment = []
+        List<Int> noFunctions = []
+        return lowerExpression(source, nodes, noAnnotations, ir, noEnvironment, noFunctions, state, nodeField(nodes, pattern, NODE_FIRST_CHILD))
+    }
+
+    if (kind != NODE_PATTERN) {
+        markUnsupported(nodes, state, pattern)
+        return NO_VALUE
+    }
+
+    Int start = nodeField(nodes, pattern, NODE_TEXT_START)
+    Int length = nodeField(nodes, pattern, NODE_TEXT_LENGTH)
+
+    if (spanIs(source, start, length, "true") || spanIs(source, start, length, "false")) {
+        return constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, spanIs(source, start, length, "true"))
+    }
+
+    Int ordinal = entryOrdinal(source, nodes, enumNode, start, length)
+
+    if (ordinal < 0) {
+        return NO_VALUE
+    }
+
+    return constantValue(ir, state, OP_CONST_INT, WIRE_INT, ordinal, false)
+}

@@ -19,12 +19,23 @@ scripts/checkLowering.sh                                           # all fixture
 `optimind:`, `effects:` and `lowering:` lines of the pipeline plan (`<binary>.plan`).
 `RING0_FLOW` and `RING0_OPTIMIND` override the defaults (`on`, `on`) for bisecting.
 
+Native run without Docker: `scripts/checkLoweringNative.sh <ring0-lower> <sublang> <work-dir>` lowers every
+fixture, lets `sublang emit-llvm` write LLVM, builds it with clang and compares the program output (all 67
+pass). It needs a `sublang` binary built from `sub-lang`; `ring0 --version` and `sublang --version` report
+`0.1.0-indev.<first 8 characters of the commit>`, stamped by `scripts/stampVersion.sh`.
+
 Setup on a fresh machine: `scripts/sandbox/build.sh` builds the image `emerald-selfhost-sandbox`
 (LLVM 22 libraries, clang 22, gcc, diffutils; needs network once). The scripts expect the Emerald
 root as `$RING0_EMERALD_ROOT` with `emerald-stable/emerald-compiler` next to `stdlib/` and `runtime/`
 (copy them from the Emerald kit's `bin/`, `stdlib/`, `runtime/`), and Sublang's own scripts read
 `SUBLANG_EMERALD_ROOT` the same way. Scripts are stored without the executable bit: run them with
 `bash scripts/<name>.sh`, or `chmod +x` them.
+
+Several `.ev` files form one program: `ring0 a.ev b.ev --check` and `ring0-lower a.ev b.ev out.sublang-wire`
+merge their top-level declarations in the order given (`SourceSet`). The checker identifies declarations
+by kind, line and column, so each file gets its own line range (each starts one line after the file
+before it); on errors the driver prints which file starts at which line. The sandbox scripts still take
+single files.
 
 The Sublang checkout is read-only input (`RING0_SUBLANG_CHECKOUT`); nothing is copied into either
 repository. The frontend is taken from `git archive HEAD` unless `RING0_BASE_SRC` is set, so
@@ -265,12 +276,15 @@ a virtual call is blocked by the missing scope operand on `call.virtual`.
    generic function-typed Result payload, which depends on item 2.
 8. **Enum values** are expressible as Int tags in the frontend (planned), but need a distinct type to
    keep Emvus' type safety visible in the IR.
-9. **Backend defect (reproducible): `emit-llvm` aborts** with `Emerald Flow allocation failed (...)`
-   for `tests/lowering/backendCrash.ev`: an owned call result (`greet(...)`), two calls of the
-   in-place text helpers and a branch on `text.equal` in one function. It aborts with `--flow=off`
-   and `--optimind=off` too, so it happens before Flow and Optimind. Smaller variants (one helper
-   call, no equality, no owned call) compile and run. `checkLowering.sh` marks the fixture
-   `expect-backend-crash` and fails when it stops reproducing so this entry gets updated.
+10. **Module budget (resolved).** Sublang's first slice allowed 32 functions per module, 64 blocks per
+   function and 32768 operations. The limits now live in `sub-lang/src/sublang/limits/SublangLimits.ems`
+   (4096 functions, 4096 blocks per function, 1048576 operations); Ring1 (330 functions) compiles and runs.
+9. **Backend defect (worked around): `emit-llvm` aborts** with `Emerald Flow allocation failed (...)`
+   for `tests/lowering/backendCrash.ev` and for larger programs (the Ring1 compiler). The message comes from
+   the Emerald runtime in the Emerald-built Sublang: the program also fails under `EMERALD_FLOW_UAF_HUNT=1` and
+   works with `EMERALD_FLOW_BOOTSTRAP=1` or `EMERALD_FLOW_MALLOC=1`, which points to memory that is released
+   while still used. `emvusc` and `checkLoweringNative.sh` set `EMERALD_FLOW_BOOTSTRAP=1`; with it the fixture
+   no longer crashes (`checkLoweringNative.sh` prints a NOTE). The cause is not found.
 
 ## Observations about Emerald (frontend implementation language)
 

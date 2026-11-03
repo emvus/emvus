@@ -1,0 +1,20 @@
+// expect-status: 0
+// lastError tells why the last file operation failed: a missing file gives a reason, a readable one gives 0.
+static method<Int> main {
+    String missing = readFile("/nonexistent/emvus-test-file")
+    Int reason = lastError()
+
+    if (missing.length() != 0 || reason == 0) {
+        return 1
+    }
+
+    if (!fileExists("/proc/self/exe") || lastError() != 0) {
+        return 2
+    }
+
+    if (writeFile("/nonexistent/emvus-dir/file", "x") || lastError() == 0) {
+        return 3
+    }
+
+    return 0
+}

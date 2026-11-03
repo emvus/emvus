@@ -1,0 +1,140 @@
+use ring0::OutputName;
+use ring0::Version;
+use ring0::binding::Binder;
+use ring0::binding::BindingPrelude;
+use ring0::diagnostic::DiagnosticBag;
+use ring0::lowering::LoweringPrelude;
+use ring0::lowering::ProgramLowerer;
+use ring0::lowering::WireExport;
+use ring0::syntax::Node;
+use ring0::syntax::SourceSet;
+use sublang::backend::SublangCompilation;
+use sublang::backend::SublangCompiler;
+use sublang::platform::SublangPlatformBinding;
+use sublang::cli::SublangVersion;
+use sublang::ir::SublangBuilder;
+use Std::Io::File;
+use Std::Native::NativeFile;
+use Std::Process::Process;
+
+// emvusc, the Emvus compiler written in Emerald (Ring0): Emvus source -> parse -> check -> Sublang High IR ->
+// LLVM text, in one binary. The last step, LLVM text -> executable, is clang's: `clang prog.ll -o prog`.
+//   emvusc <file.ev>... [-o out.ll]            LLVM text (default: <first file without .ev>.ll)
+//   emvusc --emit-wire <file.ev>... -o out     the Sublang wire file instead
+//   emvusc --version | --help
+// Several files form one program (SourceSet).
+// Built only by scripts/buildEmvusc.sh, which supplies the Sublang sources.
+main() {
+    List<String> args = Process.args();
+
+    if (args.length() == 1 && args.get(0) == "--version") {
+        println("emvusc " + Version.number());
+        println("sublang " + SublangVersion.number());
+        return;
+    }
+
+    if (args.length() == 0 || args.get(0) == "--help" || args.get(0) == "-h") {
+        println("Usage: emvusc [--emit-wire] <file.ev>... [-o <output>]");
+        println("Writes LLVM text (<first file>.ll), or the Sublang wire file with --emit-wire.");
+        println("Build the program with: clang <output>.ll -o <program>");
+        return;
+    }
+
+    Bool wire = false;
+    String output = "";
+    List<String> paths = List();
+    Int index = 0;
+
+    while (index < args.length()) {
+        String argument = args.get(index) + "";
+
+        if (argument == "--emit-wire") {
+            wire = true;
+        }
+
+        if (argument == "-o") {
+            index = index + 1;
+
+            if (index >= args.length()) {
+                println("emvusc: -o needs a file name");
+                Process.exit(2);
+            }
+
+            output = args.get(index) + "";
+        }
+
+        if (argument != "--emit-wire" && argument != "-o") {
+            paths.add(argument);
+        }
+
+        index = index + 1;
+    }
+
+    Int sources = SourceSet.leadingSources(paths);
+
+    if (sources < 1 || sources != paths.length()) {
+        println("emvusc: expected .ev files; see emvusc --help");
+        Process.exit(2);
+    }
+
+    index = 0;
+
+    while (index < sources) {
+        if (!File(paths.get(index)).exists()) {
+            println("emvusc: source file does not exist: " + paths.get(index));
+            Process.exit(1);
+        }
+
+        index = index + 1;
+    }
+
+    if (output == "") {
+        output = OutputName.of(paths.get(0) + "", wire);
+    }
+
+    String sourceName = paths.get(0) + "";
+    DiagnosticBag bag = DiagnosticBag();
+    Node tree = SourceSet.parseAll(paths, sources, bag);
+
+    if (!bag.hasErrors()) {
+        Binder binder = Binder(bag);
+        binder.bind(tree);
+    }
+
+    if (bag.hasErrors()) {
+        SourceSet.printIndex(paths, sources, bag);
+        bag.printAll();
+        Process.exit(1);
+    }
+
+    SublangBuilder builder = SublangBuilder(sourceName);
+    ProgramLowerer lowerer = ProgramLowerer(bag);
+    lowerer.lower(tree, builder, sourceName);
+
+    if (bag.hasErrors()) {
+        SourceSet.printIndex(paths, sources, bag);
+        bag.printAll();
+        Process.exit(2);
+    }
+
+    builder.freeze();
+
+    if (wire) {
+        if (!WireExport.write(builder, output)) {
+            Process.exit(1);
+        }
+
+        println("emvusc: wrote " + output);
+        return;
+    }
+
+    SublangCompilation compilation = SublangPlatformBinding.compile(builder.module(), true, "auto");
+
+    if (!compilation.codegenReady()) {
+        println("emvusc: the backend rejected the program: " + compilation.error());
+        Process.exit(1);
+    }
+
+    NativeFile.writeText(output, compilation.llvm());
+    println("emvusc: wrote " + output + "; build with: clang " + output + " -o <program>");
+}

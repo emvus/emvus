@@ -1,0 +1,5 @@
+final var BASE = 40
+
+static method<Int> twice(Int value) {
+    return value * 2
+}

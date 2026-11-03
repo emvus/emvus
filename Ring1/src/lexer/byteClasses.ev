@@ -1,0 +1,57 @@
+package ring1.lexer
+
+final var BYTE_TAB = 9
+final var BYTE_NEWLINE = 10
+final var BYTE_RETURN = 13
+final var BYTE_SPACE = 32
+final var BYTE_BANG = 33
+final var BYTE_QUOTE = 34
+final var BYTE_DOLLAR = 36
+final var BYTE_PERCENT = 37
+final var BYTE_AMPERSAND = 38
+final var BYTE_OPEN_PAREN = 40
+final var BYTE_CLOSE_PAREN = 41
+final var BYTE_STAR = 42
+final var BYTE_PLUS = 43
+final var BYTE_MINUS = 45
+final var BYTE_DOT = 46
+final var BYTE_SLASH = 47
+final var BYTE_ZERO = 48
+final var BYTE_NINE = 57
+final var BYTE_LESS = 60
+final var BYTE_EQUALS = 61
+final var BYTE_GREATER = 62
+final var BYTE_UPPER_A = 65
+final var BYTE_UPPER_E = 69
+final var BYTE_UPPER_Z = 90
+final var BYTE_BACKSLASH = 92
+final var BYTE_UNDERSCORE = 95
+final var BYTE_LOWER_A = 97
+final var BYTE_LOWER_E = 101
+final var BYTE_LOWER_N = 110
+final var BYTE_LOWER_R = 114
+final var BYTE_LOWER_T = 116
+final var BYTE_LOWER_Z = 122
+final var BYTE_OPEN_BRACE = 123
+final var BYTE_PIPE = 124
+final var BYTE_CLOSE_BRACE = 125
+
+static method<Bool> isDigit(Int value) {
+    return value >= BYTE_ZERO && value <= BYTE_NINE
+}
+
+static method<Bool> isLetter(Int value) {
+    return (value >= BYTE_UPPER_A && value <= BYTE_UPPER_Z) || (value >= BYTE_LOWER_A && value <= BYTE_LOWER_Z)
+}
+
+static method<Bool> isIdentifierStart(Int value) {
+    return isLetter(value) || value == BYTE_UNDERSCORE
+}
+
+static method<Bool> isIdentifierPart(Int value) {
+    return isIdentifierStart(value) || isDigit(value)
+}
+
+static method<Bool> isWhitespace(Int value) {
+    return value == BYTE_SPACE || value == BYTE_TAB || value == BYTE_RETURN || value == BYTE_NEWLINE
+}

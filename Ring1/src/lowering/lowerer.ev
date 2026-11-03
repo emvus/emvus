@@ -1,0 +1,409 @@
+package ring1.lowering
+
+// Entry point: source text in, Sublang canonical text out. A program the lowering cannot handle yet
+// yields "unsupported <line>" instead.
+static method<String> lowerSource(String source, String moduleName) {
+    List<Int> nodes = parseSource(source)
+    List<Int> types = newTypeTable()
+    List<Int> symbols = []
+    List<Int> annotations = newAnnotations(nodes)
+    List<Int> bound = [0, 0, NO_TYPE, TYPE_UNKNOWN]
+    bindProgram(source, nodes, types, symbols, annotations, bound)
+    List<Int> state = newLowerState()
+    buildTypeMap(source, nodes, types, state)
+    List<Int> functions = declareFunctions(source, nodes, types, state)
+    analyzeMutation(source, nodes, annotations, functions)
+    List<Int> ir = []
+    List<Int> env = []
+    numberImports(source, nodes, annotations, functions, state)
+    declareRecords(source, nodes, ir, state)
+    declareResults(source, nodes, types, ir, state)
+    addTextAssignHelper(ir, state)
+    addAppendIntHelper(ir, state)
+    addAppendBoolHelper(ir, state)
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_METHOD) {
+            lowerFunction(source, nodes, types, annotations, ir, env, functions, state, declaration)
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    Int entry = findFunctionNamed(source, nodes, functions, "main")
+
+    if (state[LOWER_FAILED] == 1 || entry < 0) {
+        return "unsupported " + intText(state[LOWER_FAILED_LINE])
+    }
+
+    if (functions[entry * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN] == WIRE_VOID) {
+        addEntryWrapper(ir, state, entry + FIRST_USER_FUNCTION)
+        entry = functions.size() / FUNCTION_ROW_SIZE
+    }
+
+    addImportRecords(ir, state)
+    return programText(source, moduleName, ir, entry + FIRST_USER_FUNCTION)
+}
+
+// Counts the program's functions and entry wrapper, then numbers the platform imports it calls after them.
+static method numberImports(String source, List<Int> nodes, List<Int> annotations, List<Int> functions, List<Int> state) {
+    Int users = functions.size() / FUNCTION_ROW_SIZE
+    Int main = findFunctionNamed(source, nodes, functions, "main")
+    state[LOWER_USER_FUNCTIONS] = users
+
+    if (main >= 0 && functions[main * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN] == WIRE_VOID) {
+        state[LOWER_WRAPPERS] = 1
+    }
+
+    assignImports(source, nodes, annotations, functions, state, ROOT_NODE, FIRST_USER_FUNCTION + users + state[LOWER_WRAPPERS])
+}
+
+static method<List<Int>> newLowerState() {
+    List<Int> state = []
+
+    for (Int index = 0; index < LOWER_STATE_SIZE; index++) {
+        state.add(0)
+    }
+
+    return state
+}
+
+// One row per method of the program, in declaration order: name, wire return type, parameter count.
+static method<List<Int>> declareFunctions(String source, List<Int> nodes, List<Int> types, List<Int> state) {
+    List<Int> functions = []
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_METHOD) {
+            functions.add(nodeField(nodes, declaration, NODE_TEXT_START))
+            functions.add(wireType(state, returnTypeOf(source, nodes, types, declaration)))
+            functions.add(countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS)))
+
+            for (Int position = 0; position < MAX_PARAMETERS; position++) {
+                functions.add(0)
+            }
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return functions
+}
+
+static method<Int> findFunctionNamed(String source, List<Int> nodes, List<Int> functions, String name) {
+    for (Int row = 0; row < functions.size() / FUNCTION_ROW_SIZE; row++) {
+        Int start = functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_NAME]
+
+        if (spanIs(source, start, name.length(), name)) {
+            return row
+        }
+    }
+
+    return -1
+}
+
+static method lowerFunction(String source, List<Int> nodes, List<Int> types, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int method) {
+    Int returnType = wireType(state, returnTypeOf(source, nodes, types, method))
+    state[LOWER_RETURN_TYPE] = returnType
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    state[LOWER_ENV] = 0
+    state[LOWER_TERMINATED] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(nodeField(nodes, method, NODE_TEXT_START))
+    ir.add(nodeField(nodes, method, NODE_TEXT_LENGTH))
+    ir.add(returnType)
+    ir.add(countChildren(nodes, childOfKind(nodes, method, NODE_PARAMS)))
+    declareParameters(source, nodes, types, ir, env, functions, state, method)
+    state[LOWER_BLOCK] = newBlock(ir, state, env, 0)
+    state[LOWER_SCOPE] = 0
+
+    if (needsScope(nodes, annotations, state, method)) {
+        state[LOWER_SCOPE] = 1
+        addOperation(ir, state, OP_SCOPE_BEGIN, NO_VALUE, 0, 1, 0, false, PREDICATE_NONE)
+    }
+
+    Int body = childOfKind(nodes, method, NODE_BLOCK)
+
+    if (body == NO_NODE || returnType == NO_VALUE) {
+        markUnsupported(nodes, state, method)
+        return
+    }
+
+    lowerBlock(source, nodes, annotations, ir, env, functions, state, body)
+
+    if (state[LOWER_TERMINATED] == 0 && returnType == WIRE_VOID) {
+        if (state[LOWER_SCOPE] == 1) {
+            addOperation(ir, state, OP_SCOPE_END, NO_VALUE, 0, 1, 0, false, PREDICATE_NONE)
+        }
+
+        addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    }
+
+    if (state[LOWER_TERMINATED] == 0 && returnType != WIRE_VOID) {
+        markUnsupported(nodes, state, method)
+    }
+}
+
+static method declareParameters(String source, List<Int> nodes, List<Int> types, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int method) {
+    Int param = firstChildOf(nodes, childOfKind(nodes, method, NODE_PARAMS))
+    Int row = findFunction(functions, nodeField(nodes, method, NODE_TEXT_START))
+    Int position = 0
+
+    while (param != NO_NODE) {
+        Int type = wireType(state, typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE)))
+
+        if (type == NO_VALUE) {
+            markUnsupported(nodes, state, param)
+        }
+
+        ir.add(REC_PARAMETER)
+        ir.add(PARAMETER_SIZE)
+        ir.add(nodeField(nodes, param, NODE_TEXT_START))
+        ir.add(nodeField(nodes, param, NODE_TEXT_LENGTH))
+        ir.add(type)
+        ir.add(parameterMode(functions, row, position, type))
+        addVariable(env, state, nodeField(nodes, param, NODE_TEXT_START), newValue(ir, state, type), type)
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+        position = position + 1
+    }
+}
+
+static method<Int> parameterMode(List<Int> functions, Int row, Int position, Int type) {
+    if (type == WIRE_STRING) {
+        return MODE_BORROW_READ
+    }
+
+    if (!isListWire(type)) {
+        return MODE_VALUE
+    }
+
+    if (functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] == 1) {
+        return MODE_BORROW_WRITE
+    }
+
+    return MODE_BORROW_READ
+}
+
+// List allocations need a scope. String names also need one: borrowed returns are copied.
+static method<Bool> needsScope(List<Int> nodes, List<Int> annotations, List<Int> state, Int node) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+    Int type = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (type == WIRE_STRING) {
+        return true
+    }
+
+    Bool creates = kind == NODE_LIST_LITERAL || kind == NODE_STRING || kind == NODE_BINARY || kind == NODE_CALL
+
+    if (creates && isReferenceWire(type)) {
+        return true
+    }
+
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        if (needsScope(nodes, annotations, state, child)) {
+            return true
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return false
+}
+
+// A list parameter is lent for writing when the function adds to, sets in or clears it, or hands it to a
+// function that does. Repeats until no function changes any more.
+static method analyzeMutation(String source, List<Int> nodes, List<Int> annotations, List<Int> functions) {
+    Bool changed = true
+
+    while (changed) {
+        changed = false
+        Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+        while (declaration != NO_NODE) {
+            if (nodeField(nodes, declaration, NODE_KIND) == NODE_METHOD) {
+                Int row = findFunction(functions, nodeField(nodes, declaration, NODE_TEXT_START))
+
+                if (scanMutation(source, nodes, annotations, functions, declaration, row, declaration)) {
+                    changed = true
+                }
+            }
+
+            declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+        }
+    }
+}
+
+// True when the subtree marks a parameter of the function that was not marked before.
+static method<Bool> scanMutation(String source, List<Int> nodes, List<Int> annotations, List<Int> functions, Int method, Int row, Int node) {
+    Bool marked = markIfMutating(source, nodes, annotations, functions, method, row, node)
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        if (scanMutation(source, nodes, annotations, functions, method, row, child)) {
+            marked = true
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return marked
+}
+
+static method<Bool> markIfMutating(String source, List<Int> nodes, List<Int> annotations, List<Int> functions, Int method, Int row, Int node) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_ASSIGN) {
+        Int target = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+        if (nodeField(nodes, target, NODE_KIND) == NODE_INDEX) {
+            return markParameter(nodes, annotations, functions, method, row, nodeField(nodes, target, NODE_FIRST_CHILD))
+        }
+    }
+
+    if (kind != NODE_CALL) {
+        return false
+    }
+
+    Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
+        return isMutatingMember(source, nodes, callee) && markParameter(nodes, annotations, functions, method, row, nodeField(nodes, callee, NODE_FIRST_CHILD))
+    }
+
+    return markCallArguments(nodes, annotations, functions, method, row, node, callee)
+}
+
+static method<Bool> isMutatingMember(String source, List<Int> nodes, Int callee) {
+    return nodeIs(source, nodes, callee, "add") || nodeIs(source, nodes, callee, "set") || nodeIs(source, nodes, callee, "clear") || nodeIs(source, nodes, callee, "remove") || nodeIs(source, nodes, callee, "removeAt")
+}
+
+// Arguments that are parameters passed to a position the callee writes through.
+static method<Bool> markCallArguments(List<Int> nodes, List<Int> annotations, List<Int> functions, Int method, Int row, Int call, Int callee) {
+    Int target = findFunction(functions, annotationField(annotations, call, ANNOTATION_NAME_START))
+    Bool marked = false
+
+    if (target < 0 || annotationField(annotations, call, ANNOTATION_OWNER) != OWNER_NONE) {
+        return false
+    }
+
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    for (Int position = 0; argument != NO_NODE && position < MAX_PARAMETERS; position++) {
+        if (functions[target * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] == 1 && markParameter(nodes, annotations, functions, method, row, argument)) {
+            marked = true
+        }
+
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    return marked
+}
+
+// Marks the parameter this node names, if it names one that is not marked yet.
+static method<Bool> markParameter(List<Int> nodes, List<Int> annotations, List<Int> functions, Int method, Int row, Int name) {
+    if (nodeField(nodes, name, NODE_KIND) != NODE_NAME || annotationField(annotations, name, ANNOTATION_SYMBOL) != REFERENCE_PARAMETER) {
+        return false
+    }
+
+    Int param = firstChildOf(nodes, childOfKind(nodes, method, NODE_PARAMS))
+
+    for (Int position = 0; param != NO_NODE && position < MAX_PARAMETERS; position++) {
+        if (nodeField(nodes, param, NODE_TEXT_START) == annotationField(annotations, name, ANNOTATION_NAME_START) && functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] == 0) {
+            functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] = 1
+            return true
+        }
+
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    return false
+}
+
+// A Void `main` is wrapped into the `() -> Int` entry the platform expects: call it and return 0.
+static method addEntryWrapper(List<Int> ir, List<Int> state, Int main) {
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(NAME_ENTRY)
+    ir.add(0)
+    ir.add(WIRE_INT)
+    ir.add(0)
+    List<Int> none = []
+    state[LOWER_BLOCK] = newBlock(ir, state, none, 0)
+    addOperation(ir, state, OP_CALL, NO_VALUE, WIRE_VOID, main, 0, false, PREDICATE_NONE)
+    Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, zero)
+}
+
+// `emvus.text.assign(dst, src)`: empties dst and appends every byte of src. Assigning a String variable
+// calls it, so the variable keeps its list and needs no block parameter.
+static method addTextAssignHelper(List<Int> ir, List<Int> state) {
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(NAME_TEXT_ASSIGN)
+    ir.add(0)
+    ir.add(WIRE_VOID)
+    ir.add(2)
+    ir.add(REC_PARAMETER)
+    ir.add(PARAMETER_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(WIRE_STRING)
+    ir.add(MODE_BORROW_WRITE)
+    Int destination = newValue(ir, state, WIRE_STRING)
+    ir.add(REC_PARAMETER)
+    ir.add(PARAMETER_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(WIRE_STRING)
+    ir.add(MODE_BORROW_READ)
+    Int source = newValue(ir, state, WIRE_STRING)
+    List<Int> counter = [0, 0, WIRE_INT]
+    state[LOWER_BLOCK] = newBlock(ir, state, counter, 0)
+    addOperation(ir, state, OP_LIST_CLEAR, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, destination, MODE_BORROW_WRITE)
+    Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+    Int header = newBlock(ir, state, counter, 1)
+    Int index = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, zero)
+    setTargets(ir, state, header, NO_BLOCK, 0)
+    state[LOWER_BLOCK] = header
+    Int length = emitListLength(ir, state, source)
+    Int more = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, more, WIRE_BOOL, 0, 0, false, PREDICATE_LESS)
+    addOperand(ir, state, index)
+    addOperand(ir, state, length)
+    Int body = newBlock(ir, state, counter, 0)
+    Int done = newBlock(ir, state, counter, 0)
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, more)
+    setTargets(ir, state, body, done, 0)
+    state[LOWER_BLOCK] = body
+    Int byte = newValue(ir, state, WIRE_BYTE)
+    addOperation(ir, state, OP_LIST_GET, byte, WIRE_BYTE, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, source, MODE_BORROW_READ)
+    addOperand(ir, state, index)
+    addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, destination, MODE_BORROW_WRITE)
+    addOperand(ir, state, byte)
+    Int one = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 1, false)
+    Int next = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_ADD, next, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, index)
+    addOperand(ir, state, one)
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, next)
+    setTargets(ir, state, header, NO_BLOCK, 0)
+    state[LOWER_BLOCK] = done
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+}

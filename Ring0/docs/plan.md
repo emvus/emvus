@@ -8,7 +8,7 @@ Emvus is a new language with its own compiler. The compiler is bootstrapped in s
 |---|---|---|---|
 | Ring0 | Bootstrap compiler: Emvus source to native executable through the Sublang backend | Emerald (`.ems`) | frontend and lowering work, frozen except for fixes that block self-hosting |
 | Runtime IR | Runtime library (output, files, arguments, text and number helpers, later Map and Option) | Sublang IR, written by us; the platform layer (syscalls, Windows API) is provided by Sublang | not started, waits for the Sublang side |
-| Ring1 | First self-hosted compiler, data-oriented subset (lexer first) | Emvus (`.ev`), built by Ring0 | not started |
+| Ring1 | First self-hosted compiler, data-oriented subset | Emvus (`.ev`), built by Ring0 | frontend, partial null-flow diagnostics and subset lowering implemented; native bootstrap regression passes |
 | Ring2 | Idiomatic self-hosted compiler (`Node`, `List<Node>`, `Dictionary`) | Emvus, built by Ring1 or Ring0 | needs backend gates G3 to G6 |
 
 Pipeline today:
@@ -43,7 +43,8 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [x] Classes, inheritance, interfaces, `is`/`as`, `scoped var`, cascade
 - [x] Lists, generics (monomorphized), lambdas, `map`/`filter`/`reduce`/`forEach`
 - [x] 59 lowering fixtures green with Flow and Optimind on
-- [ ] `println`/`print`/`Process.args()` on the runtime IR
+- [x] all 67 lowering fixtures run natively through Sublang (Low IR route) and match their expected output, aborts and errors: `scripts/checkLoweringNative.sh`
+- [x] `print`/`println`/`errprint`/`errprintln`/`readFile`/`writeFile`/`fileExists`/`argument`/`argumentCount`/`exit` as Emvus functions: calls of Sublang's typed platform imports (`platform.io.*`, `platform.process.*`), bound to a Sublang runtime library over the byte-text platform operations (host libc, Linux)
 - [x] Byte-wise `byteAt` and `substring` (bytes, decision 1); `charAt` is reserved
 - [x] `indexOf` (generated search helper `emvus.text.indexOf`; lowered to wire, not yet run natively)
 - [x] Literal top-level constants (Int, Bool, Float; inlined, see `lowering.md`; String constants and static fields still wait for G7 storage)
@@ -52,14 +53,14 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 ### Language decisions
 
 - [x] `String` operations count UTF-8 bytes (`languageDecisions.md`, decision 1: bytes now, `byteAt`, characters later)
-- [x] `main` exit code contract decided (`languageDecisions.md`, decision 2): the Int is the exit status, `Void` is 0; the entry keeps printing as a named bootstrap behavior until Sublang offers output and exit (G1), then the switch is part of the G1 work
+- [x] `main` exit code contract decided (`languageDecisions.md`, decision 2): the Int is the exit status, `Void` is 0; a program that uses the platform functions exits with main's Int; any other program still prints it as a named bootstrap behavior, and the switch for all programs stays open
 - [x] Ring1 subset v0 decided (`languageDecisions.md`, decision 3): parameter-passing style over primitive types, strings, enums, primitive records, `Result` and lists passed as parameters; no list-typed class fields; idiomatic Ring2 waits for G3 to G6
 
 ### Runtime IR (ours) and platform layer (Sublang)
 
 - [ ] Sublang: platform operations (write, read file, write file, arguments, exit) with ownership modes, error codes and `observable` effect
 - [ ] Sublang: a way to link a runtime module into a program
-- [ ] Runtime IR: `rt.print`, `rt.println`, `rt.readFile`, `rt.writeFile`, `rt.argCount`, `rt.arg`, `rt.exit`
+- [ ] Runtime IR beyond the first slice: effect and alias facts for the imports (today conservative), imports for time, environment, directories and processes, Windows and macOS bindings, raw-memory primitives so the library needs no libc, errors as values with a reason
 - [ ] Runtime IR: `rt.intToText`, text helpers, `rt.floatToText`
 - [ ] Runtime IR: Map and Option layouts (after reference fields exist)
 
@@ -70,16 +71,17 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [ ] G5 absence: nullable references (depends on G3)
 - [ ] G6 Map
 - [ ] G7 static fields
+- [x] Sublang module budget raised (4096 functions, see `SublangLimits`); Sublang builds again since `src/sublang/low/target/` was reconstructed; Ring1 (330 functions with the corpus) runs natively
 - [ ] Sublang `emit-llvm` crash on `tests/lowering/backendCrash.ev` (reported, not ours)
 
 ### Self-hosting
 
-- [ ] Ring1 lexer in Emvus; token stream equals the Ring0 lexer on every fixture
-- [ ] Ring1 parser; AST dump equals Ring0's on every fixture
-- [ ] Ring1 binder and null flow; diagnostics equal Ring0's
-- [ ] Ring1 lowering and wire output; wire equals Ring0's for the lowering fixtures
-- [ ] First self-host: the Ring0-built compiler compiles its own source
-- [ ] Fixed point: the result compiles itself to an identical executable
+- [ ] Ring1 lexer corpus parity (implemented; ASCII identifiers only; see `Ring1/README.md`)
+- [ ] Ring1 parser diagnostic parity (131 corpus ASTs matched in the previous run; error recovery remains open)
+- [ ] Ring1 binder and null flow; diagnostics equal Ring0's (77/78 type corpus cases matched in the integrated review run; `showcase.ev` still differs in built-ins, interface/exception members, switch results, collections and task/async types. Local null flow and line/column diagnostics implemented with eleven regression cases; constructor initialization and full switch flows remain open)
+- [ ] Ring1 lowering and wire output parity (subset executes natively; Ring0's fixtures through the Emvus emvusc: 21 passed, 0 failed, 24 unsupported (classes and objects, generics, lambdas, tuples, Result switches). Headers, builtin declarations, helper IDs and source spans still differ from Ring0; byte-for-byte IR parity is not claimed)
+- [x] First self-host: Ring1 lowers its own frontend and lowering source to Sublang, builds natively and runs the bootstrap regression (`scripts/buildEmvuscRing1.sh`: zero failed checks; 
+- [x] Fixed point: Ring1's `emvusc` (Emvus) compiles itself; stage 2 and stage 3 produce the same Sublang text (`Ring1/scripts/buildEmvuscRing1.sh`). Not yet claimed: identical executables, and Ring1 does not compile the whole language, so Ring0 stays the compiler for everything else
 - [ ] Ring2 idiomatic rewrite on the available backend gates
 
 ### Housekeeping

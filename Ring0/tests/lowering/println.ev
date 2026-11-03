@@ -1,6 +1,8 @@
-// expect-error: println is not available on the Sublang native target
-// Output primitives do not exist in Sublang yet; main's Int is the only observable result.
+// expect-status: 7
+// print, println and the exit status: a program that reaches the platform returns main's Int as its exit status.
 static method<Int> main {
-    println(42)
-    return 0
+    print("a")
+    println("b")
+    println("c" + "d")
+    return 7
 }

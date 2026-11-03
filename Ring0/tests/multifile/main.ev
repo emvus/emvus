@@ -1,0 +1,3 @@
+static method<Int> main {
+    return twice(BASE) + 2
+}

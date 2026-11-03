@@ -1,0 +1,972 @@
+package ring1.lowering
+
+// Lowers an expression to the number of the value it computes. A construct the lowering cannot handle
+// yet marks the state as failed and yields NO_VALUE.
+static method markUnsupported(List<Int> nodes, List<Int> state, Int node) {
+    if (state[LOWER_FAILED] == 0) {
+        state[LOWER_FAILED] = 1
+        state[LOWER_FAILED_LINE] = nodeField(nodes, node, NODE_LINE)
+    }
+}
+
+// The wire type of a binder type, read from the map the lowering builds at its start; NO_VALUE for types
+// it cannot represent yet.
+static method<Int> wireType(List<Int> state, Int type) {
+    Int index = LOWER_STATE_SIZE + type
+
+    if (type < 0 || index >= state.size()) {
+        return NO_VALUE
+    }
+
+    return state[index]
+}
+
+static method<Bool> isListWire(Int wire) {
+    return wire == WIRE_REF_LIST_INT || wire == WIRE_REF_LIST_BOOL
+}
+
+// Lists and strings are references to owned objects.
+static method<Bool> isReferenceWire(Int wire) {
+    return isListWire(wire) || wire == WIRE_STRING
+}
+
+// Fills the type map: every binder type that has a wire type gets it.
+// After the wire types come, for every type, the declaration of the enum it names (NO_NODE for the others); an enum
+// value is its ordinal, an Int.
+static method buildTypeMap(String source, List<Int> nodes, List<Int> types, List<Int> state) {
+    Int results = 0
+    for (Int type = 0; type < typeCount(types); type++) {
+        Int declaration = enumDeclaration(source, nodes, types, type)
+
+        if (declaration != NO_NODE && nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM) {
+            state.add(WIRE_INT)
+        }
+
+        if (declaration != NO_NODE && isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
+            state.add(WIRE_RECORD_BASE + recordIndex(nodes, declaration))
+        }
+
+        if (declaration == NO_NODE && isSupportedResult(source, nodes, types, type)) {
+            state.add(WIRE_RECORD_BASE + recordCountOf(nodes) + results)
+            results = results + 1
+        }
+
+        if (declaration == NO_NODE && !isSupportedResult(source, nodes, types, type)) {
+            state.add(wireOf(types, type))
+        }
+    }
+
+    for (Int type = 0; type < typeCount(types); type++) {
+        state.add(enumDeclaration(source, nodes, types, type))
+    }
+}
+
+// The enum or record declaration a named type refers to.
+static method<Int> enumDeclaration(String source, List<Int> nodes, List<Int> types, Int type) {
+    if (typeField(types, type, TYPE_KIND) != KIND_NAMED) {
+        return NO_NODE
+    }
+
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if ((nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM || isRecordKind(nodeField(nodes, declaration, NODE_KIND))) && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))) {
+            return declaration
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return NO_NODE
+}
+
+// The enum declaration of a binder type id, read from the map buildTypeMap made.
+static method<Int> declarationOfType(List<Int> state, Int type) {
+    Int count = (state.size() - LOWER_STATE_SIZE) / 2
+
+    if (type < 0 || type >= count) {
+        return NO_NODE
+    }
+
+    return state[LOWER_STATE_SIZE + count + type]
+}
+
+static method<Int> wireOf(List<Int> types, Int type) {
+    Int kind = typeField(types, type, TYPE_KIND)
+
+    if (type == TYPE_INT) {
+        return WIRE_INT
+    }
+
+    if (type == TYPE_BOOLEAN) {
+        return WIRE_BOOL
+    }
+
+    if (type == TYPE_VOID) {
+        return WIRE_VOID
+    }
+
+    if (type == TYPE_STRING) {
+        return WIRE_STRING
+    }
+
+    if (type == TYPE_FLOAT) {
+        return WIRE_FLOAT
+    }
+
+    if (kind == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == TYPE_INT) {
+        return WIRE_REF_LIST_INT
+    }
+
+    if (kind == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == TYPE_BOOLEAN) {
+        return WIRE_REF_LIST_BOOL
+    }
+
+    return NO_VALUE
+}
+
+static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_INT_LITERAL) {
+        return lowerIntLiteral(source, nodes, ir, state, node)
+    }
+
+    if (kind == NODE_BOOL_LITERAL) {
+        return constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, nodeIs(source, nodes, node, "true"))
+    }
+
+    if (kind == NODE_PROPAGATE || kind == NODE_UNWRAP) {
+        return lowerResultTest(source, nodes, annotations, ir, env, functions, state, node, kind == NODE_PROPAGATE)
+    }
+
+    if (kind == NODE_FLOAT_LITERAL) {
+        return lowerFloatLiteral(source, nodes, ir, state, node)
+    }
+
+    if (kind == NODE_NAME) {
+        return lowerName(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_BINARY) {
+        return lowerBinary(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_UNARY) {
+        return lowerUnary(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_CALL) {
+        return lowerCall(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_STRING) {
+        return lowerStringLiteral(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_PROPERTY) {
+        return lowerRecordRead(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_MEMBER) {
+        return lowerEnumEntry(source, nodes, annotations, ir, state, node)
+    }
+
+    if (kind == NODE_SWITCH) {
+        return lowerSwitch(source, nodes, annotations, ir, env, functions, state, node, true)
+    }
+
+    if (kind == NODE_LIST_LITERAL) {
+        return lowerListLiteral(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_INDEX) {
+        return lowerIndexRead(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    markUnsupported(nodes, state, node)
+    return NO_VALUE
+}
+
+static method<Int> constantValue(List<Int> ir, List<Int> state, Int code, Int type, Int intValue, Bool boolValue) {
+    Int result = newValue(ir, state, type)
+    addOperation(ir, state, code, result, type, 0, intValue, boolValue, PREDICATE_NONE)
+    return result
+}
+
+static method<Int> lowerIntLiteral(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node) {
+    Int start = nodeField(nodes, node, NODE_TEXT_START)
+    Int length = nodeField(nodes, node, NODE_TEXT_LENGTH)
+    Int value = 0
+
+    for (Int index = 0; index < length; index++) {
+        value = value * RADIX + (source.byteAt(start + index) - ZERO_BYTE)
+    }
+
+    return constantValue(ir, state, OP_CONST_INT, WIRE_INT, value, false)
+}
+
+static method<Int> lowerName(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+
+    if (symbol == REFERENCE_VARIABLE) {
+        return lowerConstant(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (symbol != REFERENCE_LOCAL && symbol != REFERENCE_PARAMETER) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int row = lookupEnvironment(env, state, annotationField(annotations, node, ANNOTATION_NAME_START))
+
+    if (row < 0) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    return env[row * ENV_STRIDE + ENV_VALUE]
+}
+
+// The environment row of the variable declared at this position, -1 when there is none.
+static method<Int> lookupEnvironment(List<Int> env, List<Int> state, Int key) {
+    for (Int row = state[LOWER_ENV] - 1; row >= 0; row--) {
+        if (env[row * ENV_STRIDE + ENV_KEY] == key) {
+            return row
+        }
+    }
+
+    return -1
+}
+
+static method<Int> lowerUnary(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int operand = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, node, NODE_FIRST_CHILD))
+
+    if (operand == NO_VALUE) {
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, node, "-") && annotationField(annotations, nodeField(nodes, node, NODE_FIRST_CHILD), ANNOTATION_TYPE) == TYPE_FLOAT) {
+        Int minusOne = newValue(ir, state, WIRE_FLOAT)
+        addOperation(ir, state, OP_CONST_FLOAT, minusOne, WIRE_FLOAT, 0, MINUS_ONE_BITS, false, PREDICATE_NONE)
+        return emitFloatOperation(ir, state, OP_FLOAT_MULTIPLY, operand, minusOne)
+    }
+
+    if (nodeIs(source, nodes, node, "-")) {
+        Int result = newValue(ir, state, WIRE_INT)
+        addOperation(ir, state, OP_NEGATE, result, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+        addOperand(ir, state, operand)
+        return result
+    }
+
+    if (nodeIs(source, nodes, node, "!")) {
+        Int falseValue = constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, false)
+        Int result = newValue(ir, state, WIRE_BOOL)
+        addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, PREDICATE_EQUAL)
+        addOperand(ir, state, operand)
+        addOperand(ir, state, falseValue)
+        return result
+    }
+
+    markUnsupported(nodes, state, node)
+    return NO_VALUE
+}
+
+// The failure that arithmetic traps with: the first failure record of every module.
+final var REFERENCE_FAILURE = 1
+
+static method<Int> lowerBinary(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    if (nodeIs(source, nodes, node, "&&") || nodeIs(source, nodes, node, "||")) {
+        return lowerShortCircuit(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int left = lowerExpression(source, nodes, annotations, ir, env, functions, state, first)
+    Int right = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, first, NODE_NEXT_SIBLING))
+
+    if (left == NO_VALUE || right == NO_VALUE) {
+        return NO_VALUE
+    }
+
+    if (annotationField(annotations, first, ANNOTATION_TYPE) == TYPE_STRING) {
+        return lowerTextOperator(source, nodes, ir, state, node, left, right)
+    }
+
+    if (annotationField(annotations, first, ANNOTATION_TYPE) == TYPE_FLOAT) {
+        return lowerFloatOperator(source, nodes, annotations, ir, state, node, left, right)
+    }
+
+    Int code = arithmeticCode(source, nodes, node)
+    Int predicate = comparisonPredicate(source, nodes, node)
+
+    if (code == 0 && predicate == PREDICATE_NONE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    if (code != 0) {
+        Int result = newValue(ir, state, WIRE_INT)
+        addOperation(ir, state, code, result, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+        addOperand(ir, state, left)
+        addOperand(ir, state, right)
+        return result
+    }
+
+    Int result = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, predicate)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+static method<Int> arithmeticCode(String source, List<Int> nodes, Int node) {
+    if (nodeIs(source, nodes, node, "+")) {
+        return OP_ADD
+    }
+
+    if (nodeIs(source, nodes, node, "-")) {
+        return OP_SUBTRACT
+    }
+
+    if (nodeIs(source, nodes, node, "*")) {
+        return OP_MULTIPLY
+    }
+
+    if (nodeIs(source, nodes, node, "/")) {
+        return OP_DIVIDE
+    }
+
+    if (nodeIs(source, nodes, node, "%")) {
+        return OP_REMAINDER
+    }
+
+    return 0
+}
+
+static method<Int> comparisonPredicate(String source, List<Int> nodes, Int node) {
+    if (nodeIs(source, nodes, node, "<")) {
+        return PREDICATE_LESS
+    }
+
+    if (nodeIs(source, nodes, node, "<=")) {
+        return PREDICATE_LESS_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, ">")) {
+        return PREDICATE_GREATER
+    }
+
+    if (nodeIs(source, nodes, node, ">=")) {
+        return PREDICATE_GREATER_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, "==")) {
+        return PREDICATE_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, "!=")) {
+        return PREDICATE_NOT_EQUAL
+    }
+
+    return PREDICATE_NONE
+}
+
+// `a && b` evaluates b only when a is true; `a || b` only when a is false. The result is a parameter
+// of the block both paths reach: the left value on the short path, the right value on the other.
+static method<Int> lowerShortCircuit(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int left = lowerExpression(source, nodes, annotations, ir, env, functions, state, first)
+
+    if (left == NO_VALUE) {
+        return NO_VALUE
+    }
+
+    Bool isAnd = nodeIs(source, nodes, node, "&&")
+    Int right = newBlock(ir, state, env, 0)
+    Int join = newResultBlock(ir, state, WIRE_BOOL)
+    Int result = ir[state[LOWER_LAST_BLOCK] + BLOCK_HEADER_SIZE]
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, left)
+    addOperand(ir, state, left)
+
+    if (isAnd) {
+        setTargets(ir, state, right, join, 0)
+    }
+
+    if (!isAnd) {
+        setTargets(ir, state, join, right, 1)
+    }
+
+    state[LOWER_BLOCK] = right
+    Int other = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, first, NODE_NEXT_SIBLING))
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, other)
+    setTargets(ir, state, join, NO_BLOCK, 0)
+    state[LOWER_BLOCK] = join
+    return result
+}
+
+// A call of a function of the program: `functions` holds one row per function, in declaration order,
+// which is also the function number.
+static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) >= 0 && annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_METHOD) {
+        return lowerWith(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_RESULT) {
+        return lowerOrElse(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_STRING) {
+        return lowerStringMember(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
+        return lowerListMember(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    if (annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_CONSTRUCTOR) {
+        return lowerRecordConstruction(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    if (annotationField(annotations, node, ANNOTATION_SYMBOL) != REFERENCE_METHOD || annotationField(annotations, node, ANNOTATION_OWNER) != OWNER_NONE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int row = findFunction(functions, annotationField(annotations, node, ANNOTATION_NAME_START))
+
+    if (row < 0) {
+        return lowerPlatformCall(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    List<Int> arguments = []
+    List<Int> modes = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        modes.add(argumentMode(annotations, functions, state, argument, row, modes.size()))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    Int returnType = functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN]
+    Int result = NO_VALUE
+
+    if (returnType != WIRE_VOID) {
+        result = newValue(ir, state, returnType)
+    }
+
+    addOperation(ir, state, OP_CALL, result, returnType, row + FIRST_USER_FUNCTION, 0, false, PREDICATE_NONE)
+
+    if (isReferenceWire(returnType)) {
+        setOwned(ir, state)
+    }
+
+    for (Int index = 0; index < arguments.size(); index++) {
+        if (arguments[index] == NO_VALUE) {
+            markUnsupported(nodes, state, node)
+            return NO_VALUE
+        }
+
+        addOperandMode(ir, state, arguments[index], modes[index])
+    }
+
+    return result
+}
+
+// A list argument is lent to the callee for reading, or for writing when the callee changes it.
+static method<Int> argumentMode(List<Int> annotations, List<Int> functions, List<Int> state, Int argument, Int row, Int position) {
+    if (!isReferenceWire(wireType(state, annotationField(annotations, argument, ANNOTATION_TYPE)))) {
+        return MODE_VALUE
+    }
+
+    if (wireType(state, annotationField(annotations, argument, ANNOTATION_TYPE)) == WIRE_STRING) {
+        return MODE_BORROW_READ
+    }
+
+    if (functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] == 1) {
+        return MODE_BORROW_WRITE
+    }
+
+    return MODE_BORROW_READ
+}
+
+final var FUNCTION_ROW_NAME = 0
+final var FUNCTION_ROW_RETURN = 1
+final var FUNCTION_ROW_PARAMETERS = 2
+final var FUNCTION_ROW_MUTATED = 3
+final var MAX_PARAMETERS = 16
+final var FUNCTION_ROW_SIZE = 19
+
+static method<Int> findFunction(List<Int> functions, Int nameStart) {
+    for (Int row = 0; row < functions.size() / FUNCTION_ROW_SIZE; row++) {
+        if (functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_NAME] == nameStart) {
+            return row
+        }
+    }
+
+    return -1
+}
+
+// A top-level constant is inlined where it is read: its initializer is lowered again at the use.
+static method<Int> lowerConstant(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int name) {
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_VARIABLE && nodeField(nodes, declaration, NODE_TEXT_START) == annotationField(annotations, name, ANNOTATION_NAME_START)) {
+            return lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, declaration, NODE_LAST_CHILD))
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    markUnsupported(nodes, state, name)
+    return NO_VALUE
+}
+
+static method<Int> listElementWire(Int listWire) {
+    if (listWire == WIRE_REF_LIST_BOOL) {
+        return WIRE_BOOL
+    }
+
+    return WIRE_INT
+}
+
+// `[a, b]`: a fresh owned list that is filled element by element.
+static method<Int> lowerListLiteral(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int wire = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (!isListWire(wire)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int list = newValue(ir, state, wire)
+    addOperation(ir, state, OP_LIST_NEW, list, wire, wire - 1, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    Int element = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (element != NO_NODE) {
+        Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, element)
+
+        if (value == NO_VALUE) {
+            return NO_VALUE
+        }
+
+        addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+        addOperand(ir, state, value)
+        element = nodeField(nodes, element, NODE_NEXT_SIBLING)
+    }
+
+    return list
+}
+
+// `xs[i]`
+static method<Int> lowerIndexRead(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int list = lowerExpression(source, nodes, annotations, ir, env, functions, state, first)
+    Int index = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, first, NODE_NEXT_SIBLING))
+    return emitListGet(nodes, annotations, ir, state, node, list, index)
+}
+
+static method<Int> emitListGet(List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int list, Int index) {
+    Int type = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (list == NO_VALUE || index == NO_VALUE || type == NO_VALUE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, type)
+    addOperation(ir, state, OP_LIST_GET, result, type, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, list, MODE_BORROW_READ)
+    addOperand(ir, state, index)
+    return result
+}
+
+// `xs.add(v)`, `xs.set(i, v)`, `xs.get(i)`, `xs.size()`, `xs.length()` and `xs.isEmpty()`.
+static method<Int> lowerListMember(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    if (annotationField(annotations, node, ANNOTATION_OWNER) != OWNER_LIST) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int list = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, callee, NODE_FIRST_CHILD))
+    List<Int> arguments = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    if (list == NO_VALUE || hasNoValue(arguments)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    return emitListMember(source, nodes, annotations, ir, state, node, callee, list, arguments)
+}
+
+static method<Int> emitListMember(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int callee, Int list, List<Int> arguments) {
+    if (nodeIs(source, nodes, callee, "add") && arguments.size() == 1) {
+        addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+        addOperand(ir, state, arguments[0])
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, callee, "set") && arguments.size() == 2) {
+        addOperation(ir, state, OP_LIST_SET, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+        addOperand(ir, state, arguments[0])
+        addOperand(ir, state, arguments[1])
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, callee, "get") && arguments.size() == 1) {
+        return emitListGet(nodes, annotations, ir, state, node, list, arguments[0])
+    }
+
+    if (nodeIs(source, nodes, callee, "isEmpty") && arguments.size() == 0) {
+        Int length = emitListLength(ir, state, list)
+        Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+        Int result = newValue(ir, state, WIRE_BOOL)
+        addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, PREDICATE_EQUAL)
+        addOperand(ir, state, length)
+        addOperand(ir, state, zero)
+        return result
+    }
+
+    if ((nodeIs(source, nodes, callee, "size") || nodeIs(source, nodes, callee, "length")) && arguments.size() == 0) {
+        return emitListLength(ir, state, list)
+    }
+
+    markUnsupported(nodes, state, node)
+    return NO_VALUE
+}
+
+static method<Int> emitListLength(List<Int> ir, List<Int> state, Int list) {
+    Int length = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_LIST_LENGTH, length, WIRE_INT, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, list, MODE_BORROW_READ)
+    return length
+}
+
+static method<Bool> hasNoValue(List<Int> values) {
+    for (Int index = 0; index < values.size(); index++) {
+        if (values[index] == NO_VALUE) {
+            return true
+        }
+    }
+
+    return false
+}
+
+// A string literal is a constant that is copied into an owned byte list.
+static method<Int> lowerStringLiteral(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    if (nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE) {
+        return lowerInterpolation(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
+    addOperation(ir, state, OP_CONST_STRING, constant, WIRE_STRING_CONSTANT, 0, 0, false, PREDICATE_NONE)
+    setText(ir, state, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+    Int text = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_TEXT_FROM_STR, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperand(ir, state, constant)
+    return text
+}
+
+// `a + b`, `a == b` and `a != b` on strings.
+static method<Int> lowerTextOperator(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node, Int left, Int right) {
+    if (nodeIs(source, nodes, node, "+")) {
+        Int joined = newValue(ir, state, WIRE_STRING)
+        addOperation(ir, state, OP_TEXT_CONCAT, joined, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+        setOwned(ir, state)
+        addOperandMode(ir, state, left, MODE_BORROW_READ)
+        addOperandMode(ir, state, right, MODE_BORROW_READ)
+        return joined
+    }
+
+    if (!nodeIs(source, nodes, node, "==") && !nodeIs(source, nodes, node, "!=")) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int same = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_TEXT_EQUAL, same, WIRE_BOOL, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, left, MODE_BORROW_READ)
+    addOperandMode(ir, state, right, MODE_BORROW_READ)
+
+    if (nodeIs(source, nodes, node, "==")) {
+        return same
+    }
+
+    Int falseValue = constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, false)
+    Int different = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, different, WIRE_BOOL, 0, 0, false, PREDICATE_EQUAL)
+    addOperand(ir, state, same)
+    addOperand(ir, state, falseValue)
+    return different
+}
+
+// `text.length()`, `text.byteAt(i)` and `text.substring(from, to)`.
+static method<Int> lowerStringMember(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int text = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, callee, NODE_FIRST_CHILD))
+    List<Int> arguments = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    if (text == NO_VALUE || hasNoValue(arguments)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, callee, "length") && arguments.size() == 0) {
+        return emitListLength(ir, state, text)
+    }
+
+    if (nodeIs(source, nodes, callee, "byteAt") && arguments.size() == 1) {
+        return emitByteAt(ir, state, text, arguments[0])
+    }
+
+    if (nodeIs(source, nodes, callee, "substring") && arguments.size() == 2) {
+        return emitSubstring(ir, state, text, arguments[0], arguments[1])
+    }
+
+    markUnsupported(nodes, state, node)
+    return NO_VALUE
+}
+
+static method<Int> emitByteAt(List<Int> ir, List<Int> state, Int text, Int index) {
+    Int byte = newValue(ir, state, WIRE_BYTE)
+    addOperation(ir, state, OP_LIST_GET, byte, WIRE_BYTE, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, text, MODE_BORROW_READ)
+    addOperand(ir, state, index)
+    Int value = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_BYTE_TO_INT, value, WIRE_INT, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, byte)
+    return value
+}
+
+// The slice takes a start and a length, so the length is `to - from`.
+static method<Int> emitSubstring(List<Int> ir, List<Int> state, Int text, Int from, Int to) {
+    Int length = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_SUBTRACT, length, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, to)
+    addOperand(ir, state, from)
+    Int slice = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_TEXT_SLICE, slice, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperandMode(ir, state, text, MODE_BORROW_READ)
+    addOperand(ir, state, from)
+    addOperand(ir, state, length)
+    return slice
+}
+
+// The platform functions (`print`, `println`, `errprint`, `errprintln`, `readFile`, `writeFile`, `fileExists`,
+// `argument`, `argumentCount`, `exit`) are calls of the platform imports of Sublang.
+static method<Int> lowerPlatformCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int slot = importForName(source, nodes, callee)
+
+    if (slot == NO_IMPORT || state[LOWER_IMPORT + slot] == 0) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    List<Int> arguments = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    String signature = importSignature(slot)
+    Int split = splitOf(signature)
+
+    if (hasNoValue(arguments) || arguments.size() != split) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = emitImportCall(ir, state, slot, arguments)
+
+    if ((nodeIs(source, nodes, callee, "println") || nodeIs(source, nodes, callee, "errprintln")) && result == NO_VALUE) {
+        List<Int> lineFeed = []
+        lineFeed.add(emitLineFeed(ir, state))
+        emitImportCall(ir, state, slot, lineFeed)
+    }
+
+    return result
+}
+
+// A call of the import; text parameters are lent for reading and a text result is owned by the function's scope.
+static method<Int> emitImportCall(List<Int> ir, List<Int> state, Int slot, List<Int> arguments) {
+    String signature = importSignature(slot)
+    Int split = splitOf(signature)
+    String letter = signature.substring(split + 1, signature.length())
+    Int type = importResultType(letter)
+    Int result = NO_VALUE
+
+    if (type != WIRE_VOID) {
+        result = newValue(ir, state, type)
+    }
+
+    addOperation(ir, state, OP_CALL, result, type, state[LOWER_IMPORT + slot], 0, false, PREDICATE_NONE)
+
+    if (letter == "T") {
+        setOwned(ir, state)
+    }
+
+    for (Int position = 0; position < arguments.size(); position++) {
+        Int mode = MODE_VALUE
+
+        if (signature.substring(position, position + 1) == "t") {
+            mode = MODE_BORROW_READ
+        }
+
+        addOperandMode(ir, state, arguments[position], mode)
+    }
+
+    return result
+}
+
+// A fresh text holding a single line feed.
+static method<Int> emitLineFeed(List<Int> ir, List<Int> state) {
+    Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
+    addOperation(ir, state, OP_CONST_STRING, constant, WIRE_STRING_CONSTANT, 0, 0, false, PREDICATE_NONE)
+    setText(ir, state, TEXT_LINE_FEED, 1)
+    Int text = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_TEXT_FROM_STR, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperand(ir, state, constant)
+    return text
+}
+
+// A Float literal is a constant holding the bit pattern of the value.
+static method<Int> lowerFloatLiteral(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node) {
+    Int bits = floatBits(source, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+
+    if (bits < 0) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, WIRE_FLOAT)
+    addOperation(ir, state, OP_CONST_FLOAT, result, WIRE_FLOAT, 0, bits, false, PREDICATE_NONE)
+    return result
+}
+
+static method<Int> emitFloatOperation(List<Int> ir, List<Int> state, Int code, Int left, Int right) {
+    Int result = newValue(ir, state, WIRE_FLOAT)
+    addOperation(ir, state, code, result, WIRE_FLOAT, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+// Arithmetic and comparisons of two Floats; Float comparisons name ordered predicates, `!=` the unordered one so that
+// NaN != NaN holds. `%` has no Float form.
+static method<Int> lowerFloatOperator(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int left, Int right) {
+    Int code = floatArithmeticCode(source, nodes, node)
+
+    if (code != 0) {
+        return emitFloatOperation(ir, state, code, left, right)
+    }
+
+    Int predicate = floatPredicate(source, nodes, node)
+
+    if (predicate == PREDICATE_NONE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, predicate)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+static method<Int> floatArithmeticCode(String source, List<Int> nodes, Int node) {
+    if (nodeIs(source, nodes, node, "+")) {
+        return OP_FLOAT_ADD
+    }
+
+    if (nodeIs(source, nodes, node, "-")) {
+        return OP_FLOAT_SUBTRACT
+    }
+
+    if (nodeIs(source, nodes, node, "*")) {
+        return OP_FLOAT_MULTIPLY
+    }
+
+    if (nodeIs(source, nodes, node, "/")) {
+        return OP_FLOAT_DIVIDE
+    }
+
+    return 0
+}
+
+static method<Int> floatPredicate(String source, List<Int> nodes, Int node) {
+    if (nodeIs(source, nodes, node, "<")) {
+        return PREDICATE_ORDERED_LESS
+    }
+
+    if (nodeIs(source, nodes, node, "<=")) {
+        return PREDICATE_ORDERED_LESS_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, ">")) {
+        return PREDICATE_ORDERED_GREATER
+    }
+
+    if (nodeIs(source, nodes, node, ">=")) {
+        return PREDICATE_ORDERED_GREATER_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, "==")) {
+        return PREDICATE_ORDERED_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, "!=")) {
+        return PREDICATE_UNORDERED_NOT_EQUAL
+    }
+
+    return PREDICATE_NONE
+}
+
+// A new owned text made from one operand: a copy of a constant (text.from_str), a file, an argument, ...
+static method<Int> emitTextResult(List<Int> ir, List<Int> state, Int code, Int operand, Int mode) {
+    Int text = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, code, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperandMode(ir, state, operand, mode)
+    return text
+}
+
+static method<Int> recordCountOf(List<Int> nodes) {
+    Int count = 0
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (isRecordKind(nodeField(nodes, declaration, NODE_KIND))) {
+            count = count + 1
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return count
+}

@@ -1,0 +1,14 @@
+package ring1.tests
+
+// Prints the type annotations Ring1's binder gives the program in the file named by the first argument, in the
+// format of Ring0's `--check --types`. The binder corpus scripts compare the two.
+static method<Int> main {
+    String source = readFile(argument(0))
+
+    if (source.length() == 0) {
+        return 1
+    }
+
+    print(typesSource(source))
+    return 0
+}

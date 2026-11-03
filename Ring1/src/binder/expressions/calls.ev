@@ -1,0 +1,292 @@
+package ring1.binder
+
+// `name(arguments)` calls a method of the program; `receiver.name(arguments)` a member of String or List.
+static method<Int> bindCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int argumentCount = countSiblings(nodes, callee)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
+        return bindMemberCall(source, nodes, types, symbols, annotations, state, node, callee, argumentCount)
+    }
+
+    return bindMethodCall(source, nodes, types, symbols, annotations, state, node, callee, argumentCount)
+}
+
+// Number of nodes after `node` in its sibling list.
+static method<Int> countSiblings(List<Int> nodes, Int node) {
+    Int count = 0
+    Int next = nodeField(nodes, node, NODE_NEXT_SIBLING)
+
+    while (next != NO_NODE) {
+        count = count + 1
+        next = nodeField(nodes, next, NODE_NEXT_SIBLING)
+    }
+
+    return count
+}
+
+// Binds the arguments after the callee and returns the type of the last one. An argument is expected
+// to have the declared type of its parameter as far as the type parameters are known by then; each
+// bound argument teaches the call more of them. For the members of a list a lambda is expected to
+// have the function type its parameter count implies.
+static method<Int> bindArguments(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int callee, List<Int> call) {
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+    Int position = 0
+    Int previous = TYPE_UNKNOWN
+
+    while (argument != NO_NODE) {
+        Int declared = declaredParameterType(source, nodes, types, call[CALL_PARAMS], position)
+        Int expected = expectedArgument(source, nodes, types, call, declared, previous, argument)
+        previous = bindExpression(source, nodes, types, symbols, annotations, state, argument, expected)
+        unify(source, nodes, types, call, declared, previous)
+        position = position + 1
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    return previous
+}
+
+static method<Int> expectedArgument(String source, List<Int> nodes, List<Int> types, List<Int> call, Int declared, Int previous, Int argument) {
+    if (call[CALL_PARAMS] != NO_NODE) {
+        return substitute(source, nodes, types, call, declared)
+    }
+
+    Int element = call[CALL_ELEMENT]
+
+    if (element != NO_TYPE && nodeField(nodes, argument, NODE_KIND) == NODE_LAMBDA) {
+        return lambdaExpected(nodes, types, source, argument, element, previous)
+    }
+
+    if (element != NO_TYPE && nodeField(nodes, argument, NODE_KIND) == NODE_LIST_LITERAL) {
+        return element
+    }
+
+    return TYPE_UNKNOWN
+}
+
+// The declared type of a parameter, TYPE_UNKNOWN when it has none or the declaration is not known.
+static method<Int> declaredParameterType(String source, List<Int> nodes, List<Int> types, Int declaration, Int position) {
+    if (declaration == NO_NODE) {
+        return TYPE_UNKNOWN
+    }
+
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+
+    for (Int index = 0; index < position && param != NO_NODE; index++) {
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    if (param == NO_NODE || childOfKind(nodes, param, NODE_TYPE) == NO_NODE) {
+        return TYPE_UNKNOWN
+    }
+
+    return typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE))
+}
+
+// A bare call names a method of the surrounding type, a method of the program or, failing both, the
+// constructor of a type of the program.
+static method<Int> bindMethodCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int argumentCount) {
+    Int start = nodeField(nodes, callee, NODE_TEXT_START)
+    Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
+    Int local = lookupLocal(source, symbols, state, start, length)
+
+    if (local != NO_SYMBOL && isFunctionType(types, symbolField(symbols, local, SYMBOL_TYPE))) {
+        return bindValueCall(source, nodes, types, symbols, annotations, state, node, callee, local)
+    }
+
+    Int row = NO_SYMBOL
+
+    if (state[BINDER_CLASS] != NO_TYPE) {
+        row = lookupMember(source, symbols, state, state[BINDER_CLASS], start, length, ROW_METHOD, ROW_METHOD, argumentCount)
+    }
+
+    if (row == NO_SYMBOL) {
+        row = lookupMethod(source, symbols, state, start, length, argumentCount)
+    }
+
+    if (row == NO_SYMBOL) {
+        return bindConstructorCall(source, nodes, types, symbols, annotations, state, node, callee, start, length, argumentCount)
+    }
+
+    Int declaration = symbolField(symbols, row, SYMBOL_NODE)
+    List<Int> call = newCall(declaration, declaration, NO_TYPE)
+
+    if (typeParameterCount(nodes, declaration) > 0) {
+        call[CALL_SHOWS_ARGUMENTS] = 1
+    }
+
+    return finishMethodCall(source, nodes, types, symbols, annotations, state, node, callee, row, call)
+}
+
+// Binds the arguments of a call of a declared method and annotates the call with the result.
+static method<Int> finishMethodCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int row, List<Int> call) {
+    bindArguments(source, nodes, types, symbols, annotations, state, callee, call)
+    Int type = substitute(source, nodes, types, call, symbolField(symbols, row, SYMBOL_TYPE))
+    annotate(annotations, node, type, REFERENCE_METHOD, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), symbolField(symbols, row, SYMBOL_OWNER), overloadPosition(source, symbols, row))
+
+    if (call[CALL_SHOWS_ARGUMENTS] == 1) {
+        annotateArgument(annotations, node, bindingsType(source, nodes, types, call))
+    }
+
+    return type
+}
+
+static method<Bool> isFunctionType(List<Int> types, Int type) {
+    return typeField(types, type, TYPE_KIND) == KIND_FUNCTION || typeField(types, type, TYPE_KIND) == KIND_BIFUNCTION
+}
+
+// `f(x)` on a local or parameter of a function type applies it; the result is the last type argument.
+static method<Int> bindValueCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int local) {
+    Int function = symbolField(symbols, local, SYMBOL_TYPE)
+    Int type = typeOrUnknown(typeArgument(types, function, argumentCount(types, function) - 1))
+    bindExpression(source, nodes, types, symbols, annotations, state, callee, TYPE_UNKNOWN)
+    annotate(annotations, node, type, REFERENCE_VALUE, symbolField(symbols, local, SYMBOL_NAME_START), symbolField(symbols, local, SYMBOL_NAME_LENGTH), OWNER_NONE, 0)
+    bindArguments(source, nodes, types, symbols, annotations, state, callee, newCall(NO_NODE, NO_NODE, NO_TYPE))
+    return type
+}
+
+// A type without a declared constructor of that many parameters still has its implicit one (overload 0).
+// The type arguments of a generic type are inferred from the arguments.
+static method<Int> bindConstructorCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int start, Int length, Int argumentCount) {
+    Int declared = classNamed(source, symbols, state, start, length)
+
+    if (declared == NO_SYMBOL) {
+        return bindUnknownCall(source, nodes, types, symbols, annotations, state, node, callee, start, length, argumentCount)
+    }
+
+    Int classNode = symbolField(symbols, declared, SYMBOL_NODE)
+    Int type = symbolField(symbols, declared, SYMBOL_TYPE)
+    Int overload = 0
+    Int constructor = memberOf(source, symbols, state, type, start, length, ROW_CONSTRUCTOR, ROW_CONSTRUCTOR, argumentCount)
+    List<Int> call = newCall(classNode, classNode, NO_TYPE)
+
+    if (constructor != NO_SYMBOL) {
+        overload = overloadPosition(source, symbols, constructor)
+        call[CALL_PARAMS] = symbolField(symbols, constructor, SYMBOL_NODE)
+    }
+
+    bindArguments(source, nodes, types, symbols, annotations, state, callee, call)
+    Int result = type
+
+    if (typeParameterCount(nodes, classNode) > 0) {
+        result = selfTypeWith(source, nodes, types, call, symbolField(symbols, declared, SYMBOL_NAME_START), symbolField(symbols, declared, SYMBOL_NAME_LENGTH))
+    }
+
+    annotate(annotations, node, result, REFERENCE_CONSTRUCTOR, symbolField(symbols, declared, SYMBOL_NAME_START), symbolField(symbols, declared, SYMBOL_NAME_LENGTH), type, overload)
+
+    if (typeParameterCount(nodes, classNode) > 0) {
+        annotateArgument(annotations, node, bindingsType(source, nodes, types, call))
+    }
+
+    return result
+}
+
+// A generic type applied to the type arguments a call inferred.
+static method<Int> selfTypeWith(String source, List<Int> nodes, List<Int> types, List<Int> call, Int start, Int length) {
+    Int count = typeParameterCount(nodes, call[CALL_TYPE_HOLDER])
+    return appliedType(source, types, KIND_APPLIED, start, length, bindingAt(call, count, 0), bindingAt(call, count, 1), bindingAt(call, count, 2))
+}
+
+// A call that names nothing the program declares: a global function or an unknown name.
+static method<Int> bindUnknownCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int start, Int length, Int argumentCount) {
+    bindArguments(source, nodes, types, symbols, annotations, state, callee, newCall(NO_NODE, NO_NODE, NO_TYPE))
+
+    Int builtin = builtinFunctionType(source, start, length, argumentCount)
+
+    if (builtin != TYPE_UNKNOWN) {
+        annotate(annotations, node, builtin, REFERENCE_METHOD, start, length, OWNER_NONE, 0)
+        return builtin
+    }
+
+    annotateType(annotations, node, TYPE_UNKNOWN)
+    return TYPE_UNKNOWN
+}
+
+static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int argumentCount) {
+    Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, callee, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int start = nodeField(nodes, callee, NODE_TEXT_START)
+    Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
+    Int plain = plainType(source, types, receiver)
+    Int row = NO_SYMBOL
+
+    if (typeField(types, plain, TYPE_KIND) == KIND_NAMED) {
+        row = lookupMember(source, symbols, state, plain, start, length, ROW_METHOD, ROW_METHOD, argumentCount)
+    }
+
+    if (row != NO_SYMBOL) {
+        return bindDeclaredMemberCall(source, nodes, types, symbols, annotations, state, node, callee, receiver, row)
+    }
+
+    Int element = NO_TYPE
+
+    if (typeField(types, receiver, TYPE_KIND) == KIND_LIST) {
+        element = typeField(types, receiver, TYPE_ELEMENT)
+    }
+
+    Int last = bindArguments(source, nodes, types, symbols, annotations, state, callee, newCall(NO_NODE, NO_NODE, element))
+    Int type = TYPE_UNKNOWN
+
+    if (typeField(types, plain, TYPE_KIND) == KIND_NAMED) {
+        type = bindWithCall(source, symbols, annotations, state, node, plain, start, length)
+    }
+
+    if (type == TYPE_UNKNOWN && typeField(types, plain, TYPE_KIND) == KIND_NAMED && classRow(symbols, state, plain) == NO_SYMBOL && isMember(source, start, length, "compareTo", argumentCount, 1)) {
+        annotate(annotations, node, TYPE_INT, REFERENCE_METHOD, start, length, OWNER_COMPARABLE, 0)
+        return TYPE_INT
+    }
+
+    if (type == TYPE_UNKNOWN) {
+        type = memberResult(source, types, receiver, start, length, argumentCount, last)
+        annotateBuiltinMember(source, annotations, types, node, receiver, type, start, length, last)
+    }
+
+    return type
+}
+
+// A method of a type of the program. Type arguments of the receiver stand for the type's own type
+// parameters; the method may have type parameters of its own.
+static method<Int> bindDeclaredMemberCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int receiver, Int row) {
+    Int declaration = symbolField(symbols, row, SYMBOL_NODE)
+    Int owner = classRow(symbols, state, symbolField(symbols, row, SYMBOL_OWNER))
+    List<Int> call = newCall(declaration, symbolField(symbols, owner, SYMBOL_NODE), NO_TYPE)
+    seedFromReceiver(types, call, receiver)
+
+    if (typeParameterCount(nodes, declaration) > 0) {
+        call[CALL_TYPE_HOLDER] = declaration
+        call[CALL_SHOWS_ARGUMENTS] = 1
+    }
+
+    return finishMethodCall(source, nodes, types, symbols, annotations, state, node, callee, row, call)
+}
+
+static method annotateBuiltinMember(String source, List<Int> annotations, List<Int> types, Int node, Int receiver, Int type, Int start, Int length, Int last) {
+    if (type == TYPE_UNKNOWN) {
+        annotateType(annotations, node, type)
+    }
+
+    if (type != TYPE_UNKNOWN) {
+        annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(source, types, receiver), 0)
+
+        if (typeField(types, receiver, TYPE_KIND) == KIND_LIST && (spanIs(source, start, length, "map") || spanIs(source, start, length, "reduce"))) {
+            annotateArgument(annotations, node, typeArgument(types, last, argumentCount(types, last) - 1))
+        }
+    }
+}
+
+// `value.withName(x)` copies a record or data class with one property replaced: `with` and a property name.
+static method<Int> bindWithCall(String source, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int receiver, Int start, Int length) {
+    Int prefix = 4
+
+    if (length <= prefix || !spanIs(source, start, prefix, "with")) {
+        return TYPE_UNKNOWN
+    }
+
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_PROPERTY && symbolField(symbols, row, SYMBOL_OWNER) == receiver && hasName(source, symbols, row, start + prefix, length - prefix)) {
+            annotate(annotations, node, receiver, REFERENCE_METHOD, start, length, receiver, 0)
+            return receiver
+        }
+    }
+
+    return TYPE_UNKNOWN
+}

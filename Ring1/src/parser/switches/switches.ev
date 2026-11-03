@@ -1,0 +1,158 @@
+package ring1.parser
+
+// `switch (value) { pattern -> result ... }`. The expression form has `patterns` nodes and an
+// expression as result; the statement form has the patterns directly under the case and a
+// statement as result.
+static method<Int> parseSwitch(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Bool asExpression) {
+    Int switchNode = addEmptyNode(nodes, NODE_SWITCH, tokens, state)
+    advanceToken(tokens, state)
+    expectSymbol(source, tokens, state, "(")
+    appendChild(nodes, switchNode, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, "{")
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, switchNode, parseCase(source, tokens, state, nodes, asExpression))
+        ensureProgress(tokens, state, before)
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return switchNode
+}
+
+static method<Int> parseCase(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Bool asExpression) {
+    Int caseNode = addEmptyNode(nodes, NODE_CASE, tokens, state)
+
+    if (asExpression) {
+        appendChild(nodes, caseNode, parsePatterns(source, tokens, state, nodes))
+    }
+
+    if (!asExpression) {
+        parseCasePatterns(source, tokens, state, nodes, caseNode)
+    }
+
+    expectSymbol(source, tokens, state, "->")
+    appendChild(nodes, caseNode, parseCaseResult(source, tokens, state, nodes, asExpression))
+    return caseNode
+}
+
+static method<Int> parseCaseResult(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Bool asExpression) {
+    if (asExpression && atSuccessStatement(source, tokens, state)) {
+        return parseValueStatement(source, tokens, state, nodes, NODE_SUCCESS)
+    }
+
+    if (asExpression && atKeyword(source, tokens, state, "fail")) {
+        return parseValueStatement(source, tokens, state, nodes, NODE_FAIL)
+    }
+
+    if (asExpression) {
+        return parseExpression(source, tokens, state, nodes)
+    }
+
+    if (atSymbol(source, tokens, state, "{")) {
+        return parseBlock(source, tokens, state, nodes)
+    }
+
+    return parseStatement(source, tokens, state, nodes)
+}
+
+// `success(value)` and `error(problem)` bind the result of a `Result`; `error(Type problem)` also
+// names the exception type.
+static method<Bool> atResultPattern(String source, List<Int> tokens, List<Int> state) {
+    return (atIdentifierText(source, tokens, state, "success") || atIdentifierText(source, tokens, state, "error")) && symbolAhead(source, tokens, state, AHEAD_NEXT, "(")
+}
+
+static method<Int> parseResultPattern(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int kind = NODE_PATTERN_ERROR
+
+    if (atIdentifierText(source, tokens, state, "success")) {
+        kind = NODE_PATTERN_SUCCESS
+    }
+
+    Int pattern = withoutText(nodes, parseLeaf(tokens, state, nodes, kind))
+    advanceToken(tokens, state)
+
+    if (looksLikeTypedName(source, tokens, state)) {
+        appendChild(nodes, pattern, parseType(source, tokens, state, nodes))
+    }
+
+    appendChild(nodes, pattern, parseLeaf(tokens, state, nodes, NODE_BINDING))
+    expectSymbol(source, tokens, state, ")")
+    return pattern
+}
+
+static method<Int> parsePatterns(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int patterns = addEmptyNode(nodes, NODE_PATTERNS, tokens, state)
+
+    while (true) {
+        appendChild(nodes, patterns, parseExpressionPattern(source, tokens, state, nodes))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    return patterns
+}
+
+static method<Int> parseExpressionPattern(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atResultPattern(source, tokens, state)) {
+        return parseResultPattern(source, tokens, state, nodes)
+    }
+
+    if (atKind(tokens, state, TOKEN_IDENTIFIER) || atKeyword(source, tokens, state, "true") || atKeyword(source, tokens, state, "false")) {
+        return parseLeaf(tokens, state, nodes, NODE_PATTERN)
+    }
+
+    Int literal = addEmptyNode(nodes, NODE_PATTERN_LITERAL, tokens, state)
+    appendChild(nodes, literal, parseUnary(source, tokens, state, nodes))
+    return literal
+}
+
+static method parseCasePatterns(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int caseNode) {
+    while (true) {
+        appendChild(nodes, caseNode, parseStatementPattern(source, tokens, state, nodes))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+}
+
+// `success ->` and `error ->` match a result without binding its value.
+static method<Bool> atBareResultPattern(String source, List<Int> tokens, List<Int> state) {
+    return (atIdentifierText(source, tokens, state, "success") || atIdentifierText(source, tokens, state, "error")) && symbolAhead(source, tokens, state, AHEAD_NEXT, "->")
+}
+
+static method<Int> parseBareResultPattern(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int kind = NODE_PATTERN_ERROR
+
+    if (atIdentifierText(source, tokens, state, "success")) {
+        kind = NODE_PATTERN_SUCCESS
+    }
+
+    return withoutText(nodes, parseLeaf(tokens, state, nodes, kind))
+}
+
+static method<Int> parseStatementPattern(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atResultPattern(source, tokens, state)) {
+        return parseResultPattern(source, tokens, state, nodes)
+    }
+
+    if (atBareResultPattern(source, tokens, state)) {
+        return parseBareResultPattern(source, tokens, state, nodes)
+    }
+
+    if (atKind(tokens, state, TOKEN_IDENTIFIER)) {
+        return parseLeaf(tokens, state, nodes, NODE_PATTERN_NAME)
+    }
+
+    Int value = addEmptyNode(nodes, NODE_PATTERN_VALUE, tokens, state)
+    appendChild(nodes, value, parseUnary(source, tokens, state, nodes))
+    return value
+}

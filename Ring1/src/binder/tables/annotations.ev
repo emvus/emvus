@@ -1,0 +1,85 @@
+package ring1.binder
+
+// What the binder knows about a node: its type and the symbol it refers to. One row per node, indexed
+// by node id. A member or a call also records its owner (a type id, or one of the built-in owners) and,
+// for calls, the overload position.
+final var ANNOTATION_TYPE = 0
+final var ANNOTATION_SYMBOL = 1
+final var ANNOTATION_NAME_START = 2
+final var ANNOTATION_NAME_LENGTH = 3
+final var ANNOTATION_OWNER = 4
+final var ANNOTATION_OVERLOAD = 5
+final var ANNOTATION_ARGUMENT = 6
+final var ANNOTATION_STRIDE = 7
+
+final var REFERENCE_NONE = 0
+final var REFERENCE_LOCAL = 1
+final var REFERENCE_PARAMETER = 2
+final var REFERENCE_VARIABLE = 3
+final var REFERENCE_METHOD = 4
+final var REFERENCE_LITERAL = 5
+final var REFERENCE_PROPERTY = 6
+final var REFERENCE_FIELD = 7
+final var REFERENCE_CONSTRUCTOR = 8
+final var REFERENCE_ENTRY = 9
+final var REFERENCE_TYPE = 10
+final var REFERENCE_SWITCH = 11
+final var REFERENCE_VALUE = 12
+
+// The overload column of a type name tells what kind of type it names; of a switch, how it ends.
+final var TYPE_IS_ENUM = 0
+final var TYPE_IS_CLASS = 1
+final var SWITCH_EXHAUSTIVE = 0
+final var SWITCH_CATCH_ALL = 1
+final var SWITCH_RESULT = 2
+final var SWITCH_BOOLEAN = 3
+
+// Owners of members: a type id for the types of the program, these values for built-in types.
+final var OWNER_NONE = -1
+final var OWNER_STRING = -2
+final var OWNER_LIST = -3
+final var OWNER_RESULT = -4
+final var OWNER_FIBER = -5
+final var OWNER_EXCEPTION = -6
+final var OWNER_COMPARABLE = -7
+// Annotation type of a statement, which has no type of its own but still carries a symbol.
+final var TYPE_STATEMENT = -2
+
+static method<List<Int>> newAnnotations(List<Int> nodes) {
+    List<Int> annotations = []
+
+    for (Int node = 0; node < nodes.size() / NODE_STRIDE; node++) {
+        annotations.add(NO_TYPE)
+        annotations.add(REFERENCE_NONE)
+        annotations.add(0)
+        annotations.add(0)
+        annotations.add(OWNER_NONE)
+        annotations.add(0)
+        annotations.add(NO_TYPE)
+    }
+
+    return annotations
+}
+
+static method<Int> annotationField(List<Int> annotations, Int node, Int field) {
+    return annotations[node * ANNOTATION_STRIDE + field]
+}
+
+static method annotate(List<Int> annotations, Int node, Int type, Int symbol, Int nameStart, Int nameLength, Int owner, Int overload) {
+    Int base = node * ANNOTATION_STRIDE
+    annotations[base + ANNOTATION_TYPE] = type
+    annotations[base + ANNOTATION_SYMBOL] = symbol
+    annotations[base + ANNOTATION_NAME_START] = nameStart
+    annotations[base + ANNOTATION_NAME_LENGTH] = nameLength
+    annotations[base + ANNOTATION_OWNER] = owner
+    annotations[base + ANNOTATION_OVERLOAD] = overload
+}
+
+static method annotateType(List<Int> annotations, Int node, Int type) {
+    annotate(annotations, node, type, REFERENCE_NONE, 0, 0, OWNER_NONE, 0)
+}
+
+// The type argument a generic member was called with, such as the R of `list.map(...)`.
+static method annotateArgument(List<Int> annotations, Int node, Int argument) {
+    annotations[node * ANNOTATION_STRIDE + ANNOTATION_ARGUMENT] = argument
+}

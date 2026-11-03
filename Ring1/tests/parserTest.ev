@@ -1,0 +1,235 @@
+package ring1.parser
+
+final var CASE_PASSED = 0
+final var CASE_FAILED = 1
+
+static method<Int> expectDump(String source, String expected) {
+    if (dumpSource(source) != expected) {
+        return CASE_FAILED
+    }
+
+    return CASE_PASSED
+}
+
+static method<Int> caseSimple() {
+    String source = "static method<Int> main {\n    return 1\n}\n"
+    String expected = "file\n" +
+        "  method main\n" +
+        "    modifiers\n" +
+        "      modifier static\n" +
+        "    return-type\n" +
+        "      type Int\n" +
+        "    params\n" +
+        "    block\n" +
+        "      return\n" +
+        "        int-literal 1\n"
+    return expectDump(source, expected)
+}
+
+static method<Int> caseConstants() {
+    String source = "final var A = 1\nfinal var B = -2\n"
+    String expected = "file\n" +
+        "  variable A\n" +
+        "    modifiers\n" +
+        "      modifier final\n" +
+        "    type var\n" +
+        "    int-literal 1\n" +
+        "  variable B\n" +
+        "    modifiers\n" +
+        "      modifier final\n" +
+        "    type var\n" +
+        "    unary -\n" +
+        "      int-literal 2\n"
+    return expectDump(source, expected)
+}
+
+static method<Int> casePrecedence() {
+    String source = "static method<Bool> check(Int a, Int b) {\n    return a + b * 2 == 7 && !(a < b) || b >= 1\n}\n"
+    String expected = "file\n" +
+        "  method check\n" +
+        "    modifiers\n" +
+        "      modifier static\n" +
+        "    return-type\n" +
+        "      type Bool\n" +
+        "    params\n" +
+        "      param a\n" +
+        "        modifiers\n" +
+        "        type Int\n" +
+        "      param b\n" +
+        "        modifiers\n" +
+        "        type Int\n" +
+        "    block\n" +
+        "      return\n" +
+        "        binary ||\n" +
+        "          binary &&\n" +
+        "            binary ==\n" +
+        "              binary +\n" +
+        "                name a\n" +
+        "                binary *\n" +
+        "                  name b\n" +
+        "                  int-literal 2\n" +
+        "              int-literal 7\n" +
+        "            unary !\n" +
+        "              binary <\n" +
+        "                name a\n" +
+        "                name b\n" +
+        "          binary >=\n" +
+        "            name b\n" +
+        "            int-literal 1\n"
+    return expectDump(source, expected)
+}
+
+static method<Int> caseNested() {
+    String source = "static method run(List<List<Int>> rows) {\n    rows.add([1, 2])\n    Int first = rows[0][1]\n    first += 1\n}\n"
+    String expected = "file\n" +
+        "  method run\n" +
+        "    modifiers\n" +
+        "      modifier static\n" +
+        "    params\n" +
+        "      param rows\n" +
+        "        modifiers\n" +
+        "        type List\n" +
+        "          type List\n" +
+        "            type Int\n" +
+        "    block\n" +
+        "      expr-stmt\n" +
+        "        call\n" +
+        "          member add\n" +
+        "            name rows\n" +
+        "          list-literal\n" +
+        "            int-literal 1\n" +
+        "            int-literal 2\n" +
+        "      local first\n" +
+        "        type Int\n" +
+        "        init\n" +
+        "          index\n" +
+        "            index\n" +
+        "              name rows\n" +
+        "              int-literal 0\n" +
+        "            int-literal 1\n" +
+        "      expr-stmt\n" +
+        "        assign +=\n" +
+        "          name first\n" +
+        "          int-literal 1\n"
+    return expectDump(source, expected)
+}
+
+static method<Int> caseSample() {
+    String source = "package ring1.lexer\n\nfinal var FIRST = 1\nfinal var NEGATIVE = -1\n\nstatic method<Int> sample(String source, List<Int> cursor) {\n    Int total = cursor[FIRST] + source.length()\n    List<Int> items = [FIRST, 2]\n\n    for (Int step = 0; step < total; step++) {\n        if (!isDigit(step) && step >= 2 || total == 1) {\n            continue\n        }\n\n        cursor[0] = step\n    }\n\n    while (total > 0) {\n        total = total - 1\n    }\n\n    emit(items, \"text\")\n    return total\n}\n\nstatic method refresh {\n    return\n}\n"
+    String expected = "file\n" +
+        "  package ring1.lexer\n" +
+        "  variable FIRST\n" +
+        "    modifiers\n" +
+        "      modifier final\n" +
+        "    type var\n" +
+        "    int-literal 1\n" +
+        "  variable NEGATIVE\n" +
+        "    modifiers\n" +
+        "      modifier final\n" +
+        "    type var\n" +
+        "    unary -\n" +
+        "      int-literal 1\n" +
+        "  method sample\n" +
+        "    modifiers\n" +
+        "      modifier static\n" +
+        "    return-type\n" +
+        "      type Int\n" +
+        "    params\n" +
+        "      param source\n" +
+        "        modifiers\n" +
+        "        type String\n" +
+        "      param cursor\n" +
+        "        modifiers\n" +
+        "        type List\n" +
+        "          type Int\n" +
+        "    block\n" +
+        "      local total\n" +
+        "        type Int\n" +
+        "        init\n" +
+        "          binary +\n" +
+        "            index\n" +
+        "              name cursor\n" +
+        "              name FIRST\n" +
+        "            call\n" +
+        "              member length\n" +
+        "                name source\n" +
+        "      local items\n" +
+        "        type List\n" +
+        "          type Int\n" +
+        "        init\n" +
+        "          list-literal\n" +
+        "            name FIRST\n" +
+        "            int-literal 2\n" +
+        "      for\n" +
+        "        init\n" +
+        "          local step\n" +
+        "            type Int\n" +
+        "            init\n" +
+        "              int-literal 0\n" +
+        "        condition\n" +
+        "          binary <\n" +
+        "            name step\n" +
+        "            name total\n" +
+        "        update\n" +
+        "          postfix ++\n" +
+        "            name step\n" +
+        "        block\n" +
+        "          if\n" +
+        "            binary ||\n" +
+        "              binary &&\n" +
+        "                unary !\n" +
+        "                  call\n" +
+        "                    name isDigit\n" +
+        "                    name step\n" +
+        "                binary >=\n" +
+        "                  name step\n" +
+        "                  int-literal 2\n" +
+        "              binary ==\n" +
+        "                name total\n" +
+        "                int-literal 1\n" +
+        "            block\n" +
+        "              continue\n" +
+        "          expr-stmt\n" +
+        "            assign =\n" +
+        "              index\n" +
+        "                name cursor\n" +
+        "                int-literal 0\n" +
+        "              name step\n" +
+        "      while\n" +
+        "        binary >\n" +
+        "          name total\n" +
+        "          int-literal 0\n" +
+        "        block\n" +
+        "          expr-stmt\n" +
+        "            assign =\n" +
+        "              name total\n" +
+        "              binary -\n" +
+        "                name total\n" +
+        "                int-literal 1\n" +
+        "      expr-stmt\n" +
+        "        call\n" +
+        "          name emit\n" +
+        "          name items\n" +
+        "          string text\n" +
+        "      return\n" +
+        "        name total\n" +
+        "  method refresh\n" +
+        "    modifiers\n" +
+        "      modifier static\n" +
+        "    params\n" +
+        "    block\n" +
+        "      return\n"
+    return expectDump(source, expected)
+}
+
+// Returns the number of failed cases, so 0 means every case passed.
+// Expected trees are the output of Ring0's parser for the same sources.
+static method<Int> main {
+    Int failed = 0
+    failed = failed + caseSimple()
+    failed = failed + caseConstants()
+    failed = failed + casePrecedence()
+    failed = failed + caseNested()
+    failed = failed + caseSample()
+    return failed
+}

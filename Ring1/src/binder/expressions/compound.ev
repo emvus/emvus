@@ -1,0 +1,141 @@
+package ring1.binder
+
+// Expressions made of several parts: list literals, ternaries, type tests, Result flow and tuples.
+// The elements share the type of the first one; an empty list takes the type the context expects.
+static method<Int> bindListLiteral(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int type = expected
+
+    if (first != NO_NODE && typeField(types, expected, TYPE_KIND) == KIND_TUPLE) {
+        bindListElements(source, nodes, types, symbols, annotations, state, first)
+    }
+
+    if (first != NO_NODE && typeField(types, expected, TYPE_KIND) != KIND_TUPLE) {
+        type = listType(types, bindListElements(source, nodes, types, symbols, annotations, state, first))
+    }
+
+    annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, OWNER_NONE, 0)
+    return type
+}
+
+// Binds all elements and returns the type of the first.
+static method<Int> bindListElements(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int first) {
+    Int element = bindExpression(source, nodes, types, symbols, annotations, state, first, TYPE_UNKNOWN)
+    Int next = nodeField(nodes, first, NODE_NEXT_SIBLING)
+
+    while (next != NO_NODE) {
+        bindExpression(source, nodes, types, symbols, annotations, state, next, element)
+        next = nodeField(nodes, next, NODE_NEXT_SIBLING)
+    }
+
+    return element
+}
+
+// `condition ? then : otherwise` has the type of the branch that is not `null`.
+static method<Int> bindTernary(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int condition = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int whenTrue = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    Int whenFalse = nodeField(nodes, whenTrue, NODE_NEXT_SIBLING)
+    bindExpression(source, nodes, types, symbols, annotations, state, condition, TYPE_BOOLEAN)
+    Int type = bindExpression(source, nodes, types, symbols, annotations, state, whenTrue, expected)
+    Int other = bindExpression(source, nodes, types, symbols, annotations, state, whenFalse, type)
+
+    if (type == TYPE_NULL) {
+        type = other
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+// `value is Type` is a Boolean and `value as Type` has that type; the type name is not an expression.
+static method<Int> bindTypeTest(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int kind) {
+    Int value = nodeField(nodes, node, NODE_FIRST_CHILD)
+    bindExpression(source, nodes, types, symbols, annotations, state, value, TYPE_UNKNOWN)
+    Int type = TYPE_BOOLEAN
+
+    if (kind == NODE_AS) {
+        type = typeOfNode(source, nodes, types, nodeField(nodes, value, NODE_NEXT_SIBLING))
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+// `result?` and `result!` have the value type of the Result they are applied to.
+static method<Int> bindResultFlow(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int result = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, node, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int type = TYPE_UNKNOWN
+
+    if (isResult(source, types, result)) {
+        type = typeArgument(types, result, 0)
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+// `tuple[0]`: the type at the position the literal index names.
+static method<Int> tupleElement(String source, List<Int> nodes, List<Int> types, Int node, Int tuple) {
+    Int index = nodeField(nodes, nodeField(nodes, node, NODE_FIRST_CHILD), NODE_NEXT_SIBLING)
+    Int position = digitValue(source, nodeField(nodes, index, NODE_TEXT_START), nodeField(nodes, index, NODE_TEXT_LENGTH))
+
+    if (position < 0) {
+        return TYPE_UNKNOWN
+    }
+
+    return typeOrUnknown(typeArgument(types, tuple, position))
+}
+
+// `receiver.name` on a value of a type of the program reads one of that type's properties or fields.
+static method<Int> bindMember(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, node, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int row = NO_SYMBOL
+    Int plain = plainType(source, types, receiver)
+
+    if (typeField(types, plain, TYPE_KIND) == KIND_NAMED) {
+        row = lookupMember(source, symbols, state, plain, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_PROPERTY, ROW_FIELD, NO_SYMBOL)
+    }
+
+    if (typeField(types, receiver, TYPE_KIND) == KIND_TYPE_OBJECT) {
+        row = lookupMember(source, symbols, state, typeField(types, receiver, TYPE_ELEMENT), nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_ENTRY, ROW_ENTRY, NO_SYMBOL)
+    }
+
+    if (row == NO_SYMBOL && isExceptionMessage(source, nodes, types, symbols, state, node, receiver)) {
+        annotate(annotations, node, TYPE_STRING, REFERENCE_PROPERTY, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), OWNER_EXCEPTION, 0)
+        return TYPE_STRING
+    }
+
+    if (row == NO_SYMBOL) {
+        annotateType(annotations, node, TYPE_UNKNOWN)
+        return TYPE_UNKNOWN
+    }
+
+    return annotateMemberOf(source, nodes, types, symbols, annotations, state, node, row, receiver)
+}
+
+// A property of a generic type has the type its declaration gives with the receiver's type arguments.
+static method<Int> annotateMemberOf(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int row, Int receiver) {
+    Int owner = classRow(symbols, state, symbolField(symbols, row, SYMBOL_OWNER))
+    List<Int> call = newCall(NO_NODE, NO_NODE, NO_TYPE)
+
+    if (owner != NO_SYMBOL) {
+        call[CALL_TYPE_HOLDER] = symbolField(symbols, owner, SYMBOL_NODE)
+    }
+
+    seedFromReceiver(types, call, receiver)
+    Int type = substitute(source, nodes, types, call, symbolField(symbols, row, SYMBOL_TYPE))
+    annotateSymbolAs(annotations, symbols, node, row, type)
+    return type
+}
+
+// Every exception has a `message`.
+static method<Bool> isExceptionMessage(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int node, Int receiver) {
+    Int declared = classRow(symbols, state, receiver)
+
+    if (declared == NO_SYMBOL) {
+        return false
+    }
+
+    return nodeField(nodes, symbolField(symbols, declared, SYMBOL_NODE), NODE_KIND) == NODE_EXCEPTION && spanIs(source, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), "message")
+}

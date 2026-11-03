@@ -13,6 +13,11 @@ public class LexerCursor {
         this.columnValue = 1;
     }
 
+    // Lets a file of a multi-file program continue the line numbering of the files before it.
+    public Void startAtLine(Int line) {
+        this.lineValue = line;
+    }
+
     public Bool isAtEnd() {
         return this.indexValue >= this.source.length();
     }

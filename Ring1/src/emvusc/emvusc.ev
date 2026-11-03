@@ -1,0 +1,119 @@
+package ring1.emvusc
+
+// emvusc, the Emvus compiler written in Emvus (Ring1): Emvus source -> parse -> check -> Sublang text IR.
+//   emvusc <file.ev>... [-o <output>]     writes Sublang canonical text (default: <first file>.sublang-text)
+//   emvusc --version | --help
+// Several files form one program. The text becomes a program with the Sublang tools:
+//   sublang text-build prog.sublang-text prog.sublang-wire
+//   sublang emit-llvm prog.sublang-wire prog.ll auto on
+//   clang prog.ll -o prog
+// Ring1 compiles the subset of Emvus that Ring1 itself is written in (see Ring1/README.md); anything else
+// is reported with the line of the first construct it cannot lower.
+final var ARGUMENT_LIMIT = 4096
+final var EXIT_OK = 0
+final var EXIT_USAGE = 2
+final var EXIT_FAILED = 1
+
+static method<Int> main {
+    String first = argument(0)
+
+    if (first.length() == 0 || first == "--help" || first == "-h") {
+        println("Usage: emvusc <file.ev>... [-o <output>]")
+        println("Writes Sublang canonical text; see Ring1/README.md for the steps that follow.")
+        return EXIT_USAGE
+    }
+
+    if (first == "--version") {
+        println("emvusc (Ring1) 0.1.0-indev")
+        return EXIT_OK
+    }
+
+    String output = ""
+    String program = ""
+    String firstFile = ""
+    Int index = 0
+
+    while (index < ARGUMENT_LIMIT) {
+        String current = argument(index)
+
+        if (current.length() == 0) {
+            break
+        }
+
+        if (current == "-o") {
+            output = argument(index + 1)
+            index = index + 2
+            continue
+        }
+
+        String text = readFile(current)
+
+        if (text.length() == 0) {
+            println("emvusc: cannot read " + current)
+            return EXIT_FAILED
+        }
+
+        if (firstFile.length() == 0) {
+            firstFile = current
+            program = text
+        }
+
+        if (firstFile != current) {
+            program = program + withoutPackageLine(text)
+        }
+
+        index = index + 1
+    }
+
+    if (firstFile.length() == 0) {
+        println("emvusc: no source file")
+        return EXIT_USAGE
+    }
+
+    if (output.length() == 0) {
+        output = defaultOutput(firstFile)
+    }
+
+    String lowered = lowerSource(program, firstFile)
+
+    if (lowered.length() >= 11 && lowered.substring(0, 11) == "unsupported") {
+        println("emvusc: cannot compile " + firstFile + " yet: " + lowered)
+        return EXIT_FAILED
+    }
+
+    if (!writeFile(output, lowered)) {
+        println("emvusc: cannot write " + output)
+        return EXIT_FAILED
+    }
+
+    println("emvusc: wrote " + output)
+    return EXIT_OK
+}
+
+// Later files of a program lose their package line, the way Ring0 joins them.
+static method<String> withoutPackageLine(String text) {
+    if (text.length() < 8 || text.substring(0, 8) != "package ") {
+        return text
+    }
+
+    for (Int index = 0; index < text.length(); index++) {
+        if (text.byteAt(index) == LINE_FEED) {
+            return text.substring(index + 1, text.length())
+        }
+    }
+
+    return ""
+}
+
+final var LINE_FEED = 10
+
+// The first file without its `.ev` ending, plus `.sublang-text`.
+static method<String> defaultOutput(String firstFile) {
+    String stem = firstFile
+
+    if (firstFile.length() > 3 && firstFile.substring(firstFile.length() - 3, firstFile.length()) == ".ev") {
+        stem = firstFile.substring(0, firstFile.length() - 3)
+    }
+
+    return stem + ".sublang-text"
+}

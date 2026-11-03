@@ -1,0 +1,395 @@
+package ring1.binder
+
+// Binds the statements of a block. A block opens a scope: the locals it declares disappear at its end.
+static method bindBlock(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int block) {
+    Int mark = state[BINDER_TOP]
+    Int statement = nodeField(nodes, block, NODE_FIRST_CHILD)
+
+    while (statement != NO_NODE) {
+        bindStatement(source, nodes, types, symbols, annotations, state, statement)
+        statement = nodeField(nodes, statement, NODE_NEXT_SIBLING)
+    }
+
+    state[BINDER_TOP] = mark
+}
+
+static method bindStatement(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int kind = nodeField(nodes, statement, NODE_KIND)
+
+    if (kind == NODE_LOCAL) {
+        bindLocal(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_SWITCH) {
+        bindSwitch(source, nodes, types, symbols, annotations, state, statement, TYPE_UNKNOWN, true)
+    }
+
+    if (kind == NODE_BLOCK) {
+        bindBlock(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_FOREACH) {
+        bindForEach(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_DESTRUCTURE) {
+        bindDestructure(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_IF || kind == NODE_WHILE) {
+        bindConditional(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_FOR) {
+        bindFor(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_RETURN || kind == NODE_EXPRESSION_STATEMENT || kind == NODE_FAIL || kind == NODE_SUCCESS) {
+        bindStatementValue(source, nodes, types, symbols, annotations, state, statement)
+    }
+}
+
+static method bindStatementValue(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int value = nodeField(nodes, statement, NODE_FIRST_CHILD)
+
+    if (value != NO_NODE) {
+        bindExpression(source, nodes, types, symbols, annotations, state, value, expectedValue(nodes, state, statement))
+    }
+}
+
+// A returned value is expected to have the return type of the method.
+static method<Int> expectedValue(List<Int> nodes, List<Int> state, Int statement) {
+    if (nodeField(nodes, statement, NODE_KIND) == NODE_RETURN) {
+        return state[BINDER_RETURN]
+    }
+
+    return TYPE_UNKNOWN
+}
+
+// `if (condition) { ... }` and `while (condition) { ... }`.
+static method bindConditional(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int condition = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    bindExpression(source, nodes, types, symbols, annotations, state, condition, TYPE_BOOLEAN)
+    bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, condition, NODE_NEXT_SIBLING))
+}
+
+// The loop variable lives in a scope of its own that also covers the condition and the update.
+static method bindFor(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int loop) {
+    Int mark = state[BINDER_TOP]
+    Int start = nodeField(nodes, loop, NODE_FIRST_CHILD)
+    Int condition = nodeField(nodes, start, NODE_NEXT_SIBLING)
+    Int update = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    bindStatement(source, nodes, types, symbols, annotations, state, nodeField(nodes, start, NODE_FIRST_CHILD))
+    bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, condition, NODE_FIRST_CHILD), TYPE_BOOLEAN)
+    bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, update, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, update, NODE_NEXT_SIBLING))
+    state[BINDER_TOP] = mark
+}
+
+// A local has a declared type or `var`, and an optional initializer in an init node. The initializer
+// cannot see the local it initializes.
+static method bindLocal(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int local) {
+    Int declared = declaredType(source, nodes, types, local)
+    Int init = childOfKind(nodes, local, NODE_INIT)
+    Int type = declared
+
+    if (init != NO_NODE) {
+        Int value = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, init, NODE_FIRST_CHILD), declared)
+
+        if (declared == TYPE_UNKNOWN) {
+            type = value
+        }
+    }
+
+    Int start = nodeField(nodes, local, NODE_TEXT_START)
+    Int length = nodeField(nodes, local, NODE_TEXT_LENGTH)
+    annotate(annotations, local, type, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
+    addSymbol(symbols, state, ROW_LOCAL, start, length, type, local, 0, NO_TYPE)
+}
+
+// TYPE_UNKNOWN for `var`, whose type comes from the initializer.
+static method<Int> declaredType(String source, List<Int> nodes, List<Int> types, Int local) {
+    Int type = childOfKind(nodes, local, NODE_TYPE)
+
+    if (type == NO_NODE) {
+        return TYPE_UNKNOWN
+    }
+
+    return typeOfNode(source, nodes, types, type)
+}
+
+static method<Int> childOfKind(List<Int> nodes, Int parent, Int kind) {
+    Int child = nodeField(nodes, parent, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        if (nodeField(nodes, child, NODE_KIND) == kind) {
+            return child
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return NO_NODE
+}
+
+// `var { a, b } = value` takes the properties of the value's type by position.
+static method bindDestructure(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int value = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, childOfKind(nodes, statement, NODE_INIT), NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int binding = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    Int position = 0
+
+    while (binding != NO_NODE) {
+        if (nodeField(nodes, binding, NODE_KIND) == NODE_BINDING) {
+            bindBinding(nodes, types, symbols, annotations, state, binding, destructuredType(types, symbols, state, value, position))
+            position = position + 1
+        }
+
+        binding = nodeField(nodes, binding, NODE_NEXT_SIBLING)
+    }
+}
+
+// The type at a position of a tuple, or of the properties of a type of the program.
+static method<Int> destructuredType(List<Int> types, List<Int> symbols, List<Int> state, Int value, Int position) {
+    if (typeField(types, value, TYPE_KIND) == KIND_TUPLE) {
+        return typeOrUnknown(typeArgument(types, value, position))
+    }
+
+    Int property = nthProperty(symbols, state, value, position)
+
+    if (property == NO_SYMBOL) {
+        return TYPE_UNKNOWN
+    }
+
+    return symbolField(symbols, property, SYMBOL_TYPE)
+}
+
+static method<Int> typeOrUnknown(Int type) {
+    if (type == NO_TYPE) {
+        return TYPE_UNKNOWN
+    }
+
+    return type
+}
+
+static method bindBinding(List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int binding, Int type) {
+    Int start = nodeField(nodes, binding, NODE_TEXT_START)
+    Int length = nodeField(nodes, binding, NODE_TEXT_LENGTH)
+    annotate(annotations, binding, type, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
+    addSymbol(symbols, state, ROW_LOCAL, start, length, type, binding, 0, NO_TYPE)
+}
+
+// `for (Type item in items) { ... }`: the loop variable is a local of the body and has no annotation of
+// its own. With `var` it takes the element type of the list.
+static method bindForEach(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int loop) {
+    Int mark = state[BINDER_TOP]
+    Int declared = declaredType(source, nodes, types, loop)
+    Int items = nodeField(nodes, childOfKind(nodes, loop, NODE_TYPE), NODE_NEXT_SIBLING)
+    Int itemsType = bindExpression(source, nodes, types, symbols, annotations, state, items, TYPE_UNKNOWN)
+    Int type = declared
+
+    if (declared == TYPE_UNKNOWN && typeField(types, itemsType, TYPE_KIND) == KIND_LIST) {
+        type = typeField(types, itemsType, TYPE_ELEMENT)
+    }
+
+    addSymbol(symbols, state, ROW_LOCAL, nodeField(nodes, loop, NODE_TEXT_START), nodeField(nodes, loop, NODE_TEXT_LENGTH), type, loop, 0, NO_TYPE)
+    bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, items, NODE_NEXT_SIBLING))
+    state[BINDER_TOP] = mark
+}
+
+// Returns false when this path exits, so guards keep their facts after the block.
+static method<Bool> flowStatement(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    if (node == NO_NODE) {
+        return true
+    }
+
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_IF || kind == NODE_WHILE) {
+        return flowConditional(source, nodes, annotations, env, diagnostics, node)
+    }
+
+    if (kind == NODE_FOR || kind == NODE_FOREACH) {
+        flowLoop(source, nodes, annotations, env, diagnostics, node)
+        return true
+    }
+
+    if (kind == NODE_DESTRUCTURE) {
+        Int valueNode = firstChildOf(nodes, childOfKind(nodes, node, NODE_INIT))
+        requireFlow(diagnostics, valueNode, flowExpression(source, nodes, annotations, env, diagnostics, valueNode), FLOW_UNPACK)
+        return true
+    }
+
+    if (kind == NODE_BREAK || kind == NODE_CONTINUE) {
+        return false
+    }
+
+    if (kind == NODE_LOCAL) {
+        Int init = childOfKind(nodes, node, NODE_INIT)
+        Int value = flowExpression(source, nodes, annotations, env, diagnostics, firstChildOf(nodes, init))
+
+        if (init == NO_NODE && !primitiveFlowType(source, nodes, childOfKind(nodes, node, NODE_TYPE))) {
+            value = FLOW_NULL
+        }
+
+        env[nodeField(nodes, node, NODE_TEXT_START)] = value
+        return true
+    }
+
+    if (kind == NODE_EXPRESSION_STATEMENT || kind == NODE_RETURN || kind == NODE_FAIL || kind == NODE_SUCCESS) {
+        Int valueNode = firstChildOf(nodes, node)
+        Int value = flowExpression(source, nodes, annotations, env, diagnostics, valueNode)
+
+        if ((kind == NODE_RETURN || kind == NODE_SUCCESS) && valueNode != NO_NODE) {
+            requireFlow(diagnostics, valueNode, value, FLOW_RETURN)
+        }
+
+        return kind == NODE_EXPRESSION_STATEMENT
+    }
+
+    if (kind == NODE_VARIABLE || kind == NODE_FIELD || kind == NODE_PROPERTY) {
+        Int last = nodeField(nodes, node, NODE_LAST_CHILD)
+
+        if (last != NO_NODE && nodeField(nodes, last, NODE_KIND) != NODE_TYPE && nodeField(nodes, last, NODE_KIND) != NODE_ACCESSORS && nodeField(nodes, last, NODE_KIND) != NODE_MODIFIERS) {
+            flowExpression(source, nodes, annotations, env, diagnostics, last)
+        }
+
+        return true
+    }
+
+    Int child = firstChildOf(nodes, node)
+
+    while (child != NO_NODE) {
+        if (!flowStatement(source, nodes, annotations, env, diagnostics, child)) {
+            return false
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return true
+}
+
+static method<Bool> flowConditional(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    Int condition = firstChildOf(nodes, node)
+    Int body = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    flowExpression(source, nodes, annotations, env, diagnostics, condition)
+    List<Int> taken = copyFlow(env)
+    List<Int> skipped = copyFlow(env)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    refineFlow(source, nodes, annotations, skipped, condition, false)
+    Bool continues = flowStatement(source, nodes, annotations, taken, diagnostics, body)
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_WHILE) {
+        List<Int> header = copyFlow(env)
+        List<Int> silent = [0, 0, 0, 0]
+        Bool stable = false
+
+        while (!stable) {
+            List<Int> next = copyFlow(header)
+            flowExpression(source, nodes, annotations, next, silent, condition)
+            refineFlow(source, nodes, annotations, next, condition, true)
+            Bool backEdge = flowStatement(source, nodes, annotations, next, silent, body)
+
+            if (!backEdge && !containsFlowExit(nodes, body)) {
+                break
+            }
+
+            mergeFlow(next, env)
+            stable = equalFlow(header, next)
+            joinFlow(header, next, next)
+        }
+
+        flowExpression(source, nodes, annotations, header, diagnostics, condition)
+        joinFlow(taken, header, header)
+        refineFlow(source, nodes, annotations, taken, condition, true)
+        flowStatement(source, nodes, annotations, taken, diagnostics, body)
+        joinFlow(env, header, header)
+
+        if (containsFlowExit(nodes, body)) {
+            joinFlow(env, header, taken)
+            return true
+        }
+
+        refineFlow(source, nodes, annotations, env, condition, false)
+        return true
+    }
+
+    if (!continues) {
+        joinFlow(env, skipped, skipped)
+        return true
+    }
+
+    joinFlow(env, taken, skipped)
+    return true
+}
+
+// A for-loop update runs after its body; neither loop form guarantees one iteration.
+static method flowLoop(String source, List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> diagnostics, Int node) {
+    Int first = firstChildOf(nodes, node)
+    Int condition = NO_NODE
+    Int update = NO_NODE
+    Int body = nodeField(nodes, node, NODE_LAST_CHILD)
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_FOR) {
+        flowStatement(source, nodes, annotations, env, diagnostics, first)
+        Int conditionPart = nodeField(nodes, first, NODE_NEXT_SIBLING)
+        condition = firstChildOf(nodes, conditionPart)
+        update = firstChildOf(nodes, nodeField(nodes, conditionPart, NODE_NEXT_SIBLING))
+    }
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_FOREACH) {
+        flowExpression(source, nodes, annotations, env, diagnostics, nodeField(nodes, first, NODE_NEXT_SIBLING))
+    }
+
+    List<Int> entry = copyFlow(env)
+    List<Int> taken = copyFlow(env)
+    flowExpression(source, nodes, annotations, taken, diagnostics, condition)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    flowStatement(source, nodes, annotations, taken, diagnostics, body)
+    flowExpression(source, nodes, annotations, taken, diagnostics, update)
+    mergeFlow(taken, entry)
+    flowExpression(source, nodes, annotations, taken, diagnostics, condition)
+    refineFlow(source, nodes, annotations, taken, condition, true)
+    flowStatement(source, nodes, annotations, taken, diagnostics, body)
+    flowExpression(source, nodes, annotations, taken, diagnostics, update)
+    joinFlow(env, entry, taken)
+}
+
+static method<Bool> equalFlow(List<Int> left, List<Int> right) {
+    for (Int index = 0; index < left.size(); index++) {
+        if (left[index] != right[index]) {
+            return false
+        }
+    }
+
+    return true
+}
+
+// A break or continue prevents treating the false condition as the sole loop exit.
+static method<Bool> containsFlowExit(List<Int> nodes, Int node) {
+    if (node == NO_NODE) {
+        return false
+    }
+
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_BREAK || kind == NODE_CONTINUE) {
+        return true
+    }
+
+    if (kind == NODE_WHILE || kind == NODE_FOR || kind == NODE_FOREACH || kind == NODE_LAMBDA) {
+        return false
+    }
+
+    Int child = firstChildOf(nodes, node)
+
+    while (child != NO_NODE) {
+        if (containsFlowExit(nodes, child)) {
+            return true
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return false
+}

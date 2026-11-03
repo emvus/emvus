@@ -1,0 +1,210 @@
+package ring1.binder
+
+// Types are rows of a table: a kind, a name span for named types and the element type of lists.
+// Equal types share a row, so comparing two types is comparing two Ints.
+final var TYPE_KIND = 0
+final var TYPE_NAME_START = 1
+final var TYPE_NAME_LENGTH = 2
+final var TYPE_ELEMENT = 3
+// Generic and tuple types keep up to three arguments: the element column and the two after it.
+final var TYPE_SECOND = 4
+final var TYPE_THIRD = 5
+final var TYPE_STRIDE = 6
+final var MAX_ARGUMENTS = 3
+final var NO_TYPE = -1
+
+final var KIND_UNKNOWN = 0
+final var KIND_INT = 1
+final var KIND_FLOAT = 2
+final var KIND_BOOLEAN = 3
+final var KIND_STRING = 4
+final var KIND_VOID = 5
+final var KIND_NULL = 6
+final var KIND_LIST = 7
+final var KIND_NAMED = 8
+// The type of a type name used as a value, such as `Color` in `Color.RED`; the element is that type.
+final var KIND_TYPE_OBJECT = 9
+final var KIND_CHAR = 10
+final var KIND_APPLIED = 11
+final var KIND_TUPLE = 12
+final var KIND_DICTIONARY = 13
+final var KIND_FIBER = 14
+final var KIND_FUNCTION = 15
+final var KIND_BIFUNCTION = 16
+// The type arguments of a call, printed without a name: `Int,Float`.
+final var KIND_ARGUMENTS = 17
+
+// The first rows are the built-in types, so their ids equal their kinds.
+final var TYPE_UNKNOWN = 0
+final var TYPE_INT = 1
+final var TYPE_FLOAT = 2
+final var TYPE_BOOLEAN = 3
+final var TYPE_STRING = 4
+final var TYPE_VOID = 5
+final var TYPE_NULL = 6
+
+static method<List<Int>> newTypeTable() {
+    List<Int> types = []
+
+    for (Int kind = KIND_UNKNOWN; kind <= KIND_NULL; kind++) {
+        types.add(kind)
+        types.add(0)
+        types.add(0)
+        types.add(NO_TYPE)
+        types.add(NO_TYPE)
+        types.add(NO_TYPE)
+    }
+
+    return types
+}
+
+static method<Int> typeField(List<Int> types, Int type, Int field) {
+    return types[type * TYPE_STRIDE + field]
+}
+
+static method<Int> typeCount(List<Int> types) {
+    return types.size() / TYPE_STRIDE
+}
+
+static method<Int> listType(List<Int> types, Int element) {
+    for (Int type = 0; type < typeCount(types); type++) {
+        if (typeField(types, type, TYPE_KIND) == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == element) {
+            return type
+        }
+    }
+
+    return addTypeRow(types, KIND_LIST, 0, 0, element)
+}
+
+// The type of one character, which no source text can name yet: it only comes out of `charAt`.
+static method<Int> charType(List<Int> types) {
+    for (Int row = 0; row < typeCount(types); row++) {
+        if (typeField(types, row, TYPE_KIND) == KIND_CHAR) {
+            return row
+        }
+    }
+
+    return addTypeRow(types, KIND_CHAR, 0, 0, NO_TYPE)
+}
+
+static method<Int> typeObject(List<Int> types, Int type) {
+    for (Int row = 0; row < typeCount(types); row++) {
+        if (typeField(types, row, TYPE_KIND) == KIND_TYPE_OBJECT && typeField(types, row, TYPE_ELEMENT) == type) {
+            return row
+        }
+    }
+
+    return addTypeRow(types, KIND_TYPE_OBJECT, 0, 0, type)
+}
+
+static method<Int> namedType(String source, List<Int> types, Int start, Int length) {
+    for (Int type = 0; type < typeCount(types); type++) {
+        if (typeField(types, type, TYPE_KIND) == KIND_NAMED && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), start, length)) {
+            return type
+        }
+    }
+
+    return addTypeRow(types, KIND_NAMED, start, length, NO_TYPE)
+}
+
+static method<Int> addTypeRow(List<Int> types, Int kind, Int start, Int length, Int element) {
+    Int id = typeCount(types)
+    types.add(kind)
+    types.add(start)
+    types.add(length)
+    types.add(element)
+    types.add(NO_TYPE)
+    types.add(NO_TYPE)
+    return id
+}
+
+// The type a `type` node of the syntax tree names.
+static method<Int> typeOfNode(String source, List<Int> nodes, List<Int> types, Int node) {
+    Int start = nodeField(nodes, node, NODE_TEXT_START)
+    Int length = nodeField(nodes, node, NODE_TEXT_LENGTH)
+
+    if (spanIs(source, start, length, "Int")) {
+        return TYPE_INT
+    }
+
+    if (spanIs(source, start, length, "Float")) {
+        return TYPE_FLOAT
+    }
+
+    if (spanIs(source, start, length, "Boolean") || spanIs(source, start, length, "Bool")) {
+        return TYPE_BOOLEAN
+    }
+
+    if (spanIs(source, start, length, "String")) {
+        return TYPE_STRING
+    }
+
+    if (spanIs(source, start, length, "Void")) {
+        return TYPE_VOID
+    }
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_TUPLE_TYPE) {
+        return argumentsType(source, nodes, types, node, KIND_TUPLE, 0, 0)
+    }
+
+    if (nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE && !spanIs(source, start, length, "List")) {
+        return argumentsType(source, nodes, types, node, genericKind(source, start, length), start, length)
+    }
+
+    if (spanIs(source, start, length, "List") && nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE) {
+        return listType(types, typeOfNode(source, nodes, types, nodeField(nodes, node, NODE_FIRST_CHILD)))
+    }
+
+    return namedType(source, types, start, length)
+}
+
+static method<String> typeText(String source, List<Int> types, Int type) {
+    Int kind = typeField(types, type, TYPE_KIND)
+
+    if (kind == KIND_INT) {
+        return "Int"
+    }
+
+    if (kind == KIND_FLOAT) {
+        return "Float"
+    }
+
+    if (kind == KIND_BOOLEAN) {
+        return "Boolean"
+    }
+
+    if (kind == KIND_STRING) {
+        return "String"
+    }
+
+    if (kind == KIND_VOID) {
+        return "Void"
+    }
+
+    if (kind == KIND_TYPE_OBJECT) {
+        return "@" + typeText(source, types, typeField(types, type, TYPE_ELEMENT))
+    }
+
+    if (kind == KIND_CHAR) {
+        return "Char"
+    }
+
+    if (kind == KIND_NULL) {
+        return "Null"
+    }
+
+    if (kind == KIND_LIST) {
+        return "List<" + typeText(source, types, typeField(types, type, TYPE_ELEMENT)) + ">"
+    }
+
+    if (kind == KIND_APPLIED || kind == KIND_TUPLE || kind == KIND_DICTIONARY || kind == KIND_FIBER || kind == KIND_FUNCTION || kind == KIND_BIFUNCTION || kind == KIND_ARGUMENTS) {
+        return argumentsText(source, types, type)
+    }
+
+    if (kind == KIND_NAMED) {
+        Int start = typeField(types, type, TYPE_NAME_START)
+        return source.substring(start, start + typeField(types, type, TYPE_NAME_LENGTH))
+    }
+
+    return "?"
+}

@@ -20,6 +20,10 @@ public class Lexer {
         this.diagnostics = bag;
     }
 
+    public Void startAtLine(Int line) {
+        this.cursor.startAtLine(line);
+    }
+
     public List<Token> tokenize() {
         List<Token> tokens = List();
 

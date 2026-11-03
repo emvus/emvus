@@ -1,0 +1,139 @@
+package ring1.parser
+
+// The parser state is a list: index of the current token and the number of syntax errors.
+final var STATE_TOKEN = 0
+final var STATE_ERRORS = 1
+final var STATE_CASCADE = 2
+final var CASCADE_OPEN = 0
+final var CASCADE_CLOSED = 1
+final var FIRST_TOKEN = 0
+final var NO_ERRORS = 0
+final var AHEAD_BEFORE = -1
+
+static method<Int> tokenValue(List<Int> tokens, Int index, Int field) {
+    return tokens[index * TOKEN_STRIDE + field]
+}
+
+static method<Int> tokenCount(List<Int> tokens) {
+    return tokens.size() / TOKEN_STRIDE
+}
+
+// Reading past the end yields the end-of-file token.
+static method<Int> tokenIndexAhead(List<Int> tokens, List<Int> state, Int ahead) {
+    Int last = tokenCount(tokens) - 1
+    Int index = state[STATE_TOKEN] + ahead
+
+    if (index > last) {
+        return last
+    }
+
+    return index
+}
+
+static method<Int> tokenKindAhead(List<Int> tokens, List<Int> state, Int ahead) {
+    return tokenValue(tokens, tokenIndexAhead(tokens, state, ahead), TOKEN_KIND)
+}
+
+static method<String> tokenText(String source, List<Int> tokens, Int index) {
+    Int start = tokenValue(tokens, index, TOKEN_START)
+    return source.substring(start, start + tokenValue(tokens, index, TOKEN_LENGTH))
+}
+
+static method<Bool> textAhead(String source, List<Int> tokens, List<Int> state, Int ahead, Int kind, String text) {
+    Int index = tokenIndexAhead(tokens, state, ahead)
+    return tokenValue(tokens, index, TOKEN_KIND) == kind && tokenText(source, tokens, index) == text
+}
+
+static method<Bool> symbolAhead(String source, List<Int> tokens, List<Int> state, Int ahead, String text) {
+    return textAhead(source, tokens, state, ahead, TOKEN_SYMBOL, text)
+}
+
+static method<Bool> atSymbol(String source, List<Int> tokens, List<Int> state, String text) {
+    return symbolAhead(source, tokens, state, AHEAD_CURRENT, text)
+}
+
+static method<Bool> atKeyword(String source, List<Int> tokens, List<Int> state, String text) {
+    return textAhead(source, tokens, state, AHEAD_CURRENT, TOKEN_KEYWORD, text)
+}
+
+static method<Bool> atKind(List<Int> tokens, List<Int> state, Int kind) {
+    return tokenKindAhead(tokens, state, AHEAD_CURRENT) == kind
+}
+
+// Ring0 lets locals and fields be named like these keywords.
+static method<Bool> nameKeywordAhead(String source, List<Int> tokens, List<Int> state, Int ahead) {
+    return textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "exception") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "method") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "macro") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "record") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "class") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "interface") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "enum") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "package") || textAhead(source, tokens, state, ahead, TOKEN_KEYWORD, "use")
+}
+
+static method<Bool> nameAhead(String source, List<Int> tokens, List<Int> state, Int ahead) {
+    return tokenKindAhead(tokens, state, ahead) == TOKEN_IDENTIFIER || nameKeywordAhead(source, tokens, state, ahead)
+}
+
+static method<Bool> atEnd(List<Int> tokens, List<Int> state) {
+    return atKind(tokens, state, TOKEN_EOF)
+}
+
+static method advanceToken(List<Int> tokens, List<Int> state) {
+    if (!atEnd(tokens, state)) {
+        state[STATE_TOKEN] = state[STATE_TOKEN] + 1
+    }
+}
+
+static method recordError(List<Int> state) {
+    state[STATE_ERRORS] = state[STATE_ERRORS] + 1
+}
+
+static method<Bool> expectSymbol(String source, List<Int> tokens, List<Int> state, String text) {
+    if (atSymbol(source, tokens, state, text)) {
+        advanceToken(tokens, state)
+        return true
+    }
+
+    recordError(state)
+    return false
+}
+
+// Semicolons are optional; a statement or declaration may end with one.
+static method skipSemicolon(String source, List<Int> tokens, List<Int> state) {
+    while (atSymbol(source, tokens, state, ";")) {
+        advanceToken(tokens, state)
+    }
+}
+
+// A construct that did not consume a token would make its loop run forever.
+static method ensureProgress(List<Int> tokens, List<Int> state, Int before) {
+    if (state[STATE_TOKEN] == before) {
+        recordError(state)
+        advanceToken(tokens, state)
+    }
+}
+
+// Statements and operators do not continue over a line break, so `(` and `[` on a new line start
+// the next statement instead of calling or indexing the previous value.
+static method<Bool> onPreviousLine(List<Int> tokens, List<Int> state) {
+    Int index = state[STATE_TOKEN]
+
+    if (index == FIRST_TOKEN) {
+        return false
+    }
+
+    return tokenValue(tokens, index, TOKEN_LINE) == tokenValue(tokens, index - 1, TOKEN_LINE)
+}
+
+static method<Bool> nextOnSameLine(List<Int> tokens, List<Int> state) {
+    Int current = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    Int next = tokenIndexAhead(tokens, state, AHEAD_NEXT)
+    return tokenValue(tokens, current, TOKEN_LINE) == tokenValue(tokens, next, TOKEN_LINE)
+}
+
+// Node at the current token: its text is the token's span.
+static method<Int> addNodeAtToken(List<Int> nodes, Int kind, List<Int> tokens, List<Int> state) {
+    Int index = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    return addNode(nodes, kind, tokenValue(tokens, index, TOKEN_START), tokenValue(tokens, index, TOKEN_LENGTH), tokenValue(tokens, index, TOKEN_LINE), tokenValue(tokens, index, TOKEN_COLUMN))
+}
+
+// Node without text, positioned at the current token.
+static method<Int> addEmptyNode(List<Int> nodes, Int kind, List<Int> tokens, List<Int> state) {
+    Int index = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    return addNode(nodes, kind, tokenValue(tokens, index, TOKEN_START), 0, tokenValue(tokens, index, TOKEN_LINE), tokenValue(tokens, index, TOKEN_COLUMN))
+}
