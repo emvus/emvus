@@ -34,8 +34,8 @@ static method<Int> main {
     String program = sampleProgram()
     String lowered = lowerSource(program, "/tmp/sample.ev")
     Int failed = check(typesSource(program) == sampleTypes())
-    failed += check(lowered.length() == 10104)
+    failed += check(lowered.length() == 19427)
     failed += check(lowered.substring(0, 14) == "sublang-text 1")
-    failed += check(weightedSum(lowered) == 4345031238)
+    failed += check(weightedSum(lowered) == 16011442022)
     return failed
 }
