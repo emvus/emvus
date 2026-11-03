@@ -6,7 +6,7 @@ AST macros. This repository holds its compiler, in stages:
 | Stage | What | Written in |
 |---|---|---|
 | `Ring0/` | the bootstrap compiler: parse, bind, lower to Sublang | Emerald |
-| `Ring1/` | the first self-hosted compiler: lexer, parser and binder so far | Emvus |
+| `Ring1/` | the first self-hosted compiler: lexer, parser, binder and a lowering for `Int`, `Bool`, `List` and `String`; it compiles itself (`Ring1/scripts/runBootstrap.sh`) | Emvus |
 | `vscode-emvus/` | VS Code extension: highlighting, completion, diagnostics | TypeScript |
 
 Native code comes from [Sublang](https://github.com/emvus/sub-lang) (LLVM) and a C compiler.
@@ -19,6 +19,8 @@ NOVUSC=<path to novusc> scripts/buildEmvusc.sh <emerald-kit> <sub-lang-checkout>
 dist/emvusc-*/emvusc helpers.ev main.ev -o demo && ./demo      # several files form one program
 dist/emvusc-*/emvusc --run main.ev
 dist/emvusc-*/emvusc --emit-llvm main.ev                       # or --emit-wire
+scripts/checkEmvusc.sh dist/emvusc-*/emvusc                    # smoke test of the package
+scripts/installEmvusc.sh dist/emvusc-*                         # installs to ~/.local/bin/emvusc (or give a prefix)
 ```
 
 The package holds three native binaries: `emvusc` (the driver, written in [Novus](https://github.com/ezTxmMC/novus)),
@@ -30,7 +32,8 @@ What the compiled programs can do today: integers, floats, booleans, text (`+`, 
 `substring`, `indexOf`), lists, records, data classes, enums, classes with inheritance and interfaces,
 generics, lambdas, `Result` with `switch`, top-level constants. The program prints the `Int` its `main`
 returns. Not yet: `println`, files, arguments, dictionaries, tasks, `null` on references (they need
-Sublang runtime support, see `Ring0/docs/plan.md`).
+Sublang runtime support, see `Ring0/docs/plan.md`). `emvusc` stays the compiler you use: its frontend is
+Ring0 until Sublang can read files and take arguments, which a compiler written in Emvus needs.
 
 ## Contributing
 
