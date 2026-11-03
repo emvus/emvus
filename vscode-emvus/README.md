@@ -16,6 +16,12 @@ Language support for **Emvus** (`.ev`), built from the language tests in `Ring0/
 | **Imports** | unused-import hints, *Organize imports* |
 | **External checker** | optional: run a Ring0 build as `<checker> file.ev --check` on save |
 
+## Also checked against Ring1
+
+`test/spec.test.mjs` parses every file of the self-hosted compiler in `Ring1/` (lexer, parser, tests) and checks the
+lexer and parser together as one program, the way Ring0 builds several files. `Bool` is accepted as an alias of
+`Boolean`, `String.byteAt(Int):Int` is a known member (`charAt` stays listed until the compiler defines characters).
+
 ## How it was derived
 
 The extension front end (`src/server/{lexer,parser,model,checker}.ts`) is verified by

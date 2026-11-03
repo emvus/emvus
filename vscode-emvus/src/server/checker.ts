@@ -184,7 +184,7 @@ class FileChecker {
     if (!name || name === '?' || name === 'var' || name === 'dynamic') return true;
     if (this.typeParams.has(name)) return true;
     if (this.p.resolve(this.f, name)) return true;
-    if (lc(name) === 'tuple' || lc(name) === 'void') return true;
+    if (lc(name) === 'tuple' || lc(name) === 'void' || name === 'Bool') return true;
     // qualified through an alias or package that cannot be resolved here
     if (name.includes('.')) {
       const root = name.split('.')[0];
