@@ -2,9 +2,9 @@ namespace ring0::lowering;
 
 use ring0::syntax::Node;
 
-// Calls: top-level methods, record and exception construction, `panic`, and member calls
-// on String, Result and record values. `println` is rejected: Sublang has no output
-// primitive, the observable result of a program is the Int returned by main.
+// Calls: top-level methods, record and exception construction, `panic`, the platform functions
+// (`print`, `println`, `readFile`, `writeFile`, `argument`; see PlatformCalls) and member calls
+// on String, Result and record values.
 public class CallLowerer {
     private LoweringContext context;
 
@@ -32,9 +32,13 @@ public class CallLowerer {
 
         String name = callee.text().toLowerCase();
 
-        if (name == "println" || name == "print" || name == "errprintln") {
-            this.context.unsupported(node, name + " is not available on the Sublang native target: the program's observable result is the Int returned by main (backend requirement: output primitive)");
+        if (name == "errprintln") {
+            this.context.unsupported(node, "errprintln is not available on the Sublang native target: only standard output has a primitive (backend requirement: error output)");
             return LoweredValue.unsupported();
+        }
+
+        if (PlatformCalls.handles(name)) {
+            return PlatformCalls(this.context).lower(node, name);
         }
 
         if (name == "panic") {

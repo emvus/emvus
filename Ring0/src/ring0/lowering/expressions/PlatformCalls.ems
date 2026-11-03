@@ -1,0 +1,100 @@
+namespace ring0::lowering;
+
+use ring0::syntax::Node;
+
+// The functions that reach the platform: `print(text)` and `println(text)` write to standard output,
+// `readFile(path)` returns the bytes of a file as a String (empty when it cannot be read),
+// `writeFile(path, text)` tells whether the file was written, and `argument(index)` is the command line
+// argument with that index (0 is the first after the program name, empty past the last). They lower to the
+// text operations of the Sublang byte-text extension. A program that uses them is a command line program:
+// the Int returned by main becomes the exit status and is no longer printed.
+public class PlatformCalls {
+    private LoweringContext context;
+
+    public PlatformCalls(LoweringContext loweringContext) {
+        this.context = loweringContext;
+    }
+
+    public static Bool handles(String name) {
+        return name == "print" || name == "println" || name == "readfile" || name == "writefile" || name == "argument";
+    }
+
+    public LoweredValue lower(Node node, String name) {
+        Int expected = 2;
+
+        if (name == "writefile") {
+            expected = 3;
+        }
+
+        if (node.count() != expected) {
+            this.context.unsupported(node, name + " is called with the wrong number of arguments");
+            return LoweredValue.unsupported();
+        }
+
+        List<LoweredValue> arguments = List();
+        Int index = 1;
+
+        while (index < node.count()) {
+            arguments.add(ExpressionLowerer(this.context).lower(node.child(index)));
+            index = index + 1;
+        }
+
+        if (this.context.failed()) {
+            return LoweredValue.unsupported();
+        }
+
+        Int span = this.context.span(node);
+
+        if (name == "argument") {
+            return this.argument(node, arguments, span);
+        }
+
+        if (!this.areTexts(node, arguments)) {
+            return LoweredValue.unsupported();
+        }
+
+        if (name == "readfile") {
+            Int content = this.context.collections().textFromFile(this.context.textListType(), arguments.get(0).valueId(), this.context.scopes().functionScope(), span);
+            return LoweredValue(content, "String");
+        }
+
+        if (name == "writefile") {
+            Int written = this.context.collections().textWriteFile(arguments.get(0).valueId(), arguments.get(1).valueId(), span);
+            return LoweredValue(written, "Bool");
+        }
+
+        this.context.collections().textPrint(arguments.get(0).valueId(), span);
+
+        if (name == "println") {
+            this.context.collections().textPrint(TextLowerer(this.context).fromStatic("\n", span), span);
+        }
+
+        return LoweredValue.nothing();
+    }
+
+    private LoweredValue argument(Node node, List<LoweredValue> arguments, Int span) {
+        if (arguments.length() != 1 || arguments.get(0).kind() != "Int") {
+            this.context.unsupported(node, "argument takes one Int");
+            return LoweredValue.unsupported();
+        }
+
+        Int text = this.context.collections().textArgument(this.context.textListType(), arguments.get(0).valueId(), this.context.scopes().functionScope(), span);
+        return LoweredValue(text, "String");
+    }
+
+    // The platform functions take Strings only: other values have no text form without a formatting primitive.
+    private Bool areTexts(Node node, List<LoweredValue> arguments) {
+        Int index = 0;
+
+        while (index < arguments.length()) {
+            if (arguments.get(index).kind() != "String") {
+                this.context.unsupported(node, "the platform functions take String arguments (found " + arguments.get(index).kind() + ")");
+                return false;
+            }
+
+            index = index + 1;
+        }
+
+        return true;
+    }
+}

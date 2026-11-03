@@ -29,8 +29,22 @@ for source in "${FILES[@]}"; do
         continue
     fi
     if ! clang -O2 -w "$WORK/$name.ll" -o "$WORK/$name" 2> "$WORK/$name.clang.log"; then echo "FAIL $name: clang: $(head -1 "$WORK/$name.clang.log")"; status=1; continue; fi
-    actual="$(timeout 20 "$WORK/$name" 2>&1)"
+    # A program that reaches the platform (`// expect-status: N`) exits with main's Int. platformFiles also gets
+    # two file arguments and is judged by the file it writes.
+    arguments=()
+    if [[ "$name" == "platformFiles" ]]; then
+        printf 'platform file\n' > "$WORK/platform.in"
+        rm -f "$WORK/platform.out"
+        arguments=("$WORK/platform.in" "$WORK/platform.out")
+    fi
+    actual="$(timeout 20 "$WORK/$name" "${arguments[@]}" 2>&1)"
     code=$?
+    if [[ "$first" == "// expect-status: "* ]]; then
+        expected="$(cat "$ROOT/tests/lowering/expected/$name.out" 2>/dev/null)"
+        if [[ "$name" == "platformFiles" ]]; then actual="$(cat "$WORK/platform.out" 2>/dev/null)"; expected="$(printf 'platform file\n!')"; fi
+        if [[ $code -eq ${first#// expect-status: } && "$actual" == "$expected" ]]; then passed=$((passed + 1)); else echo "FAIL $name: expected status ${first#// expect-status: } and '$expected', got $code and '$actual'"; status=1; fi
+        continue
+    fi
     if [[ "$first" == "// expect-abort" ]]; then
         if [[ $code -eq 134 ]]; then passed=$((passed + 1)); else echo "FAIL $name: expected abort (134), exit $code"; status=1; fi
         continue
