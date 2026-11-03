@@ -20,11 +20,12 @@ final var FUNCTION_RETURN = 4
 final var FUNCTION_PARAMETERS = 5
 final var FUNCTION_SIZE = 6
 
-// Parameter: [name start, name length, type]
+// Parameter: [name start, name length, type, passing mode]
 final var PARAMETER_NAME_START = 2
 final var PARAMETER_NAME_LENGTH = 3
 final var PARAMETER_TYPE = 4
-final var PARAMETER_SIZE = 5
+final var PARAMETER_MODE = 5
+final var PARAMETER_SIZE = 6
 
 // Value: [type]
 final var VALUE_TYPE = 2
@@ -35,7 +36,7 @@ final var BLOCK_PARAMETER_COUNT = 2
 final var BLOCK_HEADER_SIZE = 3
 
 // Operation: [block, opcode, result, type, reference, int, bool, predicate, target, second target,
-// arguments for the first target, operand count, operands...]
+// arguments for the first target, ownership, scope, operand count, then operand pairs...]
 final var OPERATION_BLOCK = 2
 final var OPERATION_CODE = 3
 final var OPERATION_RESULT = 4
@@ -47,8 +48,17 @@ final var OPERATION_PREDICATE = 9
 final var OPERATION_TARGET = 10
 final var OPERATION_SECOND_TARGET = 11
 final var OPERATION_TRUE_ARGUMENTS = 12
-final var OPERATION_OPERAND_COUNT = 13
-final var OPERATION_HEADER_SIZE = 14
+final var OPERATION_OWNERSHIP = 13
+final var OPERATION_SCOPE = 14
+final var OPERATION_OPERAND_COUNT = 15
+final var OPERATION_HEADER_SIZE = 16
+
+// Every operand is a pair: the value and how the operation uses it.
+final var MODE_VALUE = 0
+final var MODE_BORROW_READ = 1
+final var MODE_BORROW_WRITE = 2
+final var MODE_OWNED = 3
+final var OPERAND_SIZE = 2
 
 final var OP_CONST_INT = 1
 final var OP_CONST_BOOL = 2
@@ -63,6 +73,13 @@ final var OP_CALL = 10
 final var OP_BRANCH = 11
 final var OP_CONDITIONAL_BRANCH = 12
 final var OP_RETURN = 13
+final var OP_LIST_NEW = 14
+final var OP_LIST_PUSH = 15
+final var OP_LIST_GET = 16
+final var OP_LIST_SET = 17
+final var OP_LIST_LENGTH = 18
+final var OP_SCOPE_BEGIN = 19
+final var OP_SCOPE_END = 20
 
 final var PREDICATE_NONE = 0
 final var PREDICATE_LESS = 1
@@ -86,7 +103,8 @@ final var LOWER_LAST_BLOCK = 9
 final var LOWER_BREAK_TARGET = 10
 final var LOWER_CONTINUE_TARGET = 11
 final var LOWER_LOOP_COUNT = 12
-final var LOWER_STATE_SIZE = 13
+final var LOWER_SCOPE = 13
+final var LOWER_STATE_SIZE = 14
 
 final var WIRE_VOID = 1
 final var WIRE_BOOL = 2
@@ -108,21 +126,29 @@ static method<Int> newValue(List<Int> ir, List<Int> state, Int type) {
     return state[LOWER_VALUES]
 }
 
-// Adds a block whose parameters are fresh values of the given types and returns its number. The types
-// are those of the first `count` variables of the environment.
+// A list is a reference to an owned object: it dominates every block after its creation and is not
+// passed around as a block parameter, so the variables a block carries are the ones that are not lists.
+static method<Bool> isCarried(List<Int> env, Int row) {
+    return !isListWire(env[row * ENV_STRIDE + ENV_TYPE])
+}
+
+// Adds a block whose parameters are fresh values for the carried variables among the first `count`
+// rows of the environment, and returns its number.
 static method<Int> newBlock(List<Int> ir, List<Int> state, List<Int> env, Int count) {
     List<Int> parameters = []
 
-    for (Int index = 0; index < count; index++) {
-        parameters.add(newValue(ir, state, env[index * ENV_STRIDE + ENV_TYPE]))
+    for (Int row = 0; row < count; row++) {
+        if (isCarried(env, row)) {
+            parameters.add(newValue(ir, state, env[row * ENV_STRIDE + ENV_TYPE]))
+        }
     }
 
     state[LOWER_LAST_BLOCK] = ir.size()
     ir.add(REC_BLOCK)
-    ir.add(BLOCK_HEADER_SIZE + count)
-    ir.add(count)
+    ir.add(BLOCK_HEADER_SIZE + parameters.size())
+    ir.add(parameters.size())
 
-    for (Int index = 0; index < count; index++) {
+    for (Int index = 0; index < parameters.size(); index++) {
         ir.add(parameters[index])
     }
 
@@ -156,12 +182,26 @@ static method addOperation(List<Int> ir, List<Int> state, Int code, Int result, 
     ir.add(NO_BLOCK)
     ir.add(0)
     ir.add(0)
+    ir.add(0)
+    ir.add(0)
+}
+
+// Marks the last operation as producing an owned value in the function's scope.
+static method setOwned(List<Int> ir, List<Int> state) {
+    Int operation = state[LOWER_LAST_OPERATION]
+    ir[operation + OPERATION_OWNERSHIP] = 1
+    ir[operation + OPERATION_SCOPE] = 1
 }
 
 static method addOperand(List<Int> ir, List<Int> state, Int value) {
+    addOperandMode(ir, state, value, MODE_VALUE)
+}
+
+static method addOperandMode(List<Int> ir, List<Int> state, Int value, Int mode) {
     Int operation = state[LOWER_LAST_OPERATION]
     ir.add(value)
-    ir[operation + RECORD_LENGTH] = ir[operation + RECORD_LENGTH] + 1
+    ir.add(mode)
+    ir[operation + RECORD_LENGTH] = ir[operation + RECORD_LENGTH] + OPERAND_SIZE
     ir[operation + OPERATION_OPERAND_COUNT] = ir[operation + OPERATION_OPERAND_COUNT] + 1
 }
 
@@ -172,17 +212,24 @@ static method setTargets(List<Int> ir, List<Int> state, Int first, Int second, I
     ir[operation + OPERATION_TRUE_ARGUMENTS] = trueArguments
 }
 
-// Passes the first `count` variables of the environment as the operands of the last operation.
+// Passes the carried variables among the first `count` as the operands of the last operation.
 static method addEnvironmentOperands(List<Int> ir, List<Int> state, List<Int> env, Int count) {
-    for (Int index = 0; index < count; index++) {
-        addOperand(ir, state, env[index * ENV_STRIDE + ENV_VALUE])
+    for (Int row = 0; row < count; row++) {
+        if (isCarried(env, row)) {
+            addOperand(ir, state, env[row * ENV_STRIDE + ENV_VALUE])
+        }
     }
 }
 
-// Replaces the first `count` variables by the parameters of a block.
+// Replaces the carried variables among the first `count` by the parameters of a block.
 static method adoptBlockParameters(List<Int> ir, List<Int> env, Int blockRecord, Int count) {
-    for (Int index = 0; index < count; index++) {
-        env[index * ENV_STRIDE + ENV_VALUE] = ir[blockRecord + BLOCK_HEADER_SIZE + index]
+    Int parameter = 0
+
+    for (Int row = 0; row < count; row++) {
+        if (isCarried(env, row)) {
+            env[row * ENV_STRIDE + ENV_VALUE] = ir[blockRecord + BLOCK_HEADER_SIZE + parameter]
+            parameter = parameter + 1
+        }
     }
 }
 

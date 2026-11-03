@@ -5,9 +5,15 @@ package ring1.lowering
 
 static method<String> programText(String source, String moduleName, List<Int> ir, Int entry) {
     String text = "sublang-text 1 schema=1 stage=High revision=1" + "\n"
+
+    if (usesByteExtension(ir)) {
+        text = text + "feature \"ext.bytes.v1\"" + "\n"
+    }
+
     text = text + "module \"" + moduleName + "\" entry=" + intText(entry) + "\n"
     text = text + "source id=1 name=\"" + moduleName + "\"" + "\n"
     text = text + "span id=1 source=1 line=0 column=0 origin=\"\"" + "\n"
+    text = text + listTypesText()
     text = text + moduleHeader()
     text = text + functionsText(source, ir)
     return text + "end" + "\n"
@@ -162,7 +168,7 @@ static method<String> parametersText(String source, List<Int> ir, Int start, Int
         if (ir[index + RECORD_KIND] == REC_PARAMETER) {
             number = number + 1
             Int nameStart = ir[index + PARAMETER_NAME_START]
-            text = text + "  param id=" + intText(number) + " name=\"" + source.substring(nameStart, nameStart + ir[index + PARAMETER_NAME_LENGTH]) + "\" type=" + intText(ir[index + PARAMETER_TYPE]) + " passing=\"value\" noescape=false" + "\n"
+            text = text + "  param id=" + intText(number) + " name=\"" + source.substring(nameStart, nameStart + ir[index + PARAMETER_NAME_LENGTH]) + "\" type=" + intText(ir[index + PARAMETER_TYPE]) + " passing=\"" + modeText(ir[index + PARAMETER_MODE]) + "\" noescape=false" + "\n"
         }
 
         index = index + ir[index + RECORD_LENGTH]
@@ -232,4 +238,33 @@ static method<String> functionName(String source, List<Int> ir, Int record) {
 
     Int start = ir[record + FUNCTION_NAME_START]
     return source.substring(start, start + length)
+}
+
+// The list types a module may use, always declared: List<Int> and its reference are types 5 and 6,
+// List<Bool> and its reference 7 and 8.
+final var WIRE_LIST_INT = 5
+final var WIRE_REF_LIST_INT = 6
+final var WIRE_LIST_BOOL = 7
+final var WIRE_REF_LIST_BOOL = 8
+
+static method<String> listTypesText() {
+    String text = "type id=5 kind=\"List\" name=\"List<Int>\" width=0 signed=false target=3 nullable=false span=1\n"
+    text = text + "type id=6 kind=\"Ref\" name=\"Ref<List<Int>>\" width=0 signed=false target=5 nullable=false span=1\n"
+    text = text + "type id=7 kind=\"List\" name=\"List<Bool>\" width=0 signed=false target=2 nullable=false span=1\n"
+    return text + "type id=8 kind=\"Ref\" name=\"Ref<List<Bool>>\" width=0 signed=false target=7 nullable=false span=1\n"
+}
+
+// `list.set` belongs to the byte-text extension, which a module must declare when it uses it.
+static method<Bool> usesByteExtension(List<Int> ir) {
+    Int index = 0
+
+    while (index < ir.size()) {
+        if (ir[index + RECORD_KIND] == REC_OPERATION && ir[index + OPERATION_CODE] == OP_LIST_SET) {
+            return true
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return false
 }

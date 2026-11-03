@@ -9,8 +9,32 @@ static method markUnsupported(List<Int> nodes, List<Int> state, Int node) {
     }
 }
 
-// The wire type of a binder type; NO_VALUE for types the lowering cannot represent yet.
-static method<Int> wireType(Int type) {
+// The wire type of a binder type, read from the map the lowering builds at its start; NO_VALUE for types
+// it cannot represent yet.
+static method<Int> wireType(List<Int> state, Int type) {
+    Int index = LOWER_STATE_SIZE + type
+
+    if (type < 0 || index >= state.size()) {
+        return NO_VALUE
+    }
+
+    return state[index]
+}
+
+static method<Bool> isListWire(Int wire) {
+    return wire == WIRE_REF_LIST_INT || wire == WIRE_REF_LIST_BOOL
+}
+
+// Fills the type map: every binder type that has a wire type gets it.
+static method buildTypeMap(List<Int> types, List<Int> state) {
+    for (Int type = 0; type < typeCount(types); type++) {
+        state.add(wireOf(types, type))
+    }
+}
+
+static method<Int> wireOf(List<Int> types, Int type) {
+    Int kind = typeField(types, type, TYPE_KIND)
+
     if (type == TYPE_INT) {
         return WIRE_INT
     }
@@ -21,6 +45,14 @@ static method<Int> wireType(Int type) {
 
     if (type == TYPE_VOID) {
         return WIRE_VOID
+    }
+
+    if (kind == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == TYPE_INT) {
+        return WIRE_REF_LIST_INT
+    }
+
+    if (kind == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == TYPE_BOOLEAN) {
+        return WIRE_REF_LIST_BOOL
     }
 
     return NO_VALUE
@@ -51,6 +83,14 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
 
     if (kind == NODE_CALL) {
         return lowerCall(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_LIST_LITERAL) {
+        return lowerListLiteral(source, nodes, annotations, ir, env, functions, state, node)
+    }
+
+    if (kind == NODE_INDEX) {
+        return lowerIndexRead(source, nodes, annotations, ir, env, functions, state, node)
     }
 
     markUnsupported(nodes, state, node)
@@ -261,53 +301,81 @@ static method<Int> lowerShortCircuit(String source, List<Int> nodes, List<Int> a
     return result
 }
 
-// A call of a function of the program: `functions` holds [name start, return type, parameter count] per
-// function, in declaration order, which is also the function number.
+// A call of a function of the program: `functions` holds one row per function, in declaration order,
+// which is also the function number.
 static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
+        return lowerListMember(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
     if (annotationField(annotations, node, ANNOTATION_SYMBOL) != REFERENCE_METHOD || annotationField(annotations, node, ANNOTATION_OWNER) != OWNER_NONE) {
         markUnsupported(nodes, state, node)
         return NO_VALUE
     }
 
-    Int callee = findFunction(functions, annotationField(annotations, node, ANNOTATION_NAME_START))
+    Int row = findFunction(functions, annotationField(annotations, node, ANNOTATION_NAME_START))
 
-    if (callee < 0) {
+    if (row < 0) {
         markUnsupported(nodes, state, node)
         return NO_VALUE
     }
 
     List<Int> arguments = []
-    Int argument = nodeField(nodes, nodeField(nodes, node, NODE_FIRST_CHILD), NODE_NEXT_SIBLING)
+    List<Int> modes = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
 
     while (argument != NO_NODE) {
         arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        modes.add(argumentMode(annotations, functions, state, argument, row, modes.size()))
         argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
     }
 
-    Int returnType = functions[callee * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN]
+    Int returnType = functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN]
     Int result = NO_VALUE
 
     if (returnType != WIRE_VOID) {
         result = newValue(ir, state, returnType)
     }
 
-    addOperation(ir, state, OP_CALL, result, returnType, callee + 1, 0, false, PREDICATE_NONE)
+    addOperation(ir, state, OP_CALL, result, returnType, row + 1, 0, false, PREDICATE_NONE)
+
+    if (isListWire(returnType)) {
+        setOwned(ir, state)
+    }
 
     for (Int index = 0; index < arguments.size(); index++) {
         if (arguments[index] == NO_VALUE) {
+            markUnsupported(nodes, state, node)
             return NO_VALUE
         }
 
-        addOperand(ir, state, arguments[index])
+        addOperandMode(ir, state, arguments[index], modes[index])
     }
 
     return result
 }
 
+// A list argument is lent to the callee for reading, or for writing when the callee changes it.
+static method<Int> argumentMode(List<Int> annotations, List<Int> functions, List<Int> state, Int argument, Int row, Int position) {
+    if (!isListWire(wireType(state, annotationField(annotations, argument, ANNOTATION_TYPE)))) {
+        return MODE_VALUE
+    }
+
+    if (functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_MUTATED + position] == 1) {
+        return MODE_BORROW_WRITE
+    }
+
+    return MODE_BORROW_READ
+}
+
 final var FUNCTION_ROW_NAME = 0
 final var FUNCTION_ROW_RETURN = 1
 final var FUNCTION_ROW_PARAMETERS = 2
-final var FUNCTION_ROW_SIZE = 3
+final var FUNCTION_ROW_MUTATED = 3
+final var MAX_PARAMETERS = 16
+final var FUNCTION_ROW_SIZE = 19
 
 static method<Int> findFunction(List<Int> functions, Int nameStart) {
     for (Int row = 0; row < functions.size() / FUNCTION_ROW_SIZE; row++) {
@@ -333,4 +401,144 @@ static method<Int> lowerConstant(String source, List<Int> nodes, List<Int> annot
 
     markUnsupported(nodes, state, name)
     return NO_VALUE
+}
+
+static method<Int> listElementWire(Int listWire) {
+    if (listWire == WIRE_REF_LIST_BOOL) {
+        return WIRE_BOOL
+    }
+
+    return WIRE_INT
+}
+
+// `[a, b]`: a fresh owned list that is filled element by element.
+static method<Int> lowerListLiteral(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int wire = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (!isListWire(wire)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int list = newValue(ir, state, wire)
+    addOperation(ir, state, OP_LIST_NEW, list, wire, wire - 1, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    Int element = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (element != NO_NODE) {
+        Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, element)
+
+        if (value == NO_VALUE) {
+            return NO_VALUE
+        }
+
+        addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+        addOperand(ir, state, value)
+        element = nodeField(nodes, element, NODE_NEXT_SIBLING)
+    }
+
+    return list
+}
+
+// `xs[i]`
+static method<Int> lowerIndexRead(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int list = lowerExpression(source, nodes, annotations, ir, env, functions, state, first)
+    Int index = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, first, NODE_NEXT_SIBLING))
+    return emitListGet(nodes, annotations, ir, state, node, list, index)
+}
+
+static method<Int> emitListGet(List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int list, Int index) {
+    Int type = wireType(state, annotationField(annotations, node, ANNOTATION_TYPE))
+
+    if (list == NO_VALUE || index == NO_VALUE || type == NO_VALUE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, type)
+    addOperation(ir, state, OP_LIST_GET, result, type, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, list, MODE_BORROW_READ)
+    addOperand(ir, state, index)
+    return result
+}
+
+// `xs.add(v)`, `xs.set(i, v)`, `xs.get(i)`, `xs.size()`, `xs.length()` and `xs.isEmpty()`.
+static method<Int> lowerListMember(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    if (annotationField(annotations, node, ANNOTATION_OWNER) != OWNER_LIST) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int list = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, callee, NODE_FIRST_CHILD))
+    List<Int> arguments = []
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        arguments.add(lowerExpression(source, nodes, annotations, ir, env, functions, state, argument))
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+
+    if (list == NO_VALUE || hasNoValue(arguments)) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    return emitListMember(source, nodes, annotations, ir, state, node, callee, list, arguments)
+}
+
+static method<Int> emitListMember(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int callee, Int list, List<Int> arguments) {
+    if (nodeIs(source, nodes, callee, "add") && arguments.size() == 1) {
+        addOperation(ir, state, OP_LIST_PUSH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+        addOperand(ir, state, arguments[0])
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, callee, "set") && arguments.size() == 2) {
+        addOperation(ir, state, OP_LIST_SET, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+        addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+        addOperand(ir, state, arguments[0])
+        addOperand(ir, state, arguments[1])
+        return NO_VALUE
+    }
+
+    if (nodeIs(source, nodes, callee, "get") && arguments.size() == 1) {
+        return emitListGet(nodes, annotations, ir, state, node, list, arguments[0])
+    }
+
+    if (nodeIs(source, nodes, callee, "isEmpty") && arguments.size() == 0) {
+        Int length = emitListLength(ir, state, list)
+        Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+        Int result = newValue(ir, state, WIRE_BOOL)
+        addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, PREDICATE_EQUAL)
+        addOperand(ir, state, length)
+        addOperand(ir, state, zero)
+        return result
+    }
+
+    if ((nodeIs(source, nodes, callee, "size") || nodeIs(source, nodes, callee, "length")) && arguments.size() == 0) {
+        return emitListLength(ir, state, list)
+    }
+
+    markUnsupported(nodes, state, node)
+    return NO_VALUE
+}
+
+static method<Int> emitListLength(List<Int> ir, List<Int> state, Int list) {
+    Int length = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_LIST_LENGTH, length, WIRE_INT, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, list, MODE_BORROW_READ)
+    return length
+}
+
+static method<Bool> hasNoValue(List<Int> values) {
+    for (Int index = 0; index < values.size(); index++) {
+        if (values[index] == NO_VALUE) {
+            return true
+        }
+    }
+
+    return false
 }

@@ -11,7 +11,7 @@ static method<String> operationText(List<Int> ir, Int record, Int number) {
     }
 
     String text = "    op id=" + intText(number) + " opcode=\"" + opcodeText(code) + "\" span=" + "1" + " result=" + intText(result) + " type=" + intText(type)
-    text = text + " ownership=\"\" ref=" + intText(ir[record + OPERATION_REFERENCE]) + " scope=0 overflow=\"" + overflowText(code) + "\" predicate=\"" + predicateText(ir[record + OPERATION_PREDICATE]) + "\" fpmode=\"\" effect=" + intText(effectOf(code))
+    text = text + " ownership=\"" + ownershipText(ir[record + OPERATION_OWNERSHIP]) + "\" ref=" + intText(ir[record + OPERATION_REFERENCE]) + " scope=" + intText(ir[record + OPERATION_SCOPE]) + " overflow=\"" + overflowText(code) + "\" predicate=\"" + predicateText(ir[record + OPERATION_PREDICATE]) + "\" fpmode=\"\" effect=" + intText(effectOf(code))
     text = text + " int=" + intText(ir[record + OPERATION_INT]) + " bool=" + boolText(ir[record + OPERATION_BOOL]) + " bits=0 text=\"\" operands=" + operandList(ir, record, false) + " modes=" + operandList(ir, record, true) + " targets=" + targetList(ir, record) + " trueargs=" + intText(ir[record + OPERATION_TRUE_ARGUMENTS]) + "\n"
     return text
 }
@@ -49,11 +49,11 @@ static method<String> operandList(List<Int> ir, Int record, Bool modes) {
         }
 
         if (modes) {
-            text = text + "\"value\""
+            text = text + "\"" + modeText(ir[record + OPERATION_HEADER_SIZE + position * OPERAND_SIZE + 1]) + "\""
         }
 
         if (!modes) {
-            text = text + intText(ir[record + OPERATION_HEADER_SIZE + position])
+            text = text + intText(ir[record + OPERATION_HEADER_SIZE + position * OPERAND_SIZE])
         }
     }
 
@@ -102,6 +102,10 @@ static method<String> opcodeText(Int code) {
 
     if (code == OP_RETURN) {
         return "return"
+    }
+
+    if (code >= OP_LIST_NEW) {
+        return listOpcodeText(code)
     }
 
     return arithmeticText(code)
@@ -157,4 +161,56 @@ static method<String> predicateText(Int predicate) {
     }
 
     return ""
+}
+
+static method<String> ownershipText(Int ownership) {
+    if (ownership == 1) {
+        return "owned"
+    }
+
+    return ""
+}
+
+static method<String> modeText(Int mode) {
+    if (mode == MODE_BORROW_READ) {
+        return "borrow_read"
+    }
+
+    if (mode == MODE_BORROW_WRITE) {
+        return "borrow_write"
+    }
+
+    if (mode == MODE_OWNED) {
+        return "owned"
+    }
+
+    return "value"
+}
+
+static method<String> listOpcodeText(Int code) {
+    if (code == OP_LIST_NEW) {
+        return "list.new"
+    }
+
+    if (code == OP_LIST_PUSH) {
+        return "list.push"
+    }
+
+    if (code == OP_LIST_GET) {
+        return "list.get"
+    }
+
+    if (code == OP_LIST_SET) {
+        return "list.set"
+    }
+
+    if (code == OP_LIST_LENGTH) {
+        return "list.length"
+    }
+
+    if (code == OP_SCOPE_BEGIN) {
+        return "scope.begin"
+    }
+
+    return "scope.end"
 }

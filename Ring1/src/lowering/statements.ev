@@ -45,7 +45,7 @@ static method lowerStatement(String source, List<Int> nodes, List<Int> annotatio
         return
     }
 
-    if (kind == NODE_WHILE || kind == NODE_FOR) {
+    if (kind == NODE_WHILE || kind == NODE_FOR || kind == NODE_FOREACH) {
         lowerLoop(source, nodes, annotations, ir, env, functions, state, statement)
         return
     }
@@ -74,7 +74,7 @@ static method addVariable(List<Int> env, List<Int> state, Int key, Int value, In
 // A local needs an initializer: its value is the variable's first value.
 static method lowerLocal(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int local) {
     Int init = childOfKind(nodes, local, NODE_INIT)
-    Int type = wireType(annotationField(annotations, local, ANNOTATION_TYPE))
+    Int type = wireType(state, annotationField(annotations, local, ANNOTATION_TYPE))
 
     if (init == NO_NODE || type == NO_VALUE) {
         markUnsupported(nodes, state, local)
@@ -112,6 +112,12 @@ static method lowerEffect(String source, List<Int> nodes, List<Int> annotations,
 
 static method lowerAssign(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int assign) {
     Int target = nodeField(nodes, assign, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, target, NODE_KIND) == NODE_INDEX) {
+        lowerIndexAssign(source, nodes, annotations, ir, env, functions, state, assign, target)
+        return
+    }
+
     Int row = variableRow(nodes, annotations, env, state, target)
     Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, target, NODE_NEXT_SIBLING))
 
@@ -127,6 +133,31 @@ static method lowerAssign(String source, List<Int> nodes, List<Int> annotations,
     if (value != NO_VALUE) {
         env[row * ENV_STRIDE + ENV_VALUE] = value
     }
+}
+
+// `xs[i] = v` and `xs[i] += v`: the compound form reads the element, combines and writes it back.
+static method lowerIndexAssign(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int assign, Int target) {
+    Int list = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, target, NODE_FIRST_CHILD))
+    Int index = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, nodeField(nodes, target, NODE_FIRST_CHILD), NODE_NEXT_SIBLING))
+    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, target, NODE_NEXT_SIBLING))
+
+    if (list == NO_VALUE || index == NO_VALUE || value == NO_VALUE) {
+        markUnsupported(nodes, state, assign)
+        return
+    }
+
+    if (!nodeIs(source, nodes, assign, "=")) {
+        value = lowerCompound(source, nodes, ir, state, assign, emitListGet(nodes, annotations, ir, state, target, list, index), value)
+
+        if (value == NO_VALUE) {
+            return
+        }
+    }
+
+    addOperation(ir, state, OP_LIST_SET, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+    addOperand(ir, state, index)
+    addOperand(ir, state, value)
 }
 
 // `x += y` and the like: the operator is the assignment's text without its trailing `=`.
@@ -181,6 +212,11 @@ static method<Int> variableRow(List<Int> nodes, List<Int> annotations, List<Int>
 
 // `x++` and `x--`.
 static method lowerIncrement(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> state, Int postfix) {
+    if (nodeField(nodes, nodeField(nodes, postfix, NODE_FIRST_CHILD), NODE_KIND) == NODE_INDEX) {
+        lowerElementIncrement(source, nodes, annotations, ir, env, state, postfix)
+        return
+    }
+
     Int row = variableRow(nodes, annotations, env, state, nodeField(nodes, postfix, NODE_FIRST_CHILD))
     Int code = OP_ADD
 
@@ -201,9 +237,40 @@ static method lowerIncrement(String source, List<Int> nodes, List<Int> annotatio
     env[row * ENV_STRIDE + ENV_VALUE] = result
 }
 
+// `xs[i]++`: read the element, add or subtract one and write it back.
+static method lowerElementIncrement(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> state, Int postfix) {
+    Int target = nodeField(nodes, postfix, NODE_FIRST_CHILD)
+    List<Int> none = []
+    Int list = lowerExpression(source, nodes, annotations, ir, env, none, state, nodeField(nodes, target, NODE_FIRST_CHILD))
+    Int index = lowerExpression(source, nodes, annotations, ir, env, none, state, nodeField(nodes, nodeField(nodes, target, NODE_FIRST_CHILD), NODE_NEXT_SIBLING))
+    Int current = emitListGet(nodes, annotations, ir, state, target, list, index)
+
+    if (current == NO_VALUE || index == NO_VALUE) {
+        markUnsupported(nodes, state, postfix)
+        return
+    }
+
+    Int code = OP_ADD
+
+    if (nodeIs(source, nodes, postfix, "--")) {
+        code = OP_SUBTRACT
+    }
+
+    Int one = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 1, false)
+    Int next = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, code, next, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, current)
+    addOperand(ir, state, one)
+    addOperation(ir, state, OP_LIST_SET, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, list, MODE_BORROW_WRITE)
+    addOperand(ir, state, index)
+    addOperand(ir, state, next)
+}
+
 static method lowerReturn(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
     Int value = nodeField(nodes, statement, NODE_FIRST_CHILD)
     Int result = NO_VALUE
+    Int mode = MODE_VALUE
 
     if (value != NO_NODE) {
         result = lowerExpression(source, nodes, annotations, ir, env, functions, state, value)
@@ -211,15 +278,39 @@ static method lowerReturn(String source, List<Int> nodes, List<Int> annotations,
         if (result == NO_VALUE) {
             return
         }
+
+        mode = returnMode(nodes, annotations, state, value)
+    }
+
+    if (mode == MODE_BORROW_READ) {
+        markUnsupported(nodes, state, statement)
+        return
+    }
+
+    if (state[LOWER_SCOPE] == 1 && mode != MODE_OWNED) {
+        addOperation(ir, state, OP_SCOPE_END, NO_VALUE, 0, 1, 0, false, PREDICATE_NONE)
     }
 
     addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
 
     if (result != NO_VALUE) {
-        addOperand(ir, state, result)
+        addOperandMode(ir, state, result, mode)
     }
 
     state[LOWER_TERMINATED] = 1
+}
+
+// A list leaves the function owned when it is a local or a call result; a borrowed parameter cannot.
+static method<Int> returnMode(List<Int> nodes, List<Int> annotations, List<Int> state, Int value) {
+    if (!isListWire(wireType(state, annotationField(annotations, value, ANNOTATION_TYPE)))) {
+        return MODE_VALUE
+    }
+
+    if (nodeField(nodes, value, NODE_KIND) == NODE_NAME && annotationField(annotations, value, ANNOTATION_SYMBOL) == REFERENCE_PARAMETER) {
+        return MODE_BORROW_READ
+    }
+
+    return MODE_OWNED
 }
 
 // `if (condition) { ... }`: the variables in scope travel through a join block as parameters, so an
@@ -260,13 +351,14 @@ static method branchTo(List<Int> ir, List<Int> state, List<Int> env, Int target,
     setTargets(ir, state, target, NO_BLOCK, 0)
 }
 
-// `while` and `for`: a header block takes every variable in scope as a parameter; the body jumps back to
-// it and the exit block receives the variables again.
+// `while`, `for` and `for-in`: a header block takes every variable in scope as a parameter; the body
+// jumps back to it and the exit block receives the variables again. A `for-in` carries a hidden index.
 static method lowerLoop(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop) {
     Int mark = state[LOWER_ENV]
     Int condition = nodeField(nodes, loop, NODE_FIRST_CHILD)
     Int update = NO_NODE
     Int body = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    List<Int> items = [NO_VALUE, NO_VALUE, -1, WIRE_INT]
 
     if (nodeField(nodes, loop, NODE_KIND) == NODE_FOR) {
         Int start = nodeField(nodes, loop, NODE_FIRST_CHILD)
@@ -276,14 +368,45 @@ static method lowerLoop(String source, List<Int> nodes, List<Int> annotations, L
         lowerStatement(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, start, NODE_FIRST_CHILD))
     }
 
+    if (nodeField(nodes, loop, NODE_KIND) == NODE_FOREACH) {
+        condition = nodeField(nodes, childOfKind(nodes, loop, NODE_TYPE), NODE_NEXT_SIBLING)
+        body = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+        prepareItems(source, nodes, annotations, ir, env, functions, state, loop, condition, items)
+
+        if (items[ITEMS_LIST] == NO_VALUE) {
+            return
+        }
+    }
+
     Int count = state[LOWER_ENV]
     Int header = newBlock(ir, state, env, count)
     Int headerRecord = state[LOWER_LAST_BLOCK]
     branchTo(ir, state, env, header, count)
     state[LOWER_BLOCK] = header
     adoptBlockParameters(ir, env, headerRecord, count)
-    lowerLoopBody(source, nodes, annotations, ir, env, functions, state, loop, condition, update, body, header, count)
+    lowerLoopBody(source, nodes, annotations, ir, env, functions, state, loop, condition, update, body, header, count, items)
     state[LOWER_ENV] = mark
+}
+
+final var ITEMS_LIST = 0
+final var ITEMS_LENGTH = 1
+final var ITEMS_INDEX_ROW = 2
+final var ITEMS_ELEMENT_TYPE = 3
+
+// The list a `for-in` walks, its length and a hidden index variable that starts at zero.
+static method prepareItems(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop, Int expression, List<Int> items) {
+    Int list = lowerExpression(source, nodes, annotations, ir, env, functions, state, expression)
+
+    if (list == NO_VALUE || !isListWire(wireType(state, annotationField(annotations, expression, ANNOTATION_TYPE)))) {
+        markUnsupported(nodes, state, loop)
+        return
+    }
+
+    items[ITEMS_LIST] = list
+    items[ITEMS_ELEMENT_TYPE] = listElementWire(wireType(state, annotationField(annotations, expression, ANNOTATION_TYPE)))
+    items[ITEMS_LENGTH] = emitListLength(ir, state, list)
+    items[ITEMS_INDEX_ROW] = state[LOWER_ENV]
+    addVariable(env, state, 0 - loop - 1, constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false), WIRE_INT)
 }
 
 // `break` leaves the innermost loop and `continue` goes to its next iteration, both passing the
@@ -306,14 +429,9 @@ static method lowerJump(List<Int> ir, List<Int> env, List<Int> nodes, List<Int> 
     state[LOWER_TERMINATED] = 1
 }
 
-static method lowerLoopBody(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop, Int condition, Int update, Int body, Int header, Int count) {
-    Int conditionNode = condition
-
-    if (nodeField(nodes, loop, NODE_KIND) == NODE_FOR) {
-        conditionNode = nodeField(nodes, condition, NODE_FIRST_CHILD)
-    }
-
-    Int test = lowerExpression(source, nodes, annotations, ir, env, functions, state, conditionNode)
+static method lowerLoopBody(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop, Int condition, Int update, Int body, Int header, Int count, List<Int> items) {
+    Bool isForEach = items[ITEMS_INDEX_ROW] >= 0
+    Int test = loopTest(source, nodes, annotations, ir, env, functions, state, loop, condition, items)
 
     if (test == NO_VALUE) {
         return
@@ -325,7 +443,7 @@ static method lowerLoopBody(String source, List<Int> nodes, List<Int> annotation
     Int step = header
     Int stepRecord = 0
 
-    if (update != NO_NODE) {
+    if (update != NO_NODE || isForEach) {
         step = newBlock(ir, state, env, count)
         stepRecord = state[LOWER_LAST_BLOCK]
     }
@@ -335,6 +453,11 @@ static method lowerLoopBody(String source, List<Int> nodes, List<Int> annotation
     addEnvironmentOperands(ir, state, env, count)
     setTargets(ir, state, bodyBlock, exit, 0)
     state[LOWER_BLOCK] = bodyBlock
+
+    if (isForEach) {
+        declareItem(nodes, annotations, ir, env, state, loop, items)
+    }
+
     Int outerBreak = state[LOWER_BREAK_TARGET]
     Int outerContinue = state[LOWER_CONTINUE_TARGET]
     Int outerCount = state[LOWER_LOOP_COUNT]
@@ -345,15 +468,60 @@ static method lowerLoopBody(String source, List<Int> nodes, List<Int> annotation
     state[LOWER_BREAK_TARGET] = outerBreak
     state[LOWER_CONTINUE_TARGET] = outerContinue
     state[LOWER_LOOP_COUNT] = outerCount
+    state[LOWER_ENV] = count
     branchTo(ir, state, env, step, count)
 
-    if (update != NO_NODE) {
+    if (step != header) {
         state[LOWER_BLOCK] = step
         adoptBlockParameters(ir, env, stepRecord, count)
-        lowerEffect(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, update, NODE_FIRST_CHILD))
+        loopStep(source, nodes, annotations, ir, env, functions, state, update, items)
         branchTo(ir, state, env, header, count)
     }
 
     state[LOWER_BLOCK] = exit
     adoptBlockParameters(ir, env, exitRecord, count)
+}
+
+// The loop condition: the expression of `while` and `for`, or `index < length` of a `for-in`.
+static method<Int> loopTest(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop, Int condition, List<Int> items) {
+    Int kind = nodeField(nodes, loop, NODE_KIND)
+
+    if (kind == NODE_FOREACH) {
+        Int result = newValue(ir, state, WIRE_BOOL)
+        addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, PREDICATE_LESS)
+        addOperand(ir, state, env[items[ITEMS_INDEX_ROW] * ENV_STRIDE + ENV_VALUE])
+        addOperand(ir, state, items[ITEMS_LENGTH])
+        return result
+    }
+
+    if (kind == NODE_FOR) {
+        return lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, condition, NODE_FIRST_CHILD))
+    }
+
+    return lowerExpression(source, nodes, annotations, ir, env, functions, state, condition)
+}
+
+// The loop variable of a `for-in` is the list element at the current index.
+static method declareItem(List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> state, Int loop, List<Int> items) {
+    Int type = items[ITEMS_ELEMENT_TYPE]
+    Int element = newValue(ir, state, type)
+    addOperation(ir, state, OP_LIST_GET, element, type, 0, 0, false, PREDICATE_NONE)
+    addOperandMode(ir, state, items[ITEMS_LIST], MODE_BORROW_READ)
+    addOperand(ir, state, env[items[ITEMS_INDEX_ROW] * ENV_STRIDE + ENV_VALUE])
+    addVariable(env, state, nodeField(nodes, loop, NODE_TEXT_START), element, type)
+}
+
+// What happens between two iterations: the `for` update, or the next index of a `for-in`.
+static method loopStep(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int update, List<Int> items) {
+    if (update != NO_NODE) {
+        lowerEffect(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, update, NODE_FIRST_CHILD))
+        return
+    }
+
+    Int one = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 1, false)
+    Int next = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, OP_ADD, next, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, env[items[ITEMS_INDEX_ROW] * ENV_STRIDE + ENV_VALUE])
+    addOperand(ir, state, one)
+    env[items[ITEMS_INDEX_ROW] * ENV_STRIDE + ENV_VALUE] = next
 }

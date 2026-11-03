@@ -120,12 +120,13 @@ turn into an executable. The lowered program is a flat list of records (function
 operations) printed at the end, so blocks can be created in any order. Variables in scope are carried through
 blocks as block parameters, the way Ring0 does it.
 
-Supported: functions of `Int`/`Bool`/`Void`, constants, arithmetic, comparisons, `!`, `-`, `&&`/`||`,
+Supported: functions of `Int`/`Bool`/`Void`, `List<Int>`/`List<Bool>` (literals, `add`, `set`, `get`, `xs[i]`, `size`, `isEmpty`,
+`for-in`, lent to callees for reading or writing, returned owned), constants, arithmetic, comparisons, `!`, `-`, `&&`/`||`,
 calls, locals, assignment (also `+=` etc.), `++`/`--`, `if`, `while`, `for`, `break`, `continue`, `return`,
 and the wrapping of a `Void` main. Everything else makes the lowering answer `unsupported <line>`.
 
 `scripts/runLoweringCorpus.sh` runs Ring0's lowering fixtures through Ring1 and compares the native
-output with the expected one: 6 pass, 0 fail, 39 are unsupported (floats, text, lists, classes, ...).
+output with the expected one: 9 pass, 0 fail, 36 are unsupported (floats, text, classes, ...).
 
 ## Open
 
