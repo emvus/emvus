@@ -200,7 +200,7 @@ static method<Int> lowerIntLiteral(String source, List<Int> nodes, List<Int> ir,
     Int value = 0
 
     for (Int index = 0; index < length; index++) {
-        value = value * RADIX + source.byteAt(start + index) - ZERO_BYTE
+        value = value * RADIX + (source.byteAt(start + index) - ZERO_BYTE)
     }
 
     return constantValue(ir, state, OP_CONST_INT, WIRE_INT, value, false)
@@ -410,6 +410,10 @@ static method<Int> lowerShortCircuit(String source, List<Int> nodes, List<Int> a
 // which is also the function number.
 static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node) {
     Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) >= 0 && annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_METHOD) {
+        return lowerWith(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
 
     if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_OWNER) == OWNER_RESULT) {
         return lowerOrElse(source, nodes, annotations, ir, env, functions, state, node, callee)

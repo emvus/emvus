@@ -120,9 +120,12 @@ The platform functions (`print`, `println`, `errprint`, `errprintln`, `readFile`
 `argumentCount`, `exit`) lower to calls of Sublang's platform imports; the lowering declares the imports a program calls
 as functions without a body after its own functions.
 
-Ring1 compiles only what it is written in (`Int`, `Bool`, `String`, `List<Int>`, `List<Bool>`, functions, control
-flow), not yet floats, classes, records, `Result`, lambdas or generics; the tool answers with the line of the first
-construct it cannot lower. It does not report syntax errors the way Ring0 does.
+Ring1 compiles the subset decided in `Ring0/docs/languageDecisions.md` (decision 3) except tuples, and a little more:
+`Int`, `Bool`, `Float`, `String` (literals, `+`, `==`, `length`, `byteAt`, `substring`, interpolation), `List<Int>`/`List<Bool>`,
+enums and `switch`, records and data classes of primitives (defaults, `withX`, destructuring), exceptions with one
+primitive field and `Result` over a primitive (`fail`, `success`, `?`, `!`, `orElse`), the platform functions, functions and
+control flow. Not yet: classes and objects, interfaces, generics, lambdas, tuples, `switch` over a `Result`, `scoped var`,
+cascades, type tests and casts. The tool answers with the line of the first construct it cannot lower. It does not report syntax errors the way Ring0 does.
 
 ## State
 
@@ -149,13 +152,14 @@ turn into an executable. The lowered program is a flat list of records (function
 operations) printed at the end, so blocks can be created in any order. Variables in scope are carried through
 blocks as block parameters, the way Ring0 does it.
 
-Supported: functions of `Int`/`Bool`/`Void`, `List<Int>`/`List<Bool>` (literals, `add`, `set`, `get`, `xs[i]`, `size`, `isEmpty`,
+Supported (see also the list under `emvusc`): functions of `Int`/`Bool`/`Void`, `List<Int>`/`List<Bool>` (literals, `add`, `set`, `get`, `xs[i]`, `size`, `isEmpty`,
 `for-in`, lent to callees for reading or writing, returned owned), constants, arithmetic, comparisons, `!`, `-`, `&&`/`||`,
 calls, locals, assignment (also `+=` etc.), `++`/`--`, `if`, `while`, `for`, `break`, `continue`, `return`,
 and the wrapping of a `Void` main. Everything else makes the lowering answer `unsupported <line>`.
 
 `scripts/runLoweringCorpus.sh` runs Ring0's lowering fixtures through Ring1 and compares the native
-output with the expected one: 12 pass, 0 fail, 33 are unsupported (floats, classes, `Result`, ...).
+output with the expected one: 21 pass, 0 fail, 24 are unsupported (classes and objects, generics, lambdas, tuples, `Result`
+switches).
 
 ## Open
 

@@ -81,7 +81,7 @@ static method<List<Int>> parseDecimal(String source, Int start, Int length) {
                 return parts
             }
 
-            parts[DECIMAL_DIGITS] = parts[DECIMAL_DIGITS] * 10 + byte - DIGIT_ZERO
+            parts[DECIMAL_DIGITS] = parts[DECIMAL_DIGITS] * 10 + (byte - DIGIT_ZERO)
 
             if (afterPoint) {
                 fraction = fraction + 1
@@ -116,7 +116,7 @@ static method<Int> parseExponent(String source, Int start, Int end) {
     Int value = 0
 
     while (index < end && value < EXPONENT_LIMIT) {
-        value = value * 10 + source.byteAt(index) - DIGIT_ZERO
+        value = value * 10 + (source.byteAt(index) - DIGIT_ZERO)
         index = index + 1
     }
 
