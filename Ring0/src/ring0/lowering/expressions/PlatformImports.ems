@@ -1,0 +1,128 @@
+namespace ring0::lowering;
+
+// The platform imports Sublang offers (Sublang_Runtime_IR.md, "Platform imports"): external contracts named
+// `platform.<area>.<name>` with a fixed signature, declared in the module on first use. A slot is the position in
+// the table below; the function id of a declared import is kept in the run state next to the text helpers.
+// Signature letters: `t` text borrowed for reading, `i` Int, `b` Bool, `T` owned text, `v` nothing.
+public class PlatformImports {
+    public PlatformImports() {
+    }
+
+    public static Int count() {
+        return 8;
+    }
+
+    public static Int readFile() {
+        return 0;
+    }
+
+    public static Int writeFile() {
+        return 1;
+    }
+
+    public static Int fileExists() {
+        return 2;
+    }
+
+    public static Int print() {
+        return 3;
+    }
+
+    public static Int printError() {
+        return 4;
+    }
+
+    public static Int argument() {
+        return 5;
+    }
+
+    public static Int argumentCount() {
+        return 6;
+    }
+
+    public static Int exit() {
+        return 7;
+    }
+
+    public static String nameOf(Int slot) {
+        List<String> names = List();
+        names.add("platform.io.read_file");
+        names.add("platform.io.write_file");
+        names.add("platform.io.file_exists");
+        names.add("platform.io.print");
+        names.add("platform.io.print_error");
+        names.add("platform.process.argument");
+        names.add("platform.process.argument_count");
+        names.add("platform.process.exit");
+        return names.get(slot) + "";
+    }
+
+    // `parameters>result`
+    public static String signatureOf(Int slot) {
+        List<String> signatures = List();
+        signatures.add("t>T");
+        signatures.add("tt>b");
+        signatures.add("t>b");
+        signatures.add("t>v");
+        signatures.add("t>v");
+        signatures.add("i>T");
+        signatures.add(">i");
+        signatures.add("i>v");
+        return signatures.get(slot) + "";
+    }
+
+    // The function id of the import, declared on first use.
+    public static Int functionFor(LoweringContext context, Int slot) {
+        Int cached = context.function().helperId(4 + slot);
+
+        if (cached != 0) {
+            return cached;
+        }
+
+        Int resume = context.cursor().currentFunctionId();
+        Int block = context.cursor().currentBlockId();
+        Int span = context.builder().syntheticSpan("ring0:platform");
+        String signature = PlatformImports.signatureOf(slot);
+        Int split = signature.indexOf(">");
+        Int id = context.declareFunction(PlatformImports.nameOf(slot), PlatformImports.typeOf(context, signature.substring(split + 1, signature.length())), span);
+        context.builder().module().functionAt(id).setLinkage("external");
+        context.builder().module().functionAt(id).setDefinition("contract");
+        context.function().setHelperId(4 + slot, id);
+        context.cursor().enterFunction(id);
+        Int position = 0;
+
+        while (position < split) {
+            String letter = signature.substring(position, position + 1);
+            context.cursor().currentFunction().addParam("p" + position.toString(), PlatformImports.typeOf(context, letter), PlatformImports.passingOf(letter), false);
+            position = position + 1;
+        }
+
+        context.cursor().enterFunction(resume);
+        context.cursor().enterBlock(block);
+        return id;
+    }
+
+    private static Int typeOf(LoweringContext context, String letter) {
+        if (letter == "t" || letter == "T") {
+            return context.textRefType();
+        }
+
+        if (letter == "b") {
+            return context.builder().boolType();
+        }
+
+        if (letter == "i") {
+            return context.builder().intType();
+        }
+
+        return context.builder().voidType();
+    }
+
+    private static String passingOf(String letter) {
+        if (letter == "t") {
+            return "borrow_read";
+        }
+
+        return "value";
+    }
+}

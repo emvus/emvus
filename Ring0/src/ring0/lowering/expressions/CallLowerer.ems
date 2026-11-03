@@ -3,7 +3,8 @@ namespace ring0::lowering;
 use ring0::syntax::Node;
 
 // Calls: top-level methods, record and exception construction, `panic`, the platform functions
-// (`print`, `println`, `readFile`, `writeFile`, `argument`; see PlatformCalls) and member calls
+// (`print`, `println`, `errprint`, `errprintln`, `readFile`, `writeFile`, `fileExists`, `argument`,
+// `argumentCount`, `exit`; see PlatformCalls) and member calls
 // on String, Result and record values.
 public class CallLowerer {
     private LoweringContext context;
@@ -32,12 +33,7 @@ public class CallLowerer {
 
         String name = callee.text().toLowerCase();
 
-        if (name == "errprintln") {
-            this.context.unsupported(node, "errprintln is not available on the Sublang native target: only standard output has a primitive (backend requirement: error output)");
-            return LoweredValue.unsupported();
-        }
-
-        if (PlatformCalls.handles(name)) {
+        if (PlatformCalls.handles(name) && this.context.methods().indexOf(callee.text()) < 0) {
             return PlatformCalls(this.context).lower(node, name);
         }
 

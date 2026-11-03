@@ -44,7 +44,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [x] Lists, generics (monomorphized), lambdas, `map`/`filter`/`reduce`/`forEach`
 - [x] 59 lowering fixtures green with Flow and Optimind on
 - [x] all 67 lowering fixtures run natively through Sublang (Low IR route) and match their expected output, aborts and errors: `scripts/checkLoweringNative.sh`
-- [x] `print`/`println`/`readFile`/`writeFile`/`argument` as Emvus functions on Sublang's byte-text extension (`text.print`, `text.from_file`, `text.write_file`, `text.argument`; host libc, not a runtime IR yet)
+- [x] `print`/`println`/`errprint`/`errprintln`/`readFile`/`writeFile`/`fileExists`/`argument`/`argumentCount`/`exit` as Emvus functions: calls of Sublang's typed platform imports (`platform.io.*`, `platform.process.*`), bound to a Sublang runtime library over the byte-text platform operations (host libc, Linux)
 - [x] Byte-wise `byteAt` and `substring` (bytes, decision 1); `charAt` is reserved
 - [x] `indexOf` (generated search helper `emvus.text.indexOf`; lowered to wire, not yet run natively)
 - [x] Literal top-level constants (Int, Bool, Float; inlined, see `lowering.md`; String constants and static fields still wait for G7 storage)
@@ -60,7 +60,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 
 - [ ] Sublang: platform operations (write, read file, write file, arguments, exit) with ownership modes, error codes and `observable` effect
 - [ ] Sublang: a way to link a runtime module into a program
-- [ ] Runtime IR: the platform functions as typed imports instead of byte-text operations over libc (`rt.exit`, error output and a real exit in `Void` programs are missing)
+- [ ] Runtime IR beyond the first slice: effect and alias facts for the imports (today conservative), imports for time, environment, directories and processes, Windows and macOS bindings, raw-memory primitives so the library needs no libc, errors as values with a reason
 - [ ] Runtime IR: `rt.intToText`, text helpers, `rt.floatToText`
 - [ ] Runtime IR: Map and Option layouts (after reference fields exist)
 

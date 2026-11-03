@@ -116,6 +116,10 @@ stage 2 compiles Ring1 again (stage 3). The script succeeds when stages 2 and 3 
 and leaves `<work-dir>/emvusc`. `bash scripts/runLoweringCorpus.sh <emvusc> <sublang> <work-dir>` runs Ring0's lowering
 fixtures through it.
 
+The platform functions (`print`, `println`, `errprint`, `errprintln`, `readFile`, `writeFile`, `fileExists`, `argument`,
+`argumentCount`, `exit`) lower to calls of Sublang's platform imports; the lowering declares the imports a program calls
+as functions without a body after its own functions.
+
 Ring1 compiles only what it is written in (`Int`, `Bool`, `String`, `List<Int>`, `List<Bool>`, functions, control
 flow), not yet floats, classes, records, `Result`, lambdas or generics; the tool answers with the line of the first
 construct it cannot lower. It does not report syntax errors the way Ring0 does.

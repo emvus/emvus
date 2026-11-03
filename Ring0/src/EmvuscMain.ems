@@ -10,6 +10,7 @@ use ring0::syntax::Node;
 use ring0::syntax::SourceSet;
 use sublang::backend::SublangCompilation;
 use sublang::backend::SublangCompiler;
+use sublang::platform::SublangPlatformBinding;
 use sublang::cli::SublangVersion;
 use sublang::ir::SublangBuilder;
 use Std::Io::File;
@@ -127,7 +128,7 @@ main() {
         return;
     }
 
-    SublangCompilation compilation = SublangCompiler.compile(builder.module(), true, "auto");
+    SublangCompilation compilation = SublangPlatformBinding.compile(builder.module(), true, "auto");
 
     if (!compilation.codegenReady()) {
         println("emvusc: the backend rejected the program: " + compilation.error());

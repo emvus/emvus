@@ -675,9 +675,16 @@ static method<Int> emitSubstring(List<Int> ir, List<Int> state, Int text, Int fr
     return slice
 }
 
-// `print(text)`, `println(text)`, `readFile(path)`, `writeFile(path, text)` and `argument(index)`: the platform
-// functions of the byte-text extension.
+// The platform functions (`print`, `println`, `errprint`, `errprintln`, `readFile`, `writeFile`, `fileExists`,
+// `argument`, `argumentCount`, `exit`) are calls of the platform imports of Sublang.
 static method<Int> lowerPlatformCall(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int node, Int callee) {
+    Int slot = importForName(source, nodes, callee)
+
+    if (slot == NO_IMPORT || state[LOWER_IMPORT + slot] == 0) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
     List<Int> arguments = []
     Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
 
@@ -686,52 +693,54 @@ static method<Int> lowerPlatformCall(String source, List<Int> nodes, List<Int> a
         argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
     }
 
-    if (hasNoValue(arguments) || arguments.size() == 0 || arguments.size() > 2) {
+    String signature = importSignature(slot)
+    Int split = splitOf(signature)
+
+    if (hasNoValue(arguments) || arguments.size() != split) {
         markUnsupported(nodes, state, node)
         return NO_VALUE
     }
 
-    if (nodeIs(source, nodes, callee, "print") || nodeIs(source, nodes, callee, "println")) {
-        emitPrint(ir, state, arguments[0])
+    Int result = emitImportCall(ir, state, slot, arguments)
 
-        if (nodeIs(source, nodes, callee, "println")) {
-            emitPrint(ir, state, emitLineFeed(ir, state))
+    if ((nodeIs(source, nodes, callee, "println") || nodeIs(source, nodes, callee, "errprintln")) && result == NO_VALUE) {
+        List<Int> lineFeed = []
+        lineFeed.add(emitLineFeed(ir, state))
+        emitImportCall(ir, state, slot, lineFeed)
+    }
+
+    return result
+}
+
+// A call of the import; text parameters are lent for reading and a text result is owned by the function's scope.
+static method<Int> emitImportCall(List<Int> ir, List<Int> state, Int slot, List<Int> arguments) {
+    String signature = importSignature(slot)
+    Int split = splitOf(signature)
+    String letter = signature.substring(split + 1, signature.length())
+    Int type = importResultType(letter)
+    Int result = NO_VALUE
+
+    if (type != WIRE_VOID) {
+        result = newValue(ir, state, type)
+    }
+
+    addOperation(ir, state, OP_CALL, result, type, state[LOWER_IMPORT + slot], 0, false, PREDICATE_NONE)
+
+    if (letter == "T") {
+        setOwned(ir, state)
+    }
+
+    for (Int position = 0; position < arguments.size(); position++) {
+        Int mode = MODE_VALUE
+
+        if (signature.substring(position, position + 1) == "t") {
+            mode = MODE_BORROW_READ
         }
 
-        return NO_VALUE
+        addOperandMode(ir, state, arguments[position], mode)
     }
 
-    if (nodeIs(source, nodes, callee, "readFile") && arguments.size() == 1) {
-        return emitTextResult(ir, state, OP_TEXT_FROM_FILE, arguments[0], MODE_BORROW_READ)
-    }
-
-    if (nodeIs(source, nodes, callee, "argument") && arguments.size() == 1) {
-        return emitTextResult(ir, state, OP_TEXT_ARGUMENT, arguments[0], MODE_VALUE)
-    }
-
-    if (nodeIs(source, nodes, callee, "writeFile") && arguments.size() == 2) {
-        Int written = newValue(ir, state, WIRE_BOOL)
-        addOperation(ir, state, OP_TEXT_WRITE_FILE, written, WIRE_BOOL, 0, 0, false, PREDICATE_NONE)
-        addOperandMode(ir, state, arguments[0], MODE_BORROW_READ)
-        addOperandMode(ir, state, arguments[1], MODE_BORROW_READ)
-        return written
-    }
-
-    markUnsupported(nodes, state, node)
-    return NO_VALUE
-}
-
-static method emitPrint(List<Int> ir, List<Int> state, Int text) {
-    addOperation(ir, state, OP_TEXT_PRINT, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
-    addOperandMode(ir, state, text, MODE_BORROW_READ)
-}
-
-static method<Int> emitTextResult(List<Int> ir, List<Int> state, Int code, Int operand, Int mode) {
-    Int text = newValue(ir, state, WIRE_STRING)
-    addOperation(ir, state, code, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
-    setOwned(ir, state)
-    addOperandMode(ir, state, operand, mode)
-    return text
+    return result
 }
 
 // A fresh text holding a single line feed.
@@ -739,5 +748,9 @@ static method<Int> emitLineFeed(List<Int> ir, List<Int> state) {
     Int constant = newValue(ir, state, WIRE_STRING_CONSTANT)
     addOperation(ir, state, OP_CONST_STRING, constant, WIRE_STRING_CONSTANT, 0, 0, false, PREDICATE_NONE)
     setText(ir, state, TEXT_LINE_FEED, 1)
-    return emitTextResult(ir, state, OP_TEXT_FROM_STR, constant, MODE_VALUE)
+    Int text = newValue(ir, state, WIRE_STRING)
+    addOperation(ir, state, OP_TEXT_FROM_STR, text, WIRE_STRING, WIRE_LIST_BYTE, 0, false, PREDICATE_NONE)
+    setOwned(ir, state)
+    addOperand(ir, state, constant)
+    return text
 }

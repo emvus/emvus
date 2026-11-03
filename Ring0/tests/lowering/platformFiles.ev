@@ -1,20 +1,29 @@
 // expect-status: 5
-// readFile, writeFile and argument: copy the file named by the first argument to the second.
+// The platform functions: copy the file named by the first argument to the second, and check existence, argument
+// count and error output on the way.
 static method<Int> main {
-    String missing = readFile("/nonexistent/emvus-test-file")
+    if (argumentCount() != 2) {
+        return 3
+    }
 
-    if (missing.length() != 0) {
-        return 1
+    if (fileExists("/nonexistent/emvus-test-file")) {
+        return 4
     }
 
     String source = argument(0)
     String target = argument(1)
+
+    if (!fileExists(source)) {
+        return 6
+    }
+
     String content = readFile(source)
 
     if (!writeFile(target, content + "!")) {
         return 2
     }
 
+    errprintln("copied")
     println(readFile(target))
     return 5
 }

@@ -96,7 +96,15 @@ static method<Int> countOperations(List<Int> ir, Int start, Int end) {
 
 static method<String> functionText(String source, List<Int> ir, Int start, Int end, Int number, Int operationsBefore) {
     Int nameStart = ir[start + FUNCTION_NAME_START]
-    String text = "func id=" + intText(number) + " name=\"" + functionName(source, ir, start) + "\" returnType=" + intText(ir[start + FUNCTION_RETURN]) + " methodOf=0 span=" + "1" + " profile=1 effect=1 linkage=\"internal\" convention=\"sublang\" definition=\"body\"" + "\n"
+    String linkage = "internal"
+    String definition = "body"
+
+    if (ir[start + FUNCTION_NAME_START] <= NAME_IMPORT_BASE) {
+        linkage = "external"
+        definition = "contract"
+    }
+
+    String text = "func id=" + intText(number) + " name=\"" + functionName(source, ir, start) + "\" returnType=" + intText(ir[start + FUNCTION_RETURN]) + " methodOf=0 span=" + "1" + " profile=1 effect=1 linkage=\"" + linkage + "\" convention=\"sublang\" definition=\"" + definition + "\"" + "\n"
     text = text + valuesText(ir, start, end)
     text = text + parametersText(source, ir, start, end)
     Int blocks = countRecords(ir, start, end, REC_BLOCK)
@@ -229,6 +237,10 @@ static method<String> parametersList(List<Int> ir, Int record) {
 // The wrapper around a Void `main` and the text copy helper have no name in the source.
 static method<String> functionName(String source, List<Int> ir, Int record) {
     Int length = ir[record + FUNCTION_NAME_LENGTH]
+
+    if (length == 0 && ir[record + FUNCTION_NAME_START] <= NAME_IMPORT_BASE) {
+        return importName(NAME_IMPORT_BASE - ir[record + FUNCTION_NAME_START])
+    }
 
     if (length == 0 && ir[record + FUNCTION_NAME_START] == NAME_TEXT_ASSIGN) {
         return "emvus.text.assign"

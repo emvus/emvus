@@ -46,6 +46,7 @@ use ring0::lowering::LoweredValue;
 use ring0::lowering::LoweringContext;
 use ring0::lowering::MemberCallLowerer;
 use ring0::lowering::PlatformCalls;
+use ring0::lowering::PlatformImports;
 use ring0::lowering::MethodTable;
 use ring0::lowering::OperatorLowerer;
 use ring0::lowering::ProgramLowerer;

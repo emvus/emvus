@@ -15,6 +15,7 @@ static method<String> lowerSource(String source, String moduleName) {
     analyzeMutation(source, nodes, annotations, functions)
     List<Int> ir = []
     List<Int> env = []
+    numberImports(source, nodes, annotations, functions, state)
     addTextAssignHelper(ir, state)
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
@@ -37,7 +38,21 @@ static method<String> lowerSource(String source, String moduleName) {
         entry = functions.size() / FUNCTION_ROW_SIZE
     }
 
+    addImportRecords(ir, state)
     return programText(source, moduleName, ir, entry + FIRST_USER_FUNCTION)
+}
+
+// Counts the program's functions and entry wrapper, then numbers the platform imports it calls after them.
+static method numberImports(String source, List<Int> nodes, List<Int> annotations, List<Int> functions, List<Int> state) {
+    Int users = functions.size() / FUNCTION_ROW_SIZE
+    Int main = findFunctionNamed(source, nodes, functions, "main")
+    state[LOWER_USER_FUNCTIONS] = users
+
+    if (main >= 0 && functions[main * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN] == WIRE_VOID) {
+        state[LOWER_WRAPPERS] = 1
+    }
+
+    assignImports(source, nodes, annotations, functions, state, ROOT_NODE, FIRST_USER_FUNCTION + users + state[LOWER_WRAPPERS])
 }
 
 static method<List<Int>> newLowerState() {

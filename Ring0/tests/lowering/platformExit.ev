@@ -1,0 +1,8 @@
+// expect-status: 9
+// exit ends the process with its status; the statements after it do not run.
+static method<Int> main {
+    println("before")
+    exit(9)
+    println("after")
+    return 1
+}

@@ -244,22 +244,6 @@ static method<String> textOpcodeText(Int code) {
         return "text.equal"
     }
 
-    if (code == OP_TEXT_FROM_FILE) {
-        return "text.from_file"
-    }
-
-    if (code == OP_TEXT_WRITE_FILE) {
-        return "text.write_file"
-    }
-
-    if (code == OP_TEXT_PRINT) {
-        return "text.print"
-    }
-
-    if (code == OP_TEXT_ARGUMENT) {
-        return "text.argument"
-    }
-
     return "byte.to_int"
 }
 

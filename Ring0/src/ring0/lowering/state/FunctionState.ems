@@ -11,10 +11,12 @@ public class FunctionState {
         this.helperIds = List();
         this.currentReturnKind = "Void";
         this.typeBindings = TypeBindings();
-        this.helperIds.add(0);
-        this.helperIds.add(0);
-        this.helperIds.add(0);
-        this.helperIds.add(0);
+        Int slot = 0;
+
+        while (slot < 4 + PlatformImports.count()) {
+            this.helperIds.add(0);
+            slot = slot + 1;
+        }
     }
 
     public Int helperId(Int slot) {

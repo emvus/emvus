@@ -89,10 +89,6 @@ final var OP_TEXT_SLICE = 24
 final var OP_TEXT_EQUAL = 25
 final var OP_BYTE_TO_INT = 26
 final var OP_LIST_CLEAR = 27
-final var OP_TEXT_FROM_FILE = 28
-final var OP_TEXT_WRITE_FILE = 29
-final var OP_TEXT_PRINT = 30
-final var OP_TEXT_ARGUMENT = 31
 
 // A string constant whose text start is this value is a single line feed, which no source span holds.
 final var TEXT_LINE_FEED = -1
@@ -104,6 +100,7 @@ final var FIRST_USER_FUNCTION = 2
 // Functions that have no name in the source are recognized by their name start.
 final var NAME_ENTRY = -1
 final var NAME_TEXT_ASSIGN = -2
+final var NAME_IMPORT_BASE = -10
 
 final var PREDICATE_NONE = 0
 final var PREDICATE_LESS = 1
@@ -128,7 +125,11 @@ final var LOWER_BREAK_TARGET = 10
 final var LOWER_CONTINUE_TARGET = 11
 final var LOWER_LOOP_COUNT = 12
 final var LOWER_SCOPE = 13
-final var LOWER_STATE_SIZE = 14
+final var LOWER_USER_FUNCTIONS = 14
+final var LOWER_WRAPPERS = 15
+// The function numbers of the platform imports a program calls, 0 for the others (one entry per import).
+final var LOWER_IMPORT = 16
+final var LOWER_STATE_SIZE = 24
 
 final var WIRE_VOID = 1
 final var WIRE_BOOL = 2

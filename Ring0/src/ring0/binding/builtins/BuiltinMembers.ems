@@ -125,6 +125,10 @@ public class BuiltinMembers {
         lines.add("static Files.exists(String):Boolean");
         lines.add("static Files.writeText(String,String):Result<Void,?>");
         lines.add("fn readFile(String):String");
+        lines.add("fn fileExists(String):Boolean");
+        lines.add("fn argumentCount():Int");
+        lines.add("fn exit(Int):Void");
+        lines.add("fn errprint(String):Void");
         lines.add("fn writeFile(String,String):Boolean");
         lines.add("fn argument(Int):String");
         lines.add("fn println(dynamic):Void");

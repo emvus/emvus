@@ -63,11 +63,19 @@ static method<Int> resultMemberResult(String source, List<Int> types, Int receiv
     return TYPE_UNKNOWN
 }
 
-// Global functions, after Ring0's built-in table: the ones that print or panic take one argument and return
-// nothing, `readFile` and `argument` return a String, `writeFile` a Boolean. TYPE_UNKNOWN when there is none.
+// Global functions, after Ring0's built-in table: the ones that print, panic or exit take one argument and return
+// nothing, `readFile` and `argument` return a String, `writeFile` and `fileExists` a Boolean, `argumentCount` an Int. TYPE_UNKNOWN when there is none.
 static method<Int> builtinFunctionType(String source, Int start, Int length, Int argumentCount) {
-    if (argumentCount == 1 && (spanIs(source, start, length, "println") || spanIs(source, start, length, "print") || spanIs(source, start, length, "errprintln") || spanIs(source, start, length, "panic"))) {
+    if (argumentCount == 1 && (spanIs(source, start, length, "println") || spanIs(source, start, length, "print") || spanIs(source, start, length, "errprintln") || spanIs(source, start, length, "errprint") || spanIs(source, start, length, "panic") || spanIs(source, start, length, "exit"))) {
         return TYPE_VOID
+    }
+
+    if (argumentCount == 1 && spanIs(source, start, length, "fileExists")) {
+        return TYPE_BOOLEAN
+    }
+
+    if (argumentCount == 0 && spanIs(source, start, length, "argumentCount")) {
+        return TYPE_INT
     }
 
     if (argumentCount == 1 && (spanIs(source, start, length, "readFile") || spanIs(source, start, length, "argument"))) {
