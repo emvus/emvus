@@ -71,70 +71,15 @@ static method<Int> parseDeclaration(String source, List<Int> tokens, List<Int> s
         return parseMethod(source, tokens, state, nodes, modifiers)
     }
 
+    if (atKeyword(source, tokens, state, "macro")) {
+        return parseMacro(source, tokens, state, nodes, modifiers)
+    }
+
     if (atTypeDeclaration(source, tokens, state)) {
         return parseTypeDeclaration(source, tokens, state, nodes, modifiers)
     }
 
     return parseError(tokens, state, nodes)
-}
-
-// Annotations and modifiers are parsed into one node; `appendModifiers` splits them again.
-static method<Int> parseModifiers(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    Int modifiers = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
-
-    while (atSymbol(source, tokens, state, "@") || atModifier(source, tokens, state)) {
-        if (atSymbol(source, tokens, state, "@")) {
-            appendChild(nodes, modifiers, parseAnnotation(source, tokens, state, nodes))
-        }
-
-        if (!atSymbol(source, tokens, state, "@") && atModifier(source, tokens, state)) {
-            appendChild(nodes, modifiers, parseLeaf(tokens, state, nodes, NODE_MODIFIER))
-        }
-    }
-
-    return modifiers
-}
-
-// `@Name` or `@Name(arguments)`.
-static method<Int> parseAnnotation(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    advanceToken(tokens, state)
-    Int annotation = addNodeAtToken(nodes, NODE_ANNOTATION, tokens, state)
-    expectIdentifier(tokens, state)
-
-    if (atSymbol(source, tokens, state, "(") && onPreviousLine(tokens, state)) {
-        advanceToken(tokens, state)
-        parseElements(source, tokens, state, nodes, annotation, ")")
-    }
-
-    return annotation
-}
-
-// Annotations come first among a declaration's children, the modifiers node after them.
-static method appendModifiers(List<Int> nodes, Int declaration, Int modifiers) {
-    Int child = nodeField(nodes, modifiers, NODE_FIRST_CHILD)
-    setNodeField(nodes, modifiers, NODE_FIRST_CHILD, NO_NODE)
-    setNodeField(nodes, modifiers, NODE_LAST_CHILD, NO_NODE)
-
-    while (child != NO_NODE) {
-        Int next = nodeField(nodes, child, NODE_NEXT_SIBLING)
-        setNodeField(nodes, child, NODE_NEXT_SIBLING, NO_NODE)
-
-        if (nodeField(nodes, child, NODE_KIND) == NODE_ANNOTATION) {
-            appendChild(nodes, declaration, child)
-        }
-
-        if (nodeField(nodes, child, NODE_KIND) != NODE_ANNOTATION) {
-            appendChild(nodes, modifiers, child)
-        }
-
-        child = next
-    }
-
-    appendChild(nodes, declaration, modifiers)
-}
-
-static method<Bool> atModifier(String source, List<Int> tokens, List<Int> state) {
-    return atKeyword(source, tokens, state, "final") || atKeyword(source, tokens, state, "static") || atKeyword(source, tokens, state, "abstract") || atKeyword(source, tokens, state, "override") || atKeyword(source, tokens, state, "private") || atKeyword(source, tokens, state, "protected") || atKeyword(source, tokens, state, "public") || atKeyword(source, tokens, state, "scoped")
 }
 
 // `final var NAME = value`: the type node is the `var` keyword.
@@ -191,18 +136,6 @@ static method<Int> parsePlaceholder(List<Int> tokens, List<Int> state, List<Int>
     return placeholder
 }
 
-static method<Int> parseReturnType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    if (!atSymbol(source, tokens, state, "<")) {
-        return NO_NODE
-    }
-
-    Int returnType = addEmptyNode(nodes, NODE_RETURN_TYPE, tokens, state)
-    advanceToken(tokens, state)
-    appendChild(nodes, returnType, parseType(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ">")
-    return returnType
-}
-
 static method<Int> parseParams(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int params = addEmptyNode(nodes, NODE_PARAMS, tokens, state)
 
@@ -242,55 +175,4 @@ static method<Int> parseParam(String source, List<Int> tokens, List<Int> state, 
     }
 
     return param
-}
-
-// A type name with optional type arguments: `Int`, `List<Int>`.
-static method<Int> parseType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    if (atSymbol(source, tokens, state, "[")) {
-        return parseTupleType(source, tokens, state, nodes)
-    }
-
-    if (!atKind(tokens, state, TOKEN_IDENTIFIER) && !atKeyword(source, tokens, state, "dynamic")) {
-        return parseError(tokens, state, nodes)
-    }
-
-    Int type = parseLeaf(tokens, state, nodes, NODE_TYPE)
-
-    if (!atSymbol(source, tokens, state, "<")) {
-        return type
-    }
-
-    advanceToken(tokens, state)
-
-    while (true) {
-        appendChild(nodes, type, parseType(source, tokens, state, nodes))
-
-        if (!atSymbol(source, tokens, state, ",")) {
-            break
-        }
-
-        advanceToken(tokens, state)
-    }
-
-    expectSymbol(source, tokens, state, ">")
-    return type
-}
-
-// `[Int, String]`: the types of a tuple.
-static method<Int> parseTupleType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    Int tuple = addEmptyNode(nodes, NODE_TUPLE_TYPE, tokens, state)
-    advanceToken(tokens, state)
-
-    while (true) {
-        appendChild(nodes, tuple, parseType(source, tokens, state, nodes))
-
-        if (!atSymbol(source, tokens, state, ",")) {
-            break
-        }
-
-        advanceToken(tokens, state)
-    }
-
-    expectSymbol(source, tokens, state, "]")
-    return tuple
 }

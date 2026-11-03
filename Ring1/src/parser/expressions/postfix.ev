@@ -1,0 +1,132 @@
+package ring1.parser
+
+// Calls, indexing, member access, `?`, `!`, `++`, cascades and argument lists.
+
+// Calls, indexing, member access and `++` / `--`, applied left to right.
+static method<Int> parsePostfix(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int target = parsePrimary(source, tokens, state, nodes)
+
+    while (true) {
+        Bool sameLine = onPreviousLine(tokens, state)
+
+        if (sameLine && atSymbol(source, tokens, state, "(")) {
+            target = parseCall(source, tokens, state, nodes, target)
+            continue
+        }
+
+        if (sameLine && atSymbol(source, tokens, state, "[")) {
+            target = parseIndex(source, tokens, state, nodes, target)
+            continue
+        }
+
+        if (atSymbol(source, tokens, state, ".")) {
+            target = parseMemberAccess(source, tokens, state, nodes, target)
+            continue
+        }
+
+        if (sameLine && atSymbol(source, tokens, state, "?") && !atTernaryQuestion(source, tokens, state)) {
+            target = parseWrapper(tokens, state, nodes, NODE_PROPAGATE, target)
+            continue
+        }
+
+        if (sameLine && atSymbol(source, tokens, state, "!")) {
+            target = parseWrapper(tokens, state, nodes, NODE_UNWRAP, target)
+            continue
+        }
+
+        if (state[STATE_CASCADE] == CASCADE_OPEN && atSymbol(source, tokens, state, "..")) {
+            target = parseCascade(source, tokens, state, nodes, target)
+            continue
+        }
+
+        if (atSymbol(source, tokens, state, "++") || atSymbol(source, tokens, state, "--")) {
+            Int postfix = addNodeAtToken(nodes, NODE_POSTFIX, tokens, state)
+            advanceToken(tokens, state)
+            appendChild(nodes, postfix, target)
+            target = postfix
+            continue
+        }
+
+        break
+    }
+
+    return target
+}
+
+// `value?` and `value!`: one child, no text.
+static method<Int> parseWrapper(List<Int> tokens, List<Int> state, List<Int> nodes, Int kind, Int value) {
+    Int wrapper = addEmptyNode(nodes, kind, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, wrapper, value)
+    return wrapper
+}
+
+// `receiver ..a() ..b = 1`: every section runs on the receiver. A section ends at the next `..`.
+static method<Int> parseCascade(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int receiver) {
+    Int cascade = addEmptyNode(nodes, NODE_CASCADE, tokens, state)
+    appendChild(nodes, cascade, receiver)
+    state[STATE_CASCADE] = CASCADE_CLOSED
+
+    while (atSymbol(source, tokens, state, "..")) {
+        Int section = addEmptyNode(nodes, NODE_CASCADE_SECTION, tokens, state)
+        advanceToken(tokens, state)
+        appendChild(nodes, section, parseExpression(source, tokens, state, nodes))
+        appendChild(nodes, cascade, section)
+    }
+
+    state[STATE_CASCADE] = CASCADE_OPEN
+    return cascade
+}
+
+static method<Int> parseCall(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int callee) {
+    Int call = addEmptyNode(nodes, NODE_CALL, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, call, callee)
+    parseElements(source, tokens, state, nodes, call, ")")
+    return call
+}
+
+static method<Int> parseIndex(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int receiver) {
+    Int index = addEmptyNode(nodes, NODE_INDEX, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, index, receiver)
+    appendChild(nodes, index, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, "]")
+    return index
+}
+
+// After a dot every word is a name, keywords included: `Macro.fail(...)`.
+static method<Int> parseMemberAccess(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int receiver) {
+    advanceToken(tokens, state)
+
+    if (!atKind(tokens, state, TOKEN_IDENTIFIER) && !atKind(tokens, state, TOKEN_KEYWORD)) {
+        recordError(state)
+        return receiver
+    }
+
+    Int member = addNodeAtToken(nodes, NODE_MEMBER, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, member, receiver)
+    return member
+}
+
+// Comma separated expressions up to `closing`, which is consumed. Cascades work again inside.
+static method parseElements(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int parent, String closing) {
+    Int outer = state[STATE_CASCADE]
+    state[STATE_CASCADE] = CASCADE_OPEN
+
+    while (!atSymbol(source, tokens, state, closing) && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, parent, parseExpression(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    expectSymbol(source, tokens, state, closing)
+    state[STATE_CASCADE] = outer
+}

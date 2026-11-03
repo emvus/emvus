@@ -1,0 +1,60 @@
+package ring1.parser
+
+// `quote statement { ... }`, `quote expression { ... }`, `quote field|method|class { ... }`: a code
+// template. The node text is the kind. Cascades are open inside, whatever surrounds the quote.
+static method<Bool> atQuote(String source, List<Int> tokens, List<Int> state) {
+    return atIdentifierText(source, tokens, state, "quote") && atQuoteKind(source, tokens, state) && symbolAhead(source, tokens, state, AHEAD_THIRD, "{")
+}
+
+// The kind after `quote`: statement, expression, field, method, class. The last two are keywords.
+static method<Bool> atQuoteKind(String source, List<Int> tokens, List<Int> state) {
+    return tokenKindAhead(tokens, state, AHEAD_NEXT) == TOKEN_IDENTIFIER || textAhead(source, tokens, state, AHEAD_NEXT, TOKEN_KEYWORD, "method") || textAhead(source, tokens, state, AHEAD_NEXT, TOKEN_KEYWORD, "class")
+}
+
+static method<Int> parseQuote(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    advanceToken(tokens, state)
+    Int quote = addNodeAtToken(nodes, NODE_QUOTE, tokens, state)
+    Bool statement = atIdentifierText(source, tokens, state, "statement")
+    Bool expression = atIdentifierText(source, tokens, state, "expression")
+    advanceToken(tokens, state)
+    Int outer = state[STATE_CASCADE]
+    state[STATE_CASCADE] = CASCADE_OPEN
+    parseQuoteBody(source, tokens, state, nodes, quote, statement, expression)
+    state[STATE_CASCADE] = outer
+    return quote
+}
+
+static method parseQuoteBody(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int quote, Bool statement, Bool expression) {
+    if (statement) {
+        appendChild(nodes, quote, parseBlock(source, tokens, state, nodes))
+        return
+    }
+
+    expectSymbol(source, tokens, state, "{")
+
+    if (expression) {
+        appendChild(nodes, quote, parseExpression(source, tokens, state, nodes))
+    }
+
+    while (!expression && !atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, quote, parseMember(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+    }
+
+    expectSymbol(source, tokens, state, "}")
+}
+
+// `$(expression)` inside a quote inserts a value computed by the macro.
+static method<Bool> atSplice(String source, List<Int> tokens, List<Int> state) {
+    return atSymbol(source, tokens, state, "$") && symbolAhead(source, tokens, state, AHEAD_NEXT, "(")
+}
+
+static method<Int> parseSplice(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int splice = addEmptyNode(nodes, NODE_SPLICE, tokens, state)
+    advanceToken(tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, splice, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    return splice
+}

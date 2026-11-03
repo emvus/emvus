@@ -76,7 +76,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 ### Self-hosting
 
 - [ ] Ring1 lexer in Emvus; token stream equals the Ring0 lexer on every fixture (v0 is `Ring1/src/lexer.ev`: checks and lowers, wire export blocked by Sublang's 32-function module budget, not run; see `Ring1/README.md`)
-- [ ] Ring1 parser; AST dump equals Ring0's on every fixture (123 of 124 corpus cases identical, including Ring1's own sources, run on Emerald; open: macros and `quote`, computed dictionary keys; not run through Sublang; see `Ring1/README.md`)
+- [ ] Ring1 parser; AST dump equals Ring0's on every fixture (131 of 131 corpus cases identical, including the whole showcase and Ring1's own sources, run on Emerald; open: error recovery and diagnostics; not run through Sublang; see `Ring1/README.md`)
 - [ ] Ring1 binder and null flow; diagnostics equal Ring0's
 - [ ] Ring1 lowering and wire output; wire equals Ring0's for the lowering fixtures
 - [ ] First self-host: the Ring0-built compiler compiles its own source

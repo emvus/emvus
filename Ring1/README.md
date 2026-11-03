@@ -41,13 +41,14 @@ Ring0 builds several files as one program: `ring0 a.ev b.ev ... --check`, in the
 
 ## Parser (`src/parser/`)
 
-Files by responsibility: `nodeTable` (the tree as a table of eight Ints per node), `tokenReader`, `treeDump`,
-`parser` (entry points `parseSource` and `dumpSource`), and the folders `expressions/` (operators, calls,
-cascades, lambdas), `statements/` (statements, locals, destructuring), `switches/` (both switch forms) and
-`declarations/` (methods, types, class members).
+Files by responsibility: `nodeTable` (the tree as a table of ten Ints per node), `tokenReader`, `treeDump`,
+`parser` (entry points `parseSource` and `dumpSource`), and the folders `expressions/` (operators, postfix
+forms, operands, lambdas, interpolation, generic calls, quotes), `statements/` (statements, locals,
+destructuring), `switches/` (both switch forms) and `declarations/` (methods, parameters, modifiers,
+types, imports, macros, class members). No file is longer than about 185 lines.
 
 It covers the constructs of Ring0's tree except the ones listed under Open: package, `use` imports (single
-items and groups), annotations, `final var`, methods with generics, `where` bounds and `{ ... }` bodies, enums, records, data classes, exceptions, interfaces, classes with fields,
+items and groups), annotations, macros, `quote` and `$(...)` splices, `final var`, methods with generics, `where` bounds and `{ ... }` bodies, enums, records, data classes, exceptions, interfaces, classes with fields,
 properties, constructors, `based` and `implements`, all statements (`if`, `while`, `for`, `foreach`, `switch`,
 `fail`, `success`, locals, destructuring, `scoped`), and all expressions (operators, calls, indexing, ternary,
 `?`, `!`, `is`, `as`, lambdas, cascades, list and dictionary literals, generic calls like `Tuple<Int>(1)`,
@@ -57,8 +58,8 @@ tasks, string interpolation) and optional semicolons.
   including resolved string escapes.
 - **Corpus:** `scripts/runCorpus.sh` generates one test case per Ring0 test source (lowering, syntax,
   binding, flow, types, showcase) and per Ring1 source file, and compares Ring1's tree with Ring0's.
-  124 cases, all identical but the showcase, including every Ring1 file: the parser parses its own source
-  tree. The showcase differs only in the macro section and in computed dictionary keys.
+  131 cases, all identical to Ring0's tree: the whole language draft (`showcase.ev`), the Ring0 test sources
+  and every Ring1 file, so the parser parses its own source tree.
   `scripts/diffParse.sh` shows where one file differs.
 - `tests/parserTest.ev` holds five hand-picked cases, expected trees generated from Ring0.
 
@@ -82,9 +83,9 @@ error on anything else. It replaces constants by their values (like Ring0's lowe
 |---|---|
 | `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
-| Parser, lexer and tests together | check ok; lowers to 192 functions, verifier: structure and semantics valid |
+| Parser, lexer and tests together | check ok; lowers to 201 functions, verifier: structure and semantics valid |
 | Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
-| Self tests on Emerald (translated) | lexer 17 of 17, parser 5 of 5, corpus 123 of 124 cases pass (the showcase differs in macros); a deliberately wrong expectation fails as it should |
+| Self tests on Emerald (translated) | lexer 17 of 17, parser 5 of 5, corpus 131 of 131 cases pass; a deliberately wrong expectation fails as it should |
 | Native run of the self tests through Sublang | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend
@@ -94,9 +95,8 @@ spans per module.
 
 ## Open
 
-- Not parsed yet: macros and `quote` (the rest of the showcase), computed dictionary keys (`[key]: value`),
-  statement-level cascade items, and error recovery that matches Ring0's diagnostics (Ring1 only produces
-  error nodes).
+- Not parsed yet: statement-level cascade items, and error recovery that matches Ring0's diagnostics (Ring1
+  only produces error nodes). Ring0's trees for sources with syntax errors are not compared.
 - Wire export and native run, after Sublang raises the module budget and builds again.
 - Token stream comparison with Ring0 on every syntax fixture: needs file input (`G1`) and a shared
   dump format; Ring0's `--tokens` prints `line:column kind text`.

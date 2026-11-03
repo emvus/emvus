@@ -1,0 +1,37 @@
+package ring1.parser
+
+// `macro Name(parameters) on Target, Target { ... }`
+static method<Int> parseMacro(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
+    advanceToken(tokens, state)
+    Int macro = addNodeAtToken(nodes, NODE_MACRO, tokens, state)
+    expectIdentifier(tokens, state)
+    appendModifiers(nodes, macro, modifiers)
+    appendChild(nodes, macro, parseParams(source, tokens, state, nodes))
+    appendChild(nodes, macro, parseTargets(source, tokens, state, nodes))
+    appendChild(nodes, macro, parseBlock(source, tokens, state, nodes))
+    return macro
+}
+
+// `on Method, Class`: what the macro can be applied to.
+static method<Int> parseTargets(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int targets = addEmptyNode(nodes, NODE_TARGETS, tokens, state)
+
+    if (!atIdentifierText(source, tokens, state, "on")) {
+        recordError(state)
+        return targets
+    }
+
+    advanceToken(tokens, state)
+
+    while (atKind(tokens, state, TOKEN_IDENTIFIER)) {
+        appendChild(nodes, targets, parseLeaf(tokens, state, nodes, NODE_TARGET))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    return targets
+}

@@ -108,6 +108,12 @@ final var NODE_ALIAS = 86
 final var NODE_ANNOTATION = 87
 final var NODE_PLACEHOLDER = 88
 final var NODE_GENERIC_REF = 89
+final var NODE_MACRO = 90
+final var NODE_TARGETS = 91
+final var NODE_TARGET = 92
+final var NODE_QUOTE = 93
+final var NODE_SPLICE = 94
+final var NODE_COMPUTED_DICT_ENTRY = 95
 
 // Moves the children of `from` to the end of `to`.
 static method moveChildren(List<Int> nodes, Int from, Int to) {
