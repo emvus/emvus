@@ -1,0 +1,177 @@
+package ring1.parser
+
+static method<Int> parseFile(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int file = addEmptyNode(nodes, NODE_FILE, tokens, state)
+
+    if (atKeyword(source, tokens, state, "package")) {
+        appendChild(nodes, file, parsePackage(source, tokens, state, nodes))
+    }
+
+    while (!atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, file, parseDeclaration(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+    }
+
+    return file
+}
+
+// The text is the dotted name, taken from the source between its first and last token.
+static method<Int> parsePackage(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    advanceToken(tokens, state)
+    Int first = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    Int package = addNodeAtToken(nodes, NODE_PACKAGE, tokens, state)
+    expectIdentifier(tokens, state)
+
+    while (atSymbol(source, tokens, state, ".")) {
+        advanceToken(tokens, state)
+        expectIdentifier(tokens, state)
+    }
+
+    Int last = tokenIndexAhead(tokens, state, AHEAD_BEFORE)
+    Int end = tokenValue(tokens, last, TOKEN_START) + tokenValue(tokens, last, TOKEN_LENGTH)
+    setNodeField(nodes, package, NODE_TEXT_LENGTH, end - tokenValue(tokens, first, TOKEN_START))
+    return package
+}
+
+static method<Bool> expectIdentifier(List<Int> tokens, List<Int> state) {
+    if (atKind(tokens, state, TOKEN_IDENTIFIER)) {
+        advanceToken(tokens, state)
+        return true
+    }
+
+    recordError(state)
+    return false
+}
+
+static method<Int> parseDeclaration(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int modifiers = parseModifiers(source, tokens, state, nodes)
+
+    if (atKeyword(source, tokens, state, "var")) {
+        return parseVariable(source, tokens, state, nodes, modifiers)
+    }
+
+    if (atKeyword(source, tokens, state, "method")) {
+        return parseMethod(source, tokens, state, nodes, modifiers)
+    }
+
+    return parseError(tokens, state, nodes)
+}
+
+static method<Int> parseModifiers(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int modifiers = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
+
+    while (atModifier(source, tokens, state)) {
+        appendChild(nodes, modifiers, parseLeaf(tokens, state, nodes, NODE_MODIFIER))
+    }
+
+    return modifiers
+}
+
+static method<Bool> atModifier(String source, List<Int> tokens, List<Int> state) {
+    return atKeyword(source, tokens, state, "final") || atKeyword(source, tokens, state, "static") || atKeyword(source, tokens, state, "abstract") || atKeyword(source, tokens, state, "override") || atKeyword(source, tokens, state, "private") || atKeyword(source, tokens, state, "protected") || atKeyword(source, tokens, state, "public") || atKeyword(source, tokens, state, "scoped")
+}
+
+// `final var NAME = value`: the type node is the `var` keyword.
+static method<Int> parseVariable(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
+    Int type = parseLeaf(tokens, state, nodes, NODE_TYPE)
+    Int variable = addNodeAtToken(nodes, NODE_VARIABLE, tokens, state)
+    expectIdentifier(tokens, state)
+    appendChild(nodes, variable, modifiers)
+    appendChild(nodes, variable, type)
+    expectSymbol(source, tokens, state, "=")
+    appendChild(nodes, variable, parseExpression(source, tokens, state, nodes))
+    return variable
+}
+
+// `method<Type> name(parameters) { ... }`; the type and the parentheses are optional.
+static method<Int> parseMethod(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
+    advanceToken(tokens, state)
+    Int returnType = parseReturnType(source, tokens, state, nodes)
+    Int method = addNodeAtToken(nodes, NODE_METHOD, tokens, state)
+    expectIdentifier(tokens, state)
+    appendChild(nodes, method, modifiers)
+
+    if (returnType != NO_NODE) {
+        appendChild(nodes, method, returnType)
+    }
+
+    appendChild(nodes, method, parseParams(source, tokens, state, nodes))
+    appendChild(nodes, method, parseBlock(source, tokens, state, nodes))
+    return method
+}
+
+static method<Int> parseReturnType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (!atSymbol(source, tokens, state, "<")) {
+        return NO_NODE
+    }
+
+    Int returnType = addEmptyNode(nodes, NODE_RETURN_TYPE, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, returnType, parseType(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ">")
+    return returnType
+}
+
+static method<Int> parseParams(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int params = addEmptyNode(nodes, NODE_PARAMS, tokens, state)
+
+    if (!atSymbol(source, tokens, state, "(")) {
+        return params
+    }
+
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, ")") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, params, parseParam(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    expectSymbol(source, tokens, state, ")")
+    return params
+}
+
+static method<Int> parseParam(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int modifiers = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
+    Int type = parseType(source, tokens, state, nodes)
+    Int param = addNodeAtToken(nodes, NODE_PARAM, tokens, state)
+    expectIdentifier(tokens, state)
+    appendChild(nodes, param, modifiers)
+    appendChild(nodes, param, type)
+    return param
+}
+
+// A type name with optional type arguments: `Int`, `List<Int>`.
+static method<Int> parseType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (!atKind(tokens, state, TOKEN_IDENTIFIER)) {
+        return parseError(tokens, state, nodes)
+    }
+
+    Int type = parseLeaf(tokens, state, nodes, NODE_TYPE)
+
+    if (!atSymbol(source, tokens, state, "<")) {
+        return type
+    }
+
+    advanceToken(tokens, state)
+
+    while (true) {
+        appendChild(nodes, type, parseType(source, tokens, state, nodes))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    expectSymbol(source, tokens, state, ">")
+    return type
+}

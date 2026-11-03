@@ -1,0 +1,164 @@
+package ring1.parser
+
+final var NOT_A_TYPE = 0
+
+static method<Int> parseBlock(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int block = addEmptyNode(nodes, NODE_BLOCK, tokens, state)
+    expectSymbol(source, tokens, state, "{")
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        appendChild(nodes, block, parseStatement(source, tokens, state, nodes))
+        ensureProgress(tokens, state, before)
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return block
+}
+
+static method<Int> parseStatement(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atKeyword(source, tokens, state, "if")) {
+        return parseCondition(source, tokens, state, nodes, NODE_IF)
+    }
+
+    if (atKeyword(source, tokens, state, "while")) {
+        return parseCondition(source, tokens, state, nodes, NODE_WHILE)
+    }
+
+    if (atKeyword(source, tokens, state, "for")) {
+        return parseFor(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "return")) {
+        return parseReturn(source, tokens, state, nodes)
+    }
+
+    if (atKeyword(source, tokens, state, "break")) {
+        return withoutText(nodes, parseLeaf(tokens, state, nodes, NODE_BREAK))
+    }
+
+    if (atKeyword(source, tokens, state, "continue")) {
+        return withoutText(nodes, parseLeaf(tokens, state, nodes, NODE_CONTINUE))
+    }
+
+    if (looksLikeLocal(source, tokens, state)) {
+        return parseLocal(source, tokens, state, nodes)
+    }
+
+    return parseExpressionStatement(source, tokens, state, nodes)
+}
+
+// `if (condition) { ... }` and `while (condition) { ... }` share their shape.
+static method<Int> parseCondition(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
+    Int statement = withoutText(nodes, addNodeAtToken(nodes, kind, tokens, state))
+    advanceToken(tokens, state)
+    expectSymbol(source, tokens, state, "(")
+    appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    appendChild(nodes, statement, parseBlock(source, tokens, state, nodes))
+    return statement
+}
+
+// Keywords name the statement kind, so the node carries no text.
+static method<Int> withoutText(List<Int> nodes, Int id) {
+    setNodeField(nodes, id, NODE_TEXT_LENGTH, 0)
+    return id
+}
+
+static method<Int> parseFor(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int loop = withoutText(nodes, addNodeAtToken(nodes, NODE_FOR, tokens, state))
+    advanceToken(tokens, state)
+    expectSymbol(source, tokens, state, "(")
+    Int start = addEmptyNode(nodes, NODE_INIT, tokens, state)
+    appendChild(nodes, start, parseStatement(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ";")
+    Int condition = addEmptyNode(nodes, NODE_CONDITION, tokens, state)
+    appendChild(nodes, condition, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ";")
+    Int update = addEmptyNode(nodes, NODE_UPDATE, tokens, state)
+    appendChild(nodes, update, parseExpression(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")")
+    appendChild(nodes, loop, start)
+    appendChild(nodes, loop, condition)
+    appendChild(nodes, loop, update)
+    appendChild(nodes, loop, parseBlock(source, tokens, state, nodes))
+    return loop
+}
+
+static method<Int> parseReturn(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int statement = withoutText(nodes, addNodeAtToken(nodes, NODE_RETURN, tokens, state))
+    advanceToken(tokens, state)
+
+    if (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    }
+
+    return statement
+}
+
+static method<Int> parseLocal(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int type = parseType(source, tokens, state, nodes)
+    Int local = addNodeAtToken(nodes, NODE_LOCAL, tokens, state)
+    advanceToken(tokens, state)
+    appendChild(nodes, local, type)
+
+    if (atSymbol(source, tokens, state, "=")) {
+        Int init = addEmptyNode(nodes, NODE_INIT, tokens, state)
+        advanceToken(tokens, state)
+        appendChild(nodes, init, parseExpression(source, tokens, state, nodes))
+        appendChild(nodes, local, init)
+    }
+
+    return local
+}
+
+static method<Int> parseExpressionStatement(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int statement = addEmptyNode(nodes, NODE_EXPRESSION_STATEMENT, tokens, state)
+    appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
+    return statement
+}
+
+// A type followed by a name starts a local variable: `Int count`, `List<Int> items`.
+static method<Bool> looksLikeLocal(String source, List<Int> tokens, List<Int> state) {
+    if (!atKind(tokens, state, TOKEN_IDENTIFIER)) {
+        return false
+    }
+
+    Int after = typeEndAhead(source, tokens, state)
+
+    if (after == NOT_A_TYPE) {
+        return false
+    }
+
+    return tokenKindAhead(tokens, state, after) == TOKEN_IDENTIFIER
+}
+
+// Offset of the token after the type that starts at the current token, NOT_A_TYPE when the angle
+// brackets never close.
+static method<Int> typeEndAhead(String source, List<Int> tokens, List<Int> state) {
+    Int offset = AHEAD_NEXT
+
+    if (!symbolAhead(source, tokens, state, offset, "<")) {
+        return offset
+    }
+
+    Int depth = 0
+
+    while (tokenKindAhead(tokens, state, offset) != TOKEN_EOF) {
+        if (symbolAhead(source, tokens, state, offset, "<")) {
+            depth = depth + 1
+        }
+
+        if (symbolAhead(source, tokens, state, offset, ">")) {
+            depth = depth - 1
+        }
+
+        offset = offset + 1
+
+        if (depth == 0) {
+            return offset
+        }
+    }
+
+    return NOT_A_TYPE
+}

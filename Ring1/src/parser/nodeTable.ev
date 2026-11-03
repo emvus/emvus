@@ -1,0 +1,87 @@
+package ring1.parser
+
+// The syntax tree is a table of eight Ints per node. Children are linked: a node knows its first
+// child, its last child (for O(1) appending) and its next sibling. Ids are row numbers.
+final var NODE_KIND = 0
+final var NODE_TEXT_START = 1
+final var NODE_TEXT_LENGTH = 2
+final var NODE_LINE = 3
+final var NODE_COLUMN = 4
+final var NODE_FIRST_CHILD = 5
+final var NODE_LAST_CHILD = 6
+final var NODE_NEXT_SIBLING = 7
+final var NODE_STRIDE = 8
+final var NO_NODE = -1
+
+// The order of these kinds must match the names in treeDump.ev.
+final var NODE_FILE = 0
+final var NODE_PACKAGE = 1
+final var NODE_VARIABLE = 2
+final var NODE_METHOD = 3
+final var NODE_MODIFIERS = 4
+final var NODE_MODIFIER = 5
+final var NODE_TYPE = 6
+final var NODE_RETURN_TYPE = 7
+final var NODE_PARAMS = 8
+final var NODE_PARAM = 9
+final var NODE_BLOCK = 10
+final var NODE_LOCAL = 11
+final var NODE_INIT = 12
+final var NODE_CONDITION = 13
+final var NODE_UPDATE = 14
+final var NODE_IF = 15
+final var NODE_WHILE = 16
+final var NODE_FOR = 17
+final var NODE_RETURN = 18
+final var NODE_BREAK = 19
+final var NODE_CONTINUE = 20
+final var NODE_EXPRESSION_STATEMENT = 21
+final var NODE_ASSIGN = 22
+final var NODE_BINARY = 23
+final var NODE_UNARY = 24
+final var NODE_POSTFIX = 25
+final var NODE_CALL = 26
+final var NODE_MEMBER = 27
+final var NODE_INDEX = 28
+final var NODE_NAME = 29
+final var NODE_INT_LITERAL = 30
+final var NODE_FLOAT_LITERAL = 31
+final var NODE_STRING = 32
+final var NODE_BOOL_LITERAL = 33
+final var NODE_LIST_LITERAL = 34
+final var NODE_ERROR = 35
+
+static method<Int> addNode(List<Int> nodes, Int kind, Int textStart, Int textLength, Int line, Int column) {
+    Int id = nodes.size() / NODE_STRIDE
+    nodes.add(kind)
+    nodes.add(textStart)
+    nodes.add(textLength)
+    nodes.add(line)
+    nodes.add(column)
+    nodes.add(NO_NODE)
+    nodes.add(NO_NODE)
+    nodes.add(NO_NODE)
+    return id
+}
+
+static method<Int> nodeField(List<Int> nodes, Int id, Int field) {
+    return nodes[id * NODE_STRIDE + field]
+}
+
+static method setNodeField(List<Int> nodes, Int id, Int field, Int value) {
+    nodes[id * NODE_STRIDE + field] = value
+}
+
+static method appendChild(List<Int> nodes, Int parent, Int child) {
+    Int last = nodeField(nodes, parent, NODE_LAST_CHILD)
+
+    if (last == NO_NODE) {
+        setNodeField(nodes, parent, NODE_FIRST_CHILD, child)
+    }
+
+    if (last != NO_NODE) {
+        setNodeField(nodes, last, NODE_NEXT_SIBLING, child)
+    }
+
+    setNodeField(nodes, parent, NODE_LAST_CHILD, child)
+}

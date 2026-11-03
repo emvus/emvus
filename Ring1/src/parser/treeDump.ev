@@ -1,0 +1,57 @@
+package ring1.parser
+
+final var INDENT_WIDTH = 2
+
+// Kind names in the order of the NODE_* constants, each followed by a separator.
+static method<String> kindNames() {
+    return "file|package|variable|method|modifiers|modifier|type|return-type|params|param|block|local|init|condition|update|if|while|for|return|break|continue|expr-stmt|assign|binary|unary|postfix|call|member|index|name|int-literal|float-literal|string|bool-literal|list-literal|error|"
+}
+
+static method<String> kindName(Int kind) {
+    String names = kindNames()
+    Int start = 0
+    Int skipped = 0
+
+    while (skipped < kind) {
+        if (names.byteAt(start) == BYTE_PIPE) {
+            skipped = skipped + 1
+        }
+
+        start = start + 1
+    }
+
+    Int end = start
+
+    while (names.byteAt(end) != BYTE_PIPE) {
+        end = end + 1
+    }
+
+    return names.substring(start, end)
+}
+
+// One line per node: indentation, kind and, when present, text. Same shape as Ring0's `dump`.
+static method<String> dumpNode(String source, List<Int> nodes, Int id, Int depth) {
+    String text = ""
+
+    for (Int level = 0; level < depth * INDENT_WIDTH; level++) {
+        text = text + " "
+    }
+
+    text = text + kindName(nodeField(nodes, id, NODE_KIND))
+    Int length = nodeField(nodes, id, NODE_TEXT_LENGTH)
+
+    if (length > 0) {
+        Int start = nodeField(nodes, id, NODE_TEXT_START)
+        text = text + " " + source.substring(start, start + length)
+    }
+
+    text = text + "\n"
+    Int child = nodeField(nodes, id, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        text = text + dumpNode(source, nodes, child, depth + 1)
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return text
+}

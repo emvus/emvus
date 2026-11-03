@@ -39,14 +39,31 @@ Ring0 builds several files as one program: `ring0 a.ev b.ev ... --check`, in the
   language knows; non-ASCII bytes outside strings and comments are `TOKEN_UNEXPECTED` here.
 - `main` is a self test and returns the number of failed cases (0 = all passed).
 
+## Parser v0 (`src/parser/`)
+
+Seven files: `nodeTable` (the tree as a table of eight Ints per node), `tokenReader`, `expressions`,
+`statements`, `declarations`, `treeDump` and `parser` (entry point `parseSource`, `dumpSource`).
+It parses the subset the lexer itself is written in: package, `final var` constants, methods with
+parameters and return type, locals, assignments, `if`, `while`, `for`, `return`, `break`, `continue`,
+and expressions with calls, members, indexing, lists, unary and binary operators. Everything else
+becomes an error node; there is no `else`, `switch`, class, lambda or `Result` yet.
+
+- The tree has the shape of Ring0's AST (`Ring0/ast.md`); `dumpSource` prints it like Ring0's `dump`.
+  String nodes hold the raw content between the quotes, so they differ from Ring0 for strings with escapes.
+- `tests/parserTest.ev` compares the dump of five sources with the output of Ring0's parser for the same
+  sources; the expected text was generated from Ring0, not written by hand.
+- Build order: the eight lexer files, then `nodeTable tokenReader expressions statements declarations
+  treeDump parser`, then `tests/parserTest.ev`.
+
 ## State
 
 | Check | Result |
 |---|---|
 | `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
+| Parser, lexer and tests together | check ok; lowers to 113 functions, verifier: structure and semantics valid |
 | Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
-| Native run of the self test | not done (needs the wire export and a working Sublang backend) |
+| Native run of the self tests | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend
 requirement 10), not a reason to merge small functions: a compiler written in Emvus has hundreds.
