@@ -108,6 +108,14 @@ static method<String> opcodeText(Int code) {
         return "list.clear"
     }
 
+    if (code == OP_RECORD_MAKE) {
+        return "record.make"
+    }
+
+    if (code == OP_RECORD_GET) {
+        return "record.get"
+    }
+
     if (code >= OP_CONST_FLOAT) {
         return floatOpcodeText(code)
     }

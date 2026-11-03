@@ -35,11 +35,17 @@ static method<Bool> isReferenceWire(Int wire) {
 // value is its ordinal, an Int.
 static method buildTypeMap(String source, List<Int> nodes, List<Int> types, List<Int> state) {
     for (Int type = 0; type < typeCount(types); type++) {
-        if (enumDeclaration(source, nodes, types, type) != NO_NODE) {
+        Int declaration = enumDeclaration(source, nodes, types, type)
+
+        if (declaration != NO_NODE && nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM) {
             state.add(WIRE_INT)
         }
 
-        if (enumDeclaration(source, nodes, types, type) == NO_NODE) {
+        if (declaration != NO_NODE && nodeField(nodes, declaration, NODE_KIND) == NODE_RECORD) {
+            state.add(WIRE_RECORD_BASE + recordIndex(nodes, declaration))
+        }
+
+        if (declaration == NO_NODE) {
             state.add(wireOf(types, type))
         }
     }
@@ -49,7 +55,7 @@ static method buildTypeMap(String source, List<Int> nodes, List<Int> types, List
     }
 }
 
-// The enum declaration a named type refers to.
+// The enum or record declaration a named type refers to.
 static method<Int> enumDeclaration(String source, List<Int> nodes, List<Int> types, Int type) {
     if (typeField(types, type, TYPE_KIND) != KIND_NAMED) {
         return NO_NODE
@@ -58,7 +64,7 @@ static method<Int> enumDeclaration(String source, List<Int> nodes, List<Int> typ
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 
     while (declaration != NO_NODE) {
-        if (nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))) {
+        if ((nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM || nodeField(nodes, declaration, NODE_KIND) == NODE_RECORD) && sameSpans(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))) {
             return declaration
         }
 
@@ -146,6 +152,10 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
 
     if (kind == NODE_STRING) {
         return lowerStringLiteral(source, nodes, ir, state, node)
+    }
+
+    if (kind == NODE_MEMBER && annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_PROPERTY) {
+        return lowerRecordRead(source, nodes, annotations, ir, env, functions, state, node)
     }
 
     if (kind == NODE_MEMBER) {
@@ -397,6 +407,10 @@ static method<Int> lowerCall(String source, List<Int> nodes, List<Int> annotatio
 
     if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
         return lowerListMember(source, nodes, annotations, ir, env, functions, state, node, callee)
+    }
+
+    if (annotationField(annotations, node, ANNOTATION_SYMBOL) == REFERENCE_CONSTRUCTOR) {
+        return lowerRecordConstruction(source, nodes, annotations, ir, env, functions, state, node, callee)
     }
 
     if (annotationField(annotations, node, ANNOTATION_SYMBOL) != REFERENCE_METHOD || annotationField(annotations, node, ANNOTATION_OWNER) != OWNER_NONE) {

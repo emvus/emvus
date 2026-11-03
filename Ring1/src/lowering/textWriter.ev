@@ -12,6 +12,8 @@ static method<String> programText(String source, String moduleName, List<Int> ir
     text = text + "source id=1 name=\"" + moduleName + "\"" + "\n"
     text = text + "span id=1 source=1 line=0 column=0 origin=\"\"" + "\n"
     text = text + listTypesText()
+    text = text + recordTypesText(source, ir)
+    text = text + recordFieldsText(source, ir)
     text = text + moduleHeader()
     text = text + functionsText(source, ir)
     return text + "end" + "\n"

@@ -16,6 +16,7 @@ static method<String> lowerSource(String source, String moduleName) {
     List<Int> ir = []
     List<Int> env = []
     numberImports(source, nodes, annotations, functions, state)
+    declareRecords(source, nodes, ir, state)
     addTextAssignHelper(ir, state)
     Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
 

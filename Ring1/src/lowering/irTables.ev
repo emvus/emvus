@@ -94,6 +94,8 @@ final var OP_FLOAT_ADD = 29
 final var OP_FLOAT_SUBTRACT = 30
 final var OP_FLOAT_MULTIPLY = 31
 final var OP_FLOAT_DIVIDE = 32
+final var OP_RECORD_MAKE = 33
+final var OP_RECORD_GET = 34
 
 // A Float multiplied by this constant, -1.0, is negated.
 final var MINUS_ONE_BITS = -4616189618054758400
