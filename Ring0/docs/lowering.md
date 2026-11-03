@@ -276,17 +276,15 @@ a virtual call is blocked by the missing scope operand on `call.virtual`.
    generic function-typed Result payload, which depends on item 2.
 8. **Enum values** are expressible as Int tags in the frontend (planned), but need a distinct type to
    keep Emvus' type safety visible in the IR.
-10. **Module budget.** Sublang's initial budget allows 32 functions per module (wire format and
-   `SUBLANG-B003`), 64 blocks per function, 4096 values per function and 32768 spans. The Ring1 lexer v0
-   lowers to 45 functions (41 of its own, 4 generated text helpers) and verifies, but its wire export
-   fails with `SUBLANG-W001 count budget exceeded`. Ring0 does not merge functions to fit: a self-hosted
-   compiler needs far more than 32. Backend requirement: raise or remove the function budget.
-9. **Backend defect (reproducible): `emit-llvm` aborts** with `Emerald Flow allocation failed (...)`
-   for `tests/lowering/backendCrash.ev`: an owned call result (`greet(...)`), two calls of the
-   in-place text helpers and a branch on `text.equal` in one function. It aborts with `--flow=off`
-   and `--optimind=off` too, so it happens before Flow and Optimind. Smaller variants (one helper
-   call, no equality, no owned call) compile and run. `checkLowering.sh` marks the fixture
-   `expect-backend-crash` and fails when it stops reproducing so this entry gets updated.
+10. **Module budget (resolved).** Sublang's first slice allowed 32 functions per module, 64 blocks per
+   function and 32768 operations. The limits now live in `sub-lang/src/sublang/limits/SublangLimits.ems`
+   (4096 functions, 4096 blocks per function, 1048576 operations); Ring1 (330 functions) compiles and runs.
+9. **Backend defect (worked around): `emit-llvm` aborts** with `Emerald Flow allocation failed (...)`
+   for `tests/lowering/backendCrash.ev` and for larger programs (the Ring1 compiler). The message comes from
+   the Emerald runtime in the Emerald-built Sublang: the program also fails under `EMERALD_FLOW_UAF_HUNT=1` and
+   works with `EMERALD_FLOW_BOOTSTRAP=1` or `EMERALD_FLOW_MALLOC=1`, which points to memory that is released
+   while still used. `emvusc` and `checkLoweringNative.sh` set `EMERALD_FLOW_BOOTSTRAP=1`; with it the fixture
+   no longer crashes (`checkLoweringNative.sh` prints a NOTE). The cause is not found.
 
 ## Observations about Emerald (frontend implementation language)
 

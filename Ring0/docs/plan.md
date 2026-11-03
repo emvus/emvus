@@ -71,7 +71,7 @@ sandbox, one at a time; code follows Pureline 1.5; comments, docs and diagnostic
 - [ ] G5 absence: nullable references (depends on G3)
 - [ ] G6 Map
 - [ ] G7 static fields
-- [ ] Sublang module budget of 32 functions (Ring1 has 266 functions); Sublang itself builds again since `src/sublang/low/target/` was reconstructed
+- [x] Sublang module budget raised (4096 functions, see `SublangLimits`); Sublang builds again since `src/sublang/low/target/` was reconstructed; Ring1 (330 functions with the corpus) runs natively
 - [ ] Sublang `emit-llvm` crash on `tests/lowering/backendCrash.ev` (reported, not ours)
 
 ### Self-hosting

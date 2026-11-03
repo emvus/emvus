@@ -103,9 +103,9 @@ error on anything else. It replaces constants by their values (like Ring0's lowe
 | `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
 | Parser, lexer and tests together | check ok; lowers to 201 functions, verifier: structure and semantics valid |
-| Wire export | **blocked** (Sublang builds again, the limit remains): Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
+| Native run through `emvusc` (Ring0 -> Sublang -> clang) | lexer tests, parser tests and the 131-case parser corpus: 0 failed cases each, `scripts/runNative.sh` |
+| Wire export (formerly blocked by Sublang's 32-function limit) | works; the limits are raised in `sub-lang/src/sublang/limits/SublangLimits.ems` |
 | Self tests on Emerald (translated) | lexer 17 of 17, parser 5 of 5, corpus 131 of 131 cases pass; a deliberately wrong expectation fails as it should |
-| Native run of the self tests through Sublang | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend
 requirement 10), not a reason to merge small functions: a compiler written in Emvus has hundreds.
@@ -117,7 +117,7 @@ spans per module.
 - Binder: everything outside the Ring1 subset (see above), diagnostics, null flow.
 - Not parsed yet: statement-level cascade items, and error recovery that matches Ring0's diagnostics (Ring1
   only produces error nodes). Ring0's trees for sources with syntax errors are not compared.
-- Wire export and native run, after Sublang raises the module budget and builds again.
+- Binder and parser tests as native programs need no file input; running the compiler itself natively on files needs `G1` (file access) in Sublang.
 - Token stream comparison with Ring0 on every syntax fixture: needs file input (`G1`) and a shared
   dump format; Ring0's `--tokens` prints `line:column kind text`.
 - Parser, binder, null flow, lowering (see `Ring0/docs/plan.md`, Self-hosting).

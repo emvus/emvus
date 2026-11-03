@@ -6,6 +6,7 @@
 # `// expect-backend-crash` (Sublang's emit-llvm is expected to fail).
 # Usage: scripts/checkLoweringNative.sh <ring0-lower> <sublang> <work-dir> [fixture-name...]
 set -uo pipefail
+export EMERALD_FLOW_BOOTSTRAP=1
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 LOWER="$1"
 SUBLANG="$2"

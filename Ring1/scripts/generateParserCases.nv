@@ -9,8 +9,8 @@ import strings
 //   novusc run generateParserCases.nv <ring0-binary> <out.ev> <file.ev>...
 //
 // Every source Ring0 accepts becomes one test case that parses it with Ring1 and compares the
-// printed tree with Ring0's. A dollar sign is escaped in the generated literals so that they are not
-// read as interpolation themselves.
+// printed tree with Ring0's. A string is split between a dollar sign and the bracket after it, so that the
+// generated literals are not read as interpolation themselves.
 
 method main(array<string> arguments) {
     if (arguments.length() < 3) {
@@ -62,6 +62,10 @@ method literal(string text): string {
     var index = 0
     while (index < text.length()) {
         result = result + escaped(text.charAt(index))
+        if (text.charAt(index) == "$" && index + 1 < text.length() && (text.charAt(index + 1) == "{" || text.charAt(index + 1) == "(")) {
+            result = result + "\" + \""
+        }
+
         index = index + 1
     }
 
@@ -87,10 +91,6 @@ method escaped(string character): string {
 
     if (character == "\t") {
         return "\\t"
-    }
-
-    if (character == "$") {
-        return "\\$"
     }
 
     return character

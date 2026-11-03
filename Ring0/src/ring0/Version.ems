@@ -7,7 +7,7 @@ public class Version {
     }
 
     private static String commit() {
-        return "1064206e";
+        return "58e4df3b";
     }
 
     public static String number() {
