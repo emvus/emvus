@@ -1,0 +1,60 @@
+package ring1.binder
+
+// String.length():Int and the other members of the text type.
+static method<Int> stringMemberResult(String source, List<Int> types, Int start, Int length, Int argumentCount) {
+    Int result = stringNoArgument(source, start, length, argumentCount)
+
+    if (result == TYPE_UNKNOWN) {
+        result = stringOneArgument(source, types, start, length, argumentCount)
+    }
+
+    if (result == TYPE_UNKNOWN && isMember(source, start, length, "substring", argumentCount, 2)) {
+        result = TYPE_STRING
+    }
+
+    if (result == TYPE_UNKNOWN && isMember(source, start, length, "replace", argumentCount, 2)) {
+        result = TYPE_STRING
+    }
+
+    return result
+}
+
+static method<Int> stringNoArgument(String source, Int start, Int length, Int argumentCount) {
+    if (isMember(source, start, length, "length", argumentCount, 0)) {
+        return TYPE_INT
+    }
+
+    if (isMember(source, start, length, "isEmpty", argumentCount, 0) || isMember(source, start, length, "isBlank", argumentCount, 0)) {
+        return TYPE_BOOLEAN
+    }
+
+    if (isMember(source, start, length, "toLowerCase", argumentCount, 0) || isMember(source, start, length, "toUpperCase", argumentCount, 0) || isMember(source, start, length, "trim", argumentCount, 0)) {
+        return TYPE_STRING
+    }
+
+    return TYPE_UNKNOWN
+}
+
+static method<Int> stringOneArgument(String source, List<Int> types, Int start, Int length, Int argumentCount) {
+    if (isMember(source, start, length, "startsWith", argumentCount, 1) || isMember(source, start, length, "endsWith", argumentCount, 1) || isMember(source, start, length, "contains", argumentCount, 1)) {
+        return TYPE_BOOLEAN
+    }
+
+    if (isMember(source, start, length, "indexOf", argumentCount, 1) || isMember(source, start, length, "byteAt", argumentCount, 1) || isMember(source, start, length, "compareTo", argumentCount, 1)) {
+        return TYPE_INT
+    }
+
+    if (isMember(source, start, length, "charAt", argumentCount, 1)) {
+        return charType(types)
+    }
+
+    if (isMember(source, start, length, "split", argumentCount, 1)) {
+        return listType(types, TYPE_STRING)
+    }
+
+    if (isMember(source, start, length, "repeat", argumentCount, 1)) {
+        return TYPE_STRING
+    }
+
+    return TYPE_UNKNOWN
+}

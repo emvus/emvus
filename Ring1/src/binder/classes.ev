@@ -12,7 +12,7 @@ static method<Int> firstChildOf(List<Int> nodes, Int parent) {
 }
 
 static method<Bool> isTypeDeclaration(Int kind) {
-    return kind == NODE_CLASS || kind == NODE_RECORD || kind == NODE_DATA_CLASS || kind == NODE_ENUM
+    return kind == NODE_CLASS || kind == NODE_RECORD || kind == NODE_DATA_CLASS || kind == NODE_ENUM || kind == NODE_INTERFACE
 }
 
 static method declareType(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int declaration) {

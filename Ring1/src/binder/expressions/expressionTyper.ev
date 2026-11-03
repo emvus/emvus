@@ -9,6 +9,10 @@ static method<Int> bindExpression(String source, List<Int> nodes, List<Int> type
         return bindName(source, nodes, types, symbols, annotations, state, node)
     }
 
+    if (kind == NODE_TERNARY) {
+        return bindTernary(source, nodes, types, symbols, annotations, state, node, expected)
+    }
+
     if (kind == NODE_SWITCH) {
         return bindSwitch(source, nodes, types, symbols, annotations, state, node, expected)
     }
@@ -252,4 +256,21 @@ static method<Int> bindListElements(String source, List<Int> nodes, List<Int> ty
     }
 
     return element
+}
+
+// `condition ? then : otherwise` has the type of the branch that is not `null`.
+static method<Int> bindTernary(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int condition = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int whenTrue = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    Int whenFalse = nodeField(nodes, whenTrue, NODE_NEXT_SIBLING)
+    bindExpression(source, nodes, types, symbols, annotations, state, condition, TYPE_BOOLEAN)
+    Int type = bindExpression(source, nodes, types, symbols, annotations, state, whenTrue, expected)
+    Int other = bindExpression(source, nodes, types, symbols, annotations, state, whenFalse, type)
+
+    if (type == TYPE_NULL) {
+        type = other
+    }
+
+    annotateType(annotations, node, type)
+    return type
 }

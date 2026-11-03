@@ -1,7 +1,7 @@
 package ring1.binder
 
-// The members of String and List the compiler uses. A member is found by name and argument count; an
-// unknown member keeps the unknown type, like Ring0's unknown standard library calls.
+// The members of String and List the compiler uses, after Ring0's built-in member table. A member is
+// found by name and argument count; an unknown member keeps the unknown type.
 static method<Int> ownerOf(List<Int> types, Int receiver) {
     Int kind = typeField(types, receiver, TYPE_KIND)
 
@@ -21,7 +21,7 @@ static method<Int> memberResult(String source, List<Int> types, Int receiver, In
     Int owner = ownerOf(types, receiver)
 
     if (owner == OWNER_STRING) {
-        return stringMemberResult(source, start, length, argumentCount)
+        return stringMemberResult(source, types, start, length, argumentCount)
     }
 
     if (owner == OWNER_LIST) {
@@ -31,38 +31,11 @@ static method<Int> memberResult(String source, List<Int> types, Int receiver, In
     return TYPE_UNKNOWN
 }
 
-static method<Int> stringMemberResult(String source, Int start, Int length, Int argumentCount) {
-    if (spanIs(source, start, length, "length") && argumentCount == 0) {
-        return TYPE_INT
-    }
-
-    if (spanIs(source, start, length, "byteAt") && argumentCount == 1) {
-        return TYPE_INT
-    }
-
-    if (spanIs(source, start, length, "indexOf") && argumentCount == 1) {
-        return TYPE_INT
-    }
-
-    if (spanIs(source, start, length, "substring") && argumentCount == 2) {
-        return TYPE_STRING
-    }
-
-    return TYPE_UNKNOWN
+// Global functions: they take one argument and return nothing.
+static method<Bool> isBuiltinFunction(String source, Int start, Int length) {
+    return spanIs(source, start, length, "println") || spanIs(source, start, length, "print") || spanIs(source, start, length, "errprintln") || spanIs(source, start, length, "panic")
 }
 
-static method<Int> listMemberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
-    if (spanIs(source, start, length, "add") && argumentCount == 1) {
-        return TYPE_VOID
-    }
-
-    if ((spanIs(source, start, length, "size") || spanIs(source, start, length, "length")) && argumentCount == 0) {
-        return TYPE_INT
-    }
-
-    if (spanIs(source, start, length, "get") && argumentCount == 1) {
-        return typeField(types, receiver, TYPE_ELEMENT)
-    }
-
-    return TYPE_UNKNOWN
+static method<Bool> isMember(String source, Int start, Int length, String name, Int argumentCount, Int expectedCount) {
+    return argumentCount == expectedCount && spanIs(source, start, length, name)
 }

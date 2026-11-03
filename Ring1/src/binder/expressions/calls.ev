@@ -73,6 +73,11 @@ static method<Int> annotateMethod(String source, List<Int> annotations, List<Int
 static method<Int> bindConstructorCall(String source, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int start, Int length, Int argumentCount) {
     Int declared = classNamed(source, symbols, state, start, length)
 
+    if (declared == NO_SYMBOL && isBuiltinFunction(source, start, length) && argumentCount == 1) {
+        annotate(annotations, node, TYPE_VOID, REFERENCE_METHOD, start, length, OWNER_NONE, 0)
+        return TYPE_VOID
+    }
+
     if (declared == NO_SYMBOL) {
         annotateType(annotations, node, TYPE_UNKNOWN)
         return TYPE_UNKNOWN
