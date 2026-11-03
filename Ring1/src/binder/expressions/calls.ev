@@ -116,20 +116,20 @@ static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> type
 
     if (row == NO_SYMBOL && type == TYPE_UNKNOWN) {
         type = memberResult(source, types, receiver, start, length, argumentCount)
-        annotateBuiltinMember(annotations, types, node, receiver, type, start, length)
+        annotateBuiltinMember(source, annotations, types, node, receiver, type, start, length)
     }
 
     bindArguments(source, nodes, types, symbols, annotations, state, callee)
     return type
 }
 
-static method annotateBuiltinMember(List<Int> annotations, List<Int> types, Int node, Int receiver, Int type, Int start, Int length) {
+static method annotateBuiltinMember(String source, List<Int> annotations, List<Int> types, Int node, Int receiver, Int type, Int start, Int length) {
     if (type == TYPE_UNKNOWN) {
         annotateType(annotations, node, type)
     }
 
     if (type != TYPE_UNKNOWN) {
-        annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(types, receiver), 0)
+        annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(source, types, receiver), 0)
     }
 }
 

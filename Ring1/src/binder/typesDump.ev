@@ -135,6 +135,10 @@ static method<String> ownerText(String source, List<Int> types, Int owner) {
         return "String"
     }
 
+    if (owner == OWNER_RESULT) {
+        return "Result"
+    }
+
     if (owner == OWNER_LIST) {
         return "List"
     }
@@ -148,7 +152,7 @@ static method<String> typesSource(String source) {
     List<Int> types = newTypeTable()
     List<Int> symbols = []
     List<Int> annotations = newAnnotations(nodes)
-    List<Int> state = [0, 0, NO_TYPE]
+    List<Int> state = [0, 0, NO_TYPE, TYPE_UNKNOWN]
     bindProgram(source, nodes, types, symbols, annotations, state)
     return typesNode(source, nodes, types, annotations, ROOT_NODE)
 }

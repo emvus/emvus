@@ -2,6 +2,7 @@ package ring1.binder
 
 // Names are compared without regard to case, as in Emvus, and are always spans of the source.
 final var CASE_DISTANCE = 32
+final var ZERO_BYTE = 48
 
 static method<Int> lowerByte(Int value) {
     if (value >= BYTE_UPPER_A && value <= BYTE_UPPER_Z) {

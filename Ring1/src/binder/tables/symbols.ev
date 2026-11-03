@@ -26,10 +26,11 @@ final var ROW_ENTRY = 10
 final var NO_SYMBOL = -1
 
 // The binder's state: the number of symbol rows in use, how many of them are declarations, and the type
-// whose members are being bound (NO_TYPE outside of types).
+// whose members are being bound (NO_TYPE outside of types) and the return type of the method being bound.
 final var BINDER_TOP = 0
 final var BINDER_DECLARED = 1
 final var BINDER_CLASS = 2
+final var BINDER_RETURN = 3
 
 static method<Int> symbolField(List<Int> symbols, Int row, Int field) {
     return symbols[row * SYMBOL_STRIDE + field]

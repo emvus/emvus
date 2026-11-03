@@ -34,6 +34,7 @@ final var SWITCH_CATCH_ALL = 1
 final var OWNER_NONE = -1
 final var OWNER_STRING = -2
 final var OWNER_LIST = -3
+final var OWNER_RESULT = -4
 
 static method<List<Int>> newAnnotations(List<Int> nodes) {
     List<Int> annotations = []

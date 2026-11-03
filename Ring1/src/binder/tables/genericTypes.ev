@@ -1,0 +1,92 @@
+package ring1.binder
+
+// Generic types (`Result<Int, E>`, `Function<A, B>`) and tuples (`[Int, Bool]`) are rows of their own
+// kind with up to three arguments. Equal ones share a row like every other type.
+static method<Int> typeArgument(List<Int> types, Int type, Int position) {
+    if (position >= MAX_ARGUMENTS) {
+        return NO_TYPE
+    }
+
+    return typeField(types, type, TYPE_ELEMENT + position)
+}
+
+static method<Int> argumentCount(List<Int> types, Int type) {
+    Int count = 0
+
+    while (count < MAX_ARGUMENTS && typeArgument(types, type, count) != NO_TYPE) {
+        count = count + 1
+    }
+
+    return count
+}
+
+// The type a node of the syntax tree names whose children are its arguments.
+static method<Int> argumentsType(String source, List<Int> nodes, List<Int> types, Int node, Int kind, Int start, Int length) {
+    Int first = NO_TYPE
+    Int second = NO_TYPE
+    Int third = NO_TYPE
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int position = 0
+
+    while (child != NO_NODE) {
+        Int argument = typeOfNode(source, nodes, types, child)
+
+        if (position == 0) {
+            first = argument
+        }
+
+        if (position == 1) {
+            second = argument
+        }
+
+        if (position == 2) {
+            third = argument
+        }
+
+        position = position + 1
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return appliedType(source, types, kind, start, length, first, second, third)
+}
+
+static method<Int> appliedType(String source, List<Int> types, Int kind, Int start, Int length, Int first, Int second, Int third) {
+    for (Int row = 0; row < typeCount(types); row++) {
+        if (typeField(types, row, TYPE_KIND) == kind && sameSpans(source, typeField(types, row, TYPE_NAME_START), typeField(types, row, TYPE_NAME_LENGTH), start, length) && typeField(types, row, TYPE_ELEMENT) == first && typeField(types, row, TYPE_SECOND) == second && typeField(types, row, TYPE_THIRD) == third) {
+            return row
+        }
+    }
+
+    Int id = addTypeRow(types, kind, start, length, first)
+    types[id * TYPE_STRIDE + TYPE_SECOND] = second
+    types[id * TYPE_STRIDE + TYPE_THIRD] = third
+    return id
+}
+
+static method<String> argumentsText(String source, List<Int> types, Int type) {
+    String text = ""
+
+    for (Int position = 0; position < argumentCount(types, type); position++) {
+        if (position > 0) {
+            text = text + ","
+        }
+
+        text = text + typeText(source, types, typeArgument(types, type, position))
+    }
+
+    if (typeField(types, type, TYPE_KIND) == KIND_TUPLE) {
+        return "[" + text + "]"
+    }
+
+    Int start = typeField(types, type, TYPE_NAME_START)
+    return source.substring(start, start + typeField(types, type, TYPE_NAME_LENGTH)) + "<" + text + ">"
+}
+
+// The text of an Int literal that indexes a tuple, 0 to 9.
+static method<Int> digitValue(String source, Int start, Int length) {
+    if (length != 1) {
+        return NO_TYPE
+    }
+
+    return source.byteAt(start) - ZERO_BYTE
+}

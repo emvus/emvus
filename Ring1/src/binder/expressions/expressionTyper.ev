@@ -9,6 +9,14 @@ static method<Int> bindExpression(String source, List<Int> nodes, List<Int> type
         return bindName(source, nodes, types, symbols, annotations, state, node)
     }
 
+    if (kind == NODE_PROPAGATE || kind == NODE_UNWRAP) {
+        return bindResultFlow(source, nodes, types, symbols, annotations, state, node)
+    }
+
+    if (kind == NODE_IS || kind == NODE_AS) {
+        return bindTypeTest(source, nodes, types, symbols, annotations, state, node, kind)
+    }
+
     if (kind == NODE_TERNARY) {
         return bindTernary(source, nodes, types, symbols, annotations, state, node, expected)
     }
@@ -196,6 +204,10 @@ static method<Int> operationType(String source, List<Int> nodes, List<Int> types
         return left
     }
 
+    if (kind == NODE_INDEX && typeField(types, left, TYPE_KIND) == KIND_TUPLE) {
+        return tupleElement(source, nodes, types, node, left)
+    }
+
     if (kind == NODE_INDEX && typeField(types, left, TYPE_KIND) == KIND_LIST) {
         return typeField(types, left, TYPE_ELEMENT)
     }
@@ -237,7 +249,11 @@ static method<Int> bindListLiteral(String source, List<Int> nodes, List<Int> typ
     Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
     Int type = expected
 
-    if (first != NO_NODE) {
+    if (first != NO_NODE && typeField(types, expected, TYPE_KIND) == KIND_TUPLE) {
+        bindListElements(source, nodes, types, symbols, annotations, state, first)
+    }
+
+    if (first != NO_NODE && typeField(types, expected, TYPE_KIND) != KIND_TUPLE) {
         type = listType(types, bindListElements(source, nodes, types, symbols, annotations, state, first))
     }
 
@@ -273,4 +289,43 @@ static method<Int> bindTernary(String source, List<Int> nodes, List<Int> types, 
 
     annotateType(annotations, node, type)
     return type
+}
+
+// `value is Type` is a Boolean and `value as Type` has that type; the type name is not an expression.
+static method<Int> bindTypeTest(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int kind) {
+    Int value = nodeField(nodes, node, NODE_FIRST_CHILD)
+    bindExpression(source, nodes, types, symbols, annotations, state, value, TYPE_UNKNOWN)
+    Int type = TYPE_BOOLEAN
+
+    if (kind == NODE_AS) {
+        type = typeOfNode(source, nodes, types, nodeField(nodes, value, NODE_NEXT_SIBLING))
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+// `result?` and `result!` have the value type of the Result they are applied to.
+static method<Int> bindResultFlow(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int result = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, node, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int type = TYPE_UNKNOWN
+
+    if (isResult(source, types, result)) {
+        type = typeArgument(types, result, 0)
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+// `tuple[0]`: the type at the position the literal index names.
+static method<Int> tupleElement(String source, List<Int> nodes, List<Int> types, Int node, Int tuple) {
+    Int index = nodeField(nodes, nodeField(nodes, node, NODE_FIRST_CHILD), NODE_NEXT_SIBLING)
+    Int position = digitValue(source, nodeField(nodes, index, NODE_TEXT_START), nodeField(nodes, index, NODE_TEXT_LENGTH))
+
+    if (position < 0) {
+        return TYPE_UNKNOWN
+    }
+
+    return typeOrUnknown(typeArgument(types, tuple, position))
 }

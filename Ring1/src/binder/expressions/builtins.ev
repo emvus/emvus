@@ -2,7 +2,7 @@ package ring1.binder
 
 // The members of String and List the compiler uses, after Ring0's built-in member table. A member is
 // found by name and argument count; an unknown member keeps the unknown type.
-static method<Int> ownerOf(List<Int> types, Int receiver) {
+static method<Int> ownerOf(String source, List<Int> types, Int receiver) {
     Int kind = typeField(types, receiver, TYPE_KIND)
 
     if (kind == KIND_STRING) {
@@ -13,12 +13,20 @@ static method<Int> ownerOf(List<Int> types, Int receiver) {
         return OWNER_LIST
     }
 
+    if (isResult(source, types, receiver)) {
+        return OWNER_RESULT
+    }
+
     return OWNER_NONE
+}
+
+static method<Bool> isResult(String source, List<Int> types, Int type) {
+    return typeField(types, type, TYPE_KIND) == KIND_APPLIED && spanIs(source, typeField(types, type, TYPE_NAME_START), typeField(types, type, TYPE_NAME_LENGTH), "Result")
 }
 
 // The result type of `receiver.name(arguments)`, TYPE_UNKNOWN when there is no such member.
 static method<Int> memberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
-    Int owner = ownerOf(types, receiver)
+    Int owner = ownerOf(source, types, receiver)
 
     if (owner == OWNER_STRING) {
         return stringMemberResult(source, types, start, length, argumentCount)
@@ -26,6 +34,22 @@ static method<Int> memberResult(String source, List<Int> types, Int receiver, In
 
     if (owner == OWNER_LIST) {
         return listMemberResult(source, types, receiver, start, length, argumentCount)
+    }
+
+    if (owner == OWNER_RESULT) {
+        return resultMemberResult(source, types, receiver, start, length, argumentCount)
+    }
+
+    return TYPE_UNKNOWN
+}
+
+static method<Int> resultMemberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
+    if (isMember(source, start, length, "orElse", argumentCount, 1)) {
+        return typeArgument(types, receiver, 0)
+    }
+
+    if (isMember(source, start, length, "isSuccess", argumentCount, 0) || isMember(source, start, length, "isError", argumentCount, 0)) {
+        return TYPE_BOOLEAN
     }
 
     return TYPE_UNKNOWN

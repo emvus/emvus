@@ -6,7 +6,11 @@ final var TYPE_KIND = 0
 final var TYPE_NAME_START = 1
 final var TYPE_NAME_LENGTH = 2
 final var TYPE_ELEMENT = 3
-final var TYPE_STRIDE = 4
+// Generic and tuple types keep up to three arguments: the element column and the two after it.
+final var TYPE_SECOND = 4
+final var TYPE_THIRD = 5
+final var TYPE_STRIDE = 6
+final var MAX_ARGUMENTS = 3
 final var NO_TYPE = -1
 
 final var KIND_UNKNOWN = 0
@@ -21,6 +25,8 @@ final var KIND_NAMED = 8
 // The type of a type name used as a value, such as `Color` in `Color.RED`; the element is that type.
 final var KIND_TYPE_OBJECT = 9
 final var KIND_CHAR = 10
+final var KIND_APPLIED = 11
+final var KIND_TUPLE = 12
 
 // The first rows are the built-in types, so their ids equal their kinds.
 final var TYPE_UNKNOWN = 0
@@ -38,6 +44,8 @@ static method<List<Int>> newTypeTable() {
         types.add(kind)
         types.add(0)
         types.add(0)
+        types.add(NO_TYPE)
+        types.add(NO_TYPE)
         types.add(NO_TYPE)
     }
 
@@ -99,6 +107,8 @@ static method<Int> addTypeRow(List<Int> types, Int kind, Int start, Int length, 
     types.add(start)
     types.add(length)
     types.add(element)
+    types.add(NO_TYPE)
+    types.add(NO_TYPE)
     return id
 }
 
@@ -125,6 +135,14 @@ static method<Int> typeOfNode(String source, List<Int> nodes, List<Int> types, I
 
     if (spanIs(source, start, length, "Void")) {
         return TYPE_VOID
+    }
+
+    if (nodeField(nodes, node, NODE_KIND) == NODE_TUPLE_TYPE) {
+        return argumentsType(source, nodes, types, node, KIND_TUPLE, 0, 0)
+    }
+
+    if (nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE && !spanIs(source, start, length, "List")) {
+        return argumentsType(source, nodes, types, node, KIND_APPLIED, start, length)
     }
 
     if (spanIs(source, start, length, "List") && nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE) {
@@ -171,6 +189,10 @@ static method<String> typeText(String source, List<Int> types, Int type) {
 
     if (kind == KIND_LIST) {
         return "List<" + typeText(source, types, typeField(types, type, TYPE_ELEMENT)) + ">"
+    }
+
+    if (kind == KIND_APPLIED || kind == KIND_TUPLE) {
+        return argumentsText(source, types, type)
     }
 
     if (kind == KIND_NAMED) {

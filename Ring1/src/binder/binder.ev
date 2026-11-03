@@ -106,6 +106,7 @@ static method bindMethod(String source, List<Int> nodes, List<Int> types, List<I
         param = nodeField(nodes, param, NODE_NEXT_SIBLING)
     }
 
+    state[BINDER_RETURN] = returnTypeOf(source, nodes, types, method)
     Int superCall = childOfKind(nodes, method, NODE_SUPER_CALL)
 
     if (superCall != NO_NODE) {

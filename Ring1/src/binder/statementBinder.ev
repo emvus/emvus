@@ -36,7 +36,7 @@ static method bindStatement(String source, List<Int> nodes, List<Int> types, Lis
         bindFor(source, nodes, types, symbols, annotations, state, statement)
     }
 
-    if (kind == NODE_RETURN || kind == NODE_EXPRESSION_STATEMENT) {
+    if (kind == NODE_RETURN || kind == NODE_EXPRESSION_STATEMENT || kind == NODE_FAIL || kind == NODE_SUCCESS) {
         bindStatementValue(source, nodes, types, symbols, annotations, state, statement)
     }
 }
@@ -45,8 +45,17 @@ static method bindStatementValue(String source, List<Int> nodes, List<Int> types
     Int value = nodeField(nodes, statement, NODE_FIRST_CHILD)
 
     if (value != NO_NODE) {
-        bindExpression(source, nodes, types, symbols, annotations, state, value, TYPE_UNKNOWN)
+        bindExpression(source, nodes, types, symbols, annotations, state, value, expectedValue(nodes, state, statement))
     }
+}
+
+// A returned value is expected to have the return type of the method.
+static method<Int> expectedValue(List<Int> nodes, List<Int> state, Int statement) {
+    if (nodeField(nodes, statement, NODE_KIND) == NODE_RETURN) {
+        return state[BINDER_RETURN]
+    }
+
+    return TYPE_UNKNOWN
 }
 
 // `if (condition) { ... }` and `while (condition) { ... }`.
@@ -123,7 +132,7 @@ static method bindDestructure(String source, List<Int> nodes, List<Int> types, L
 
     while (binding != NO_NODE) {
         if (nodeField(nodes, binding, NODE_KIND) == NODE_BINDING) {
-            bindBinding(nodes, symbols, annotations, state, binding, nthProperty(symbols, state, value, position))
+            bindBinding(nodes, types, symbols, annotations, state, binding, destructuredType(types, symbols, state, value, position))
             position = position + 1
         }
 
@@ -131,13 +140,30 @@ static method bindDestructure(String source, List<Int> nodes, List<Int> types, L
     }
 }
 
-static method bindBinding(List<Int> nodes, List<Int> symbols, List<Int> annotations, List<Int> state, Int binding, Int property) {
-    Int type = TYPE_UNKNOWN
-
-    if (property != NO_SYMBOL) {
-        type = symbolField(symbols, property, SYMBOL_TYPE)
+// The type at a position of a tuple, or of the properties of a type of the program.
+static method<Int> destructuredType(List<Int> types, List<Int> symbols, List<Int> state, Int value, Int position) {
+    if (typeField(types, value, TYPE_KIND) == KIND_TUPLE) {
+        return typeOrUnknown(typeArgument(types, value, position))
     }
 
+    Int property = nthProperty(symbols, state, value, position)
+
+    if (property == NO_SYMBOL) {
+        return TYPE_UNKNOWN
+    }
+
+    return symbolField(symbols, property, SYMBOL_TYPE)
+}
+
+static method<Int> typeOrUnknown(Int type) {
+    if (type == NO_TYPE) {
+        return TYPE_UNKNOWN
+    }
+
+    return type
+}
+
+static method bindBinding(List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int binding, Int type) {
     Int start = nodeField(nodes, binding, NODE_TEXT_START)
     Int length = nodeField(nodes, binding, NODE_TEXT_LENGTH)
     annotate(annotations, binding, type, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
