@@ -1,0 +1,85 @@
+package ring1.parser
+
+// `use a.b.C`, `use a.b.C as D`, `use { a.b.[C, D], e.f as G }`: one use-item per imported name.
+static method<Int> parseUse(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int use = addEmptyNode(nodes, NODE_USE, tokens, state)
+    advanceToken(tokens, state)
+
+    if (!atSymbol(source, tokens, state, "{")) {
+        parseUseItem(source, tokens, state, nodes, use)
+        return use
+    }
+
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        parseUseItem(source, tokens, state, nodes, use)
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "}")
+    return use
+}
+
+// A dotted path, ending in a name, a group `.[A, B]`, and an optional `as Alias`.
+static method parseUseItem(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int use) {
+    Int first = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    expectIdentifier(tokens, state)
+
+    while (atSymbol(source, tokens, state, ".")) {
+        if (symbolAhead(source, tokens, state, AHEAD_NEXT, "[")) {
+            parseUseGroup(source, tokens, state, nodes, use, first)
+            return
+        }
+
+        advanceToken(tokens, state)
+        expectIdentifier(tokens, state)
+    }
+
+    Int last = tokenIndexAhead(tokens, state, AHEAD_BEFORE)
+    Int start = tokenValue(tokens, first, TOKEN_START)
+    Int item = addNode(nodes, NODE_USE_ITEM, start, tokenValue(tokens, last, TOKEN_START) + tokenValue(tokens, last, TOKEN_LENGTH) - start, tokenValue(tokens, first, TOKEN_LINE), tokenValue(tokens, first, TOKEN_COLUMN))
+    parseAlias(source, tokens, state, nodes, item)
+    appendChild(nodes, use, item)
+}
+
+// `prefix.[A, B]`: the text of each item is the prefix, with its dot, followed by the name.
+static method parseUseGroup(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int use, Int first) {
+    Int dot = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+    Int start = tokenValue(tokens, first, TOKEN_START)
+    Int prefixLength = tokenValue(tokens, dot, TOKEN_START) + DOT_LENGTH - start
+    advanceToken(tokens, state)
+    advanceToken(tokens, state)
+
+    while (!atSymbol(source, tokens, state, "]") && !atEnd(tokens, state)) {
+        Int before = state[STATE_TOKEN]
+        Int index = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
+        Int item = addNode(nodes, NODE_USE_ITEM, start, prefixLength, tokenValue(tokens, index, TOKEN_LINE), tokenValue(tokens, index, TOKEN_COLUMN))
+        setNodeField(nodes, item, NODE_EXTRA_START, tokenValue(tokens, index, TOKEN_START))
+        setNodeField(nodes, item, NODE_EXTRA_LENGTH, tokenValue(tokens, index, TOKEN_LENGTH))
+        expectIdentifier(tokens, state)
+        parseAlias(source, tokens, state, nodes, item)
+        appendChild(nodes, use, item)
+        ensureProgress(tokens, state, before)
+
+        if (atSymbol(source, tokens, state, ",")) {
+            advanceToken(tokens, state)
+        }
+    }
+
+    expectSymbol(source, tokens, state, "]")
+}
+
+static method parseAlias(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int item) {
+    if (!atKeyword(source, tokens, state, "as")) {
+        return
+    }
+
+    advanceToken(tokens, state)
+    appendChild(nodes, item, parseLeaf(tokens, state, nodes, NODE_ALIAS))
+}

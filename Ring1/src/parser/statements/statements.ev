@@ -7,6 +7,7 @@ static method<Int> parseBlock(String source, List<Int> tokens, List<Int> state, 
     while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
         appendChild(nodes, block, parseStatement(source, tokens, state, nodes))
+        skipSemicolon(source, tokens, state)
         ensureProgress(tokens, state, before)
     }
 

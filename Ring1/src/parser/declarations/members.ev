@@ -19,7 +19,7 @@ static method<Int> parseMember(String source, List<Int> tokens, List<Int> state,
 static method<Int> parseConstructor(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
     Int constructor = addNodeAtToken(nodes, NODE_CONSTRUCTOR, tokens, state)
     advanceToken(tokens, state)
-    appendChild(nodes, constructor, modifiers)
+    appendModifiers(nodes, constructor, modifiers)
     appendChild(nodes, constructor, parseParams(source, tokens, state, nodes))
 
     if (atSymbol(source, tokens, state, ":")) {
@@ -55,7 +55,7 @@ static method<Int> parseDataMember(String source, List<Int> tokens, List<Int> st
 
     Int member = addNodeAtToken(nodes, kind, tokens, state)
     expectIdentifier(tokens, state)
-    appendChild(nodes, member, modifiers)
+    appendModifiers(nodes, member, modifiers)
     appendChild(nodes, member, type)
 
     if (property) {

@@ -1,7 +1,9 @@
 package ring1.parser
 
-// The syntax tree is a table of eight Ints per node. Children are linked: a node knows its first
-// child, its last child (for O(1) appending) and its next sibling. Ids are row numbers.
+// The syntax tree is a table of ten Ints per node. Children are linked: a node knows its first
+// child, its last child (for O(1) appending) and its next sibling. Ids are row numbers. The text is
+// a span of the source; a second span is appended when the text is not contiguous there, as in the
+// import `std.collections.[List]`, whose item reads `std.collections.` followed by `List`.
 final var NODE_KIND = 0
 final var NODE_TEXT_START = 1
 final var NODE_TEXT_LENGTH = 2
@@ -10,7 +12,9 @@ final var NODE_COLUMN = 4
 final var NODE_FIRST_CHILD = 5
 final var NODE_LAST_CHILD = 6
 final var NODE_NEXT_SIBLING = 7
-final var NODE_STRIDE = 8
+final var NODE_EXTRA_START = 8
+final var NODE_EXTRA_LENGTH = 9
+final var NODE_STRIDE = 10
 final var NO_NODE = -1
 
 // The order of these kinds must match the names in treeDump.ev.
@@ -97,6 +101,13 @@ final var NODE_PATTERN_NAME = 79
 final var NODE_DICT_LITERAL = 80
 final var NODE_DICT_ENTRY = 81
 final var NODE_TASK = 82
+final var NODE_INTERPOLATION = 83
+final var NODE_USE = 84
+final var NODE_USE_ITEM = 85
+final var NODE_ALIAS = 86
+final var NODE_ANNOTATION = 87
+final var NODE_PLACEHOLDER = 88
+final var NODE_GENERIC_REF = 89
 
 // Moves the children of `from` to the end of `to`.
 static method moveChildren(List<Int> nodes, Int from, Int to) {
@@ -120,6 +131,8 @@ static method<Int> addNode(List<Int> nodes, Int kind, Int textStart, Int textLen
     nodes.add(NO_NODE)
     nodes.add(NO_NODE)
     nodes.add(NO_NODE)
+    nodes.add(0)
+    nodes.add(0)
     return id
 }
 

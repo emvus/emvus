@@ -38,6 +38,14 @@ static method<Int> parseCase(String source, List<Int> tokens, List<Int> state, L
 }
 
 static method<Int> parseCaseResult(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Bool asExpression) {
+    if (asExpression && atSuccessStatement(source, tokens, state)) {
+        return parseValueStatement(source, tokens, state, nodes, NODE_SUCCESS)
+    }
+
+    if (asExpression && atKeyword(source, tokens, state, "fail")) {
+        return parseValueStatement(source, tokens, state, nodes, NODE_FAIL)
+    }
+
     if (asExpression) {
         return parseExpression(source, tokens, state, nodes)
     }
@@ -116,9 +124,28 @@ static method parseCasePatterns(String source, List<Int> tokens, List<Int> state
     }
 }
 
+// `success ->` and `error ->` match a result without binding its value.
+static method<Bool> atBareResultPattern(String source, List<Int> tokens, List<Int> state) {
+    return (atIdentifierText(source, tokens, state, "success") || atIdentifierText(source, tokens, state, "error")) && symbolAhead(source, tokens, state, AHEAD_NEXT, "->")
+}
+
+static method<Int> parseBareResultPattern(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int kind = NODE_PATTERN_ERROR
+
+    if (atIdentifierText(source, tokens, state, "success")) {
+        kind = NODE_PATTERN_SUCCESS
+    }
+
+    return withoutText(nodes, parseLeaf(tokens, state, nodes, kind))
+}
+
 static method<Int> parseStatementPattern(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     if (atResultPattern(source, tokens, state)) {
         return parseResultPattern(source, tokens, state, nodes)
+    }
+
+    if (atBareResultPattern(source, tokens, state)) {
+        return parseBareResultPattern(source, tokens, state, nodes)
     }
 
     if (atKind(tokens, state, TOKEN_IDENTIFIER)) {

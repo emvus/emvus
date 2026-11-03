@@ -181,6 +181,10 @@ method emeraldString(string text): string {
     var index = 0
     while (index < text.length()) {
         result = result + escapedCharacter(text.charAt(index))
+        if (text.charAt(index) == "$" && index + 1 < text.length() && (text.charAt(index + 1) == "{" || text.charAt(index + 1) == "(")) {
+            result = result + "\" + \""
+        }
+
         index = index + 1
     }
 

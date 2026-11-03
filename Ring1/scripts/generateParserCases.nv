@@ -9,8 +9,8 @@ import strings
 //   novusc run generateParserCases.nv <ring0-binary> <out.ev> <file.ev>...
 //
 // Every source Ring0 accepts becomes one test case that parses it with Ring1 and compares the
-// printed tree with Ring0's. Sources with string interpolation are skipped: Ring1 does not parse
-// the expressions inside `${...}` yet.
+// printed tree with Ring0's. A dollar sign is escaped in the generated literals so that they are not
+// read as interpolation themselves.
 
 method main(array<string> arguments) {
     if (arguments.length() < 3) {
@@ -42,10 +42,6 @@ method main(array<string> arguments) {
 // One test case, or "" when Ring0 rejects the source or it uses interpolation.
 method caseFor(string ring0, string file, integer number): string {
     var source = os.readFile(file)
-    if (source.contains("${") || source.contains("$(")) {
-        return ""
-    }
-
     var result = os.run(os.shellQuote(ring0) + " " + os.shellQuote(file) + " 2>/dev/null")
     if (result["code"] != 0) {
         return ""
@@ -91,6 +87,10 @@ method escaped(string character): string {
 
     if (character == "\t") {
         return "\\t"
+    }
+
+    if (character == "$") {
+        return "\\$"
     }
 
     return character

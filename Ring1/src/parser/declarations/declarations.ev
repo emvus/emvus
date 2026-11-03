@@ -10,6 +10,7 @@ static method<Int> parseFile(String source, List<Int> tokens, List<Int> state, L
     while (!atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
         appendChild(nodes, file, parseDeclaration(source, tokens, state, nodes))
+        skipSemicolon(source, tokens, state)
         ensureProgress(tokens, state, before)
     }
 
@@ -44,7 +45,22 @@ static method<Bool> expectIdentifier(List<Int> tokens, List<Int> state) {
     return false
 }
 
+// A name: an identifier, or one of the keywords Ring0 lets names use.
+static method<Bool> expectName(String source, List<Int> tokens, List<Int> state) {
+    if (nameAhead(source, tokens, state, AHEAD_CURRENT)) {
+        advanceToken(tokens, state)
+        return true
+    }
+
+    recordError(state)
+    return false
+}
+
 static method<Int> parseDeclaration(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atKeyword(source, tokens, state, "use")) {
+        return parseUse(source, tokens, state, nodes)
+    }
+
     Int modifiers = parseModifiers(source, tokens, state, nodes)
 
     if (atKeyword(source, tokens, state, "var")) {
@@ -62,14 +78,59 @@ static method<Int> parseDeclaration(String source, List<Int> tokens, List<Int> s
     return parseError(tokens, state, nodes)
 }
 
+// Annotations and modifiers are parsed into one node; `appendModifiers` splits them again.
 static method<Int> parseModifiers(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int modifiers = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
 
-    while (atModifier(source, tokens, state)) {
-        appendChild(nodes, modifiers, parseLeaf(tokens, state, nodes, NODE_MODIFIER))
+    while (atSymbol(source, tokens, state, "@") || atModifier(source, tokens, state)) {
+        if (atSymbol(source, tokens, state, "@")) {
+            appendChild(nodes, modifiers, parseAnnotation(source, tokens, state, nodes))
+        }
+
+        if (!atSymbol(source, tokens, state, "@") && atModifier(source, tokens, state)) {
+            appendChild(nodes, modifiers, parseLeaf(tokens, state, nodes, NODE_MODIFIER))
+        }
     }
 
     return modifiers
+}
+
+// `@Name` or `@Name(arguments)`.
+static method<Int> parseAnnotation(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    advanceToken(tokens, state)
+    Int annotation = addNodeAtToken(nodes, NODE_ANNOTATION, tokens, state)
+    expectIdentifier(tokens, state)
+
+    if (atSymbol(source, tokens, state, "(") && onPreviousLine(tokens, state)) {
+        advanceToken(tokens, state)
+        parseElements(source, tokens, state, nodes, annotation, ")")
+    }
+
+    return annotation
+}
+
+// Annotations come first among a declaration's children, the modifiers node after them.
+static method appendModifiers(List<Int> nodes, Int declaration, Int modifiers) {
+    Int child = nodeField(nodes, modifiers, NODE_FIRST_CHILD)
+    setNodeField(nodes, modifiers, NODE_FIRST_CHILD, NO_NODE)
+    setNodeField(nodes, modifiers, NODE_LAST_CHILD, NO_NODE)
+
+    while (child != NO_NODE) {
+        Int next = nodeField(nodes, child, NODE_NEXT_SIBLING)
+        setNodeField(nodes, child, NODE_NEXT_SIBLING, NO_NODE)
+
+        if (nodeField(nodes, child, NODE_KIND) == NODE_ANNOTATION) {
+            appendChild(nodes, declaration, child)
+        }
+
+        if (nodeField(nodes, child, NODE_KIND) != NODE_ANNOTATION) {
+            appendChild(nodes, modifiers, child)
+        }
+
+        child = next
+    }
+
+    appendChild(nodes, declaration, modifiers)
 }
 
 static method<Bool> atModifier(String source, List<Int> tokens, List<Int> state) {
@@ -81,7 +142,7 @@ static method<Int> parseVariable(String source, List<Int> tokens, List<Int> stat
     Int type = parseLeaf(tokens, state, nodes, NODE_TYPE)
     Int variable = addNodeAtToken(nodes, NODE_VARIABLE, tokens, state)
     expectIdentifier(tokens, state)
-    appendChild(nodes, variable, modifiers)
+    appendModifiers(nodes, variable, modifiers)
     appendChild(nodes, variable, type)
     expectSymbol(source, tokens, state, "=")
     appendChild(nodes, variable, parseExpression(source, tokens, state, nodes))
@@ -94,7 +155,7 @@ static method<Int> parseMethod(String source, List<Int> tokens, List<Int> state,
     Int returnType = parseReturnType(source, tokens, state, nodes)
     Int method = addNodeAtToken(nodes, NODE_METHOD, tokens, state)
     expectIdentifier(tokens, state)
-    appendChild(nodes, method, modifiers)
+    appendModifiers(nodes, method, modifiers)
 
     if (returnType != NO_NODE) {
         appendChild(nodes, method, returnType)
@@ -106,11 +167,28 @@ static method<Int> parseMethod(String source, List<Int> tokens, List<Int> state,
         appendChild(nodes, method, parseWhere(source, tokens, state, nodes))
     }
 
-    if (atSymbol(source, tokens, state, "{")) {
+    if (atPlaceholderBody(source, tokens, state)) {
+        appendChild(nodes, method, parsePlaceholder(tokens, state, nodes))
+    }
+
+    if (!atPlaceholderBody(source, tokens, state) && atSymbol(source, tokens, state, "{")) {
         appendChild(nodes, method, parseBlock(source, tokens, state, nodes))
     }
 
     return method
+}
+
+// `{ ... }` marks a body that is not written yet.
+static method<Bool> atPlaceholderBody(String source, List<Int> tokens, List<Int> state) {
+    return atSymbol(source, tokens, state, "{") && symbolAhead(source, tokens, state, AHEAD_NEXT, "...") && symbolAhead(source, tokens, state, AHEAD_THIRD, "}")
+}
+
+static method<Int> parsePlaceholder(List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int placeholder = addEmptyNode(nodes, NODE_PLACEHOLDER, tokens, state)
+    advanceToken(tokens, state)
+    advanceToken(tokens, state)
+    advanceToken(tokens, state)
+    return placeholder
 }
 
 static method<Int> parseReturnType(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
@@ -151,11 +229,11 @@ static method<Int> parseParams(String source, List<Int> tokens, List<Int> state,
 }
 
 static method<Int> parseParam(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
-    Int modifiers = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
+    Int modifiers = parseModifiers(source, tokens, state, nodes)
     Int type = parseType(source, tokens, state, nodes)
     Int param = addNodeAtToken(nodes, NODE_PARAM, tokens, state)
-    expectIdentifier(tokens, state)
-    appendChild(nodes, param, modifiers)
+    expectName(source, tokens, state)
+    appendModifiers(nodes, param, modifiers)
     appendChild(nodes, param, type)
 
     if (atSymbol(source, tokens, state, "=")) {

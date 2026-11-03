@@ -2,6 +2,7 @@ package ring1.parser
 
 final var LEVEL_LOWEST = 1
 final var QUOTE_LENGTH = 1
+final var TERNARY_LINES = 3
 final var LEVEL_NONE = 0
 final var LEVEL_OR = 1
 final var LEVEL_AND = 2
@@ -32,11 +33,49 @@ static method<Int> parseExpression(String source, List<Int> tokens, List<Int> st
 // `condition ? a : b`. A `?` that ends the line, or is followed by a closing bracket or separator, is
 // error propagation instead.
 static method<Bool> atTernaryQuestion(String source, List<Int> tokens, List<Int> state) {
-    if (!atSymbol(source, tokens, state, "?") || !nextOnSameLine(tokens, state)) {
+    if (!atSymbol(source, tokens, state, "?")) {
         return false
     }
 
+    if (!nextOnSameLine(tokens, state)) {
+        return colonFollows(source, tokens, state)
+    }
+
     return !symbolAhead(source, tokens, state, AHEAD_NEXT, ")") && !symbolAhead(source, tokens, state, AHEAD_NEXT, "]") && !symbolAhead(source, tokens, state, AHEAD_NEXT, "}") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ",") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ";") && !symbolAhead(source, tokens, state, AHEAD_NEXT, ":")
+}
+
+// A `?` that ends its line is a ternary when a `:` follows within the next lines at the same bracket
+// depth, before another `?`, a `;`, `->` or `=`.
+static method<Bool> colonFollows(String source, List<Int> tokens, List<Int> state) {
+    Int lastLine = tokenValue(tokens, tokenIndexAhead(tokens, state, AHEAD_CURRENT), TOKEN_LINE) + TERNARY_LINES
+    Int depth = 0
+    Int offset = AHEAD_NEXT
+
+    while (tokenKindAhead(tokens, state, offset) != TOKEN_EOF && tokenValue(tokens, tokenIndexAhead(tokens, state, offset), TOKEN_LINE) <= lastLine) {
+        if (symbolAhead(source, tokens, state, offset, "(") || symbolAhead(source, tokens, state, offset, "[") || symbolAhead(source, tokens, state, offset, "{")) {
+            depth = depth + 1
+        }
+
+        if (symbolAhead(source, tokens, state, offset, ")") || symbolAhead(source, tokens, state, offset, "]") || symbolAhead(source, tokens, state, offset, "}")) {
+            depth = depth - 1
+        }
+
+        if (depth < 0) {
+            return false
+        }
+
+        if (depth == 0 && symbolAhead(source, tokens, state, offset, ":")) {
+            return true
+        }
+
+        if (depth == 0 && (symbolAhead(source, tokens, state, offset, "?") || symbolAhead(source, tokens, state, offset, ";") || symbolAhead(source, tokens, state, offset, "->") || symbolAhead(source, tokens, state, offset, "="))) {
+            return false
+        }
+
+        offset = offset + 1
+    }
+
+    return false
 }
 
 static method<Int> parseTernary(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int condition) {
@@ -312,12 +351,16 @@ static method<Int> parsePrimary(String source, List<Int> tokens, List<Int> state
         return parseLeaf(tokens, state, nodes, NODE_FLOAT_LITERAL)
     }
 
+    if (atGenericReference(source, tokens, state)) {
+        return parseGenericReference(source, tokens, state, nodes)
+    }
+
     if (atKind(tokens, state, TOKEN_IDENTIFIER)) {
         return parseLeaf(tokens, state, nodes, NODE_NAME)
     }
 
     if (atKind(tokens, state, TOKEN_STRING)) {
-        return parseString(tokens, state, nodes)
+        return parseString(source, tokens, state, nodes)
     }
 
     if (atKeyword(source, tokens, state, "true") || atKeyword(source, tokens, state, "false")) {
@@ -366,12 +409,13 @@ static method<Int> parseLeaf(List<Int> tokens, List<Int> state, List<Int> nodes,
 }
 
 // The node text is the content between the quotes, still escaped.
-static method<Int> parseString(List<Int> tokens, List<Int> state, List<Int> nodes) {
+static method<Int> parseString(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int index = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
     Int start = tokenValue(tokens, index, TOKEN_START) + QUOTE_LENGTH
     Int length = tokenValue(tokens, index, TOKEN_LENGTH) - QUOTE_LENGTH - QUOTE_LENGTH
     Int string = addNode(nodes, NODE_STRING, start, length, tokenValue(tokens, index, TOKEN_LINE), tokenValue(tokens, index, TOKEN_COLUMN))
     advanceToken(tokens, state)
+    parseInterpolations(source, nodes, string)
     return string
 }
 

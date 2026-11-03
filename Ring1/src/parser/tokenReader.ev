@@ -93,6 +93,13 @@ static method<Bool> expectSymbol(String source, List<Int> tokens, List<Int> stat
     return false
 }
 
+// Semicolons are optional; a statement or declaration may end with one.
+static method skipSemicolon(String source, List<Int> tokens, List<Int> state) {
+    while (atSymbol(source, tokens, state, ";")) {
+        advanceToken(tokens, state)
+    }
+}
+
 // A construct that did not consume a token would make its loop run forever.
 static method ensureProgress(List<Int> tokens, List<Int> state, Int before) {
     if (state[STATE_TOKEN] == before) {

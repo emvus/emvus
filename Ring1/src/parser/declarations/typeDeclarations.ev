@@ -49,7 +49,7 @@ static method<Int> parseTypeDeclaration(String source, List<Int> tokens, List<In
     advanceToken(tokens, state)
     Int declaration = addNodeAtToken(nodes, kind, tokens, state)
     expectIdentifier(tokens, state)
-    appendChild(nodes, declaration, modifiers)
+    appendModifiers(nodes, declaration, modifiers)
     parseTypeHeader(source, tokens, state, nodes, declaration, kind)
 
     if (atSymbol(source, tokens, state, "{")) {
@@ -112,6 +112,11 @@ static method<Int> parseWhere(String source, List<Int> tokens, List<Int> state, 
         if (atSymbol(source, tokens, state, ":")) {
             advanceToken(tokens, state)
             appendChild(nodes, parameter, parseType(source, tokens, state, nodes))
+
+            while (atSymbol(source, tokens, state, "&")) {
+                advanceToken(tokens, state)
+                appendChild(nodes, parameter, parseType(source, tokens, state, nodes))
+            }
         }
 
         if (!atSymbol(source, tokens, state, ",")) {
@@ -131,6 +136,7 @@ static method<Int> parseTypeBody(String source, List<Int> tokens, List<Int> stat
     while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
         appendChild(nodes, body, parseBodyEntry(source, tokens, state, nodes, kind))
+        skipSemicolon(source, tokens, state)
         ensureProgress(tokens, state, before)
 
         if (kind == NODE_ENUM && atSymbol(source, tokens, state, ",")) {

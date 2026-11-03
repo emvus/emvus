@@ -1,0 +1,66 @@
+package ring1.parser
+
+// `Tuple<Int, Int>(1, 2)`: a name with type arguments that is called right away. Only type-like
+// tokens may stand between the angle brackets, so `a < b && c > (d)` stays a comparison.
+static method<Bool> atGenericReference(String source, List<Int> tokens, List<Int> state) {
+    if (!atKind(tokens, state, TOKEN_IDENTIFIER) || !symbolAhead(source, tokens, state, AHEAD_NEXT, "<")) {
+        return false
+    }
+
+    Int end = typeArgumentsEnd(source, tokens, state)
+    return end != NOT_A_TYPE && symbolAhead(source, tokens, state, end, "(")
+}
+
+// Offset of the token after the closing `>`, NOT_A_TYPE when something else than type syntax comes first.
+static method<Int> typeArgumentsEnd(String source, List<Int> tokens, List<Int> state) {
+    Int offset = AHEAD_NEXT
+    Int depth = 0
+
+    while (tokenKindAhead(tokens, state, offset) != TOKEN_EOF) {
+        if (symbolAhead(source, tokens, state, offset, "<")) {
+            depth = depth + 1
+        }
+
+        if (symbolAhead(source, tokens, state, offset, ">")) {
+            depth = depth - 1
+        }
+
+        if (!isTypeToken(source, tokens, state, offset)) {
+            return NOT_A_TYPE
+        }
+
+        offset = offset + 1
+
+        if (depth == 0) {
+            return offset
+        }
+    }
+
+    return NOT_A_TYPE
+}
+
+static method<Bool> isTypeToken(String source, List<Int> tokens, List<Int> state, Int offset) {
+    if (tokenKindAhead(tokens, state, offset) == TOKEN_IDENTIFIER) {
+        return true
+    }
+
+    return symbolAhead(source, tokens, state, offset, "<") || symbolAhead(source, tokens, state, offset, ">") || symbolAhead(source, tokens, state, offset, ",") || symbolAhead(source, tokens, state, offset, "[") || symbolAhead(source, tokens, state, offset, "]")
+}
+
+static method<Int> parseGenericReference(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int reference = parseLeaf(tokens, state, nodes, NODE_GENERIC_REF)
+    advanceToken(tokens, state)
+
+    while (true) {
+        appendChild(nodes, reference, parseType(source, tokens, state, nodes))
+
+        if (!atSymbol(source, tokens, state, ",")) {
+            break
+        }
+
+        advanceToken(tokens, state)
+    }
+
+    expectSymbol(source, tokens, state, ">")
+    return reference
+}
