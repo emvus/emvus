@@ -5,7 +5,26 @@ The first self-hosted stage of the Emvus compiler, written in Emvus and built by
 `Ring0/docs/languageDecisions.md` (decision 3): primitive types, strings, enums, primitive records,
 `Result`, and state kept in `List<Int>` parameters instead of objects with list fields.
 
-## Lexer v0 (`src/lexer.ev`)
+## Lexer v0 (`src/lexer/`)
+
+One file per responsibility, eight production files (the Emvus limit per folder, `PL-EV-017`); the
+test file lives in `tests/` and does not count.
+
+| File | Responsibility |
+|---|---|
+| `tokenKinds.ev` | token kinds, the five-Int token layout, `emit` |
+| `cursor.ev` | the cursor list, `peek`, `advance`, `columnAt` |
+| `byteClasses.ev` | byte constants and character classes |
+| `identifiers.ev` | keywords and `lexIdentifier` |
+| `trivia.ev` | whitespace and comments |
+| `literals.ev` | numbers and strings (escapes, interpolation) |
+| `symbols.ev` | one-, two- and three-byte symbols |
+| `lexer.ev` | `scanToken`, `tokenize`, `lexSource` |
+
+Ring0 builds several files as one program: `ring0 a.ev b.ev ... --check`, in the order given
+(declarations before their use are not required). Order for the lexer:
+`tokenKinds cursor byteClasses identifiers trivia literals symbols lexer` and, for the self test,
+`tests/lexerTest.ev`.
 
 - Tokens are five Ints in one list: `kind, start, length, line, column`. A token is a span of the
   source; `start` and `length` are UTF-8 byte offsets and columns count bytes.
@@ -24,9 +43,9 @@ The first self-hosted stage of the Emvus compiler, written in Emvus and built by
 
 | Check | Result |
 |---|---|
-| `ring0 src/lexer.ev --check` | ok |
+| `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
-| Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer lowers to 45 including 4 generated text helpers |
+| Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
 | Native run of the self test | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend

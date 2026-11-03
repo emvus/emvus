@@ -26,6 +26,12 @@ root as `$RING0_EMERALD_ROOT` with `emerald-stable/emerald-compiler` next to `st
 `SUBLANG_EMERALD_ROOT` the same way. Scripts are stored without the executable bit: run them with
 `bash scripts/<name>.sh`, or `chmod +x` them.
 
+Several `.ev` files form one program: `ring0 a.ev b.ev --check` and `ring0-lower a.ev b.ev out.sublang-wire`
+merge their top-level declarations in the order given (`SourceSet`). The checker identifies declarations
+by kind, line and column, so each file gets its own line range (each starts one line after the file
+before it); on errors the driver prints which file starts at which line. The sandbox scripts still take
+single files.
+
 The Sublang checkout is read-only input (`RING0_SUBLANG_CHECKOUT`); nothing is copied into either
 repository. The frontend is taken from `git archive HEAD` unless `RING0_BASE_SRC` is set, so
 commit frontend changes before testing against them.

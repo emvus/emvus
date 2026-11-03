@@ -1,0 +1,64 @@
+package ring1.lexer
+
+final var EXPECTED_KIND = 0
+final var EXPECTED_LENGTH = 1
+final var EXPECTED_STRIDE = 2
+final var CASE_PASSED = 0
+final var CASE_FAILED = 1
+
+static method<Int> tokenField(List<Int> tokens, Int index, Int field) {
+    return tokens[index * TOKEN_STRIDE + field]
+}
+
+static method<Int> expectTokens(String source, List<Int> expected) {
+    List<Int> tokens = lexSource(source)
+    Int count = expected.size() / EXPECTED_STRIDE
+
+    if (tokens.size() != count * TOKEN_STRIDE) {
+        return CASE_FAILED
+    }
+
+    for (Int index = 0; index < count; index++) {
+        Int kind = expected[index * EXPECTED_STRIDE + EXPECTED_KIND]
+        Int length = expected[index * EXPECTED_STRIDE + EXPECTED_LENGTH]
+
+        if (tokenField(tokens, index, TOKEN_KIND) != kind || tokenField(tokens, index, TOKEN_LENGTH) != length) {
+            return CASE_FAILED
+        }
+    }
+
+    return CASE_PASSED
+}
+
+static method<Int> expectPosition(String source, Int index, Int line, Int column) {
+    List<Int> tokens = lexSource(source)
+
+    if (tokenField(tokens, index, TOKEN_LINE) != line || tokenField(tokens, index, TOKEN_COLUMN) != column) {
+        return CASE_FAILED
+    }
+
+    return CASE_PASSED
+}
+
+// Returns the number of failed cases, so 0 means every case passed.
+static method<Int> main {
+    Int failed = 0
+    failed = failed + expectTokens("", [TOKEN_EOF, 0])
+    failed = failed + expectTokens("foo bar", [TOKEN_IDENTIFIER, 3, TOKEN_IDENTIFIER, 3, TOKEN_EOF, 0])
+    failed = failed + expectTokens("if x1 == 42", [TOKEN_KEYWORD, 2, TOKEN_IDENTIFIER, 2, TOKEN_SYMBOL, 2, TOKEN_NUMBER, 2, TOKEN_EOF, 0])
+    failed = failed + expectTokens("1.5e3 1..x", [TOKEN_FLOAT, 5, TOKEN_NUMBER, 1, TOKEN_SYMBOL, 2, TOKEN_IDENTIFIER, 1, TOKEN_EOF, 0])
+    failed = failed + expectTokens("a // c\n/* b */ b", [TOKEN_IDENTIFIER, 1, TOKEN_IDENTIFIER, 1, TOKEN_EOF, 0])
+    failed = failed + expectPosition("a // c\n/* b */ b", 1, 2, 9)
+    failed = failed + expectPosition("a\nb", 1, 2, 1)
+    failed = failed + expectTokens("\"a\\nb\"", [TOKEN_STRING, 6, TOKEN_EOF, 0])
+    failed = failed + expectTokens("\"v" + "$" + "{x + 1}\"", [TOKEN_STRING, 11, TOKEN_EOF, 0])
+    failed = failed + expectTokens("\"v" + "$" + "{f(\"}\")}\"", [TOKEN_STRING, 12, TOKEN_EOF, 0])
+    failed = failed + expectTokens("\"abc", [TOKEN_UNTERMINATED_STRING, 4, TOKEN_EOF, 0])
+    failed = failed + expectTokens("#", [TOKEN_UNEXPECTED, 1, TOKEN_EOF, 0])
+    failed = failed + expectTokens("/* x", [TOKEN_UNTERMINATED_COMMENT, 4, TOKEN_EOF, 0])
+    failed = failed + expectTokens("x ... y", [TOKEN_IDENTIFIER, 1, TOKEN_SYMBOL, 3, TOKEN_IDENTIFIER, 1, TOKEN_EOF, 0])
+    failed = failed + expectTokens("a<=b", [TOKEN_IDENTIFIER, 1, TOKEN_SYMBOL, 2, TOKEN_IDENTIFIER, 1, TOKEN_EOF, 0])
+    failed = failed + expectTokens("iff true", [TOKEN_IDENTIFIER, 3, TOKEN_KEYWORD, 4, TOKEN_EOF, 0])
+    failed = failed + expectTokens("_a1", [TOKEN_IDENTIFIER, 3, TOKEN_EOF, 0])
+    return failed
+}

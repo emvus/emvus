@@ -1,0 +1,145 @@
+package ring1.lexer
+
+static method skipDigits(String source, List<Int> cursor) {
+    while (isDigit(peek(source, cursor, AHEAD_CURRENT))) {
+        advance(source, cursor)
+    }
+}
+
+// A `.` only starts a fraction when a digit follows, so `1..x` and `1.method()` stay intact.
+static method<Bool> startsFraction(String source, List<Int> cursor) {
+    return peek(source, cursor, AHEAD_CURRENT) == BYTE_DOT && isDigit(peek(source, cursor, AHEAD_NEXT))
+}
+
+// An `e` without digits behind it is not an exponent: it belongs to the next token.
+static method<Bool> startsExponent(String source, List<Int> cursor) {
+    Int current = peek(source, cursor, AHEAD_CURRENT)
+
+    if (current != BYTE_LOWER_E && current != BYTE_UPPER_E) {
+        return false
+    }
+
+    Int after = peek(source, cursor, AHEAD_NEXT)
+    Bool signed = after == BYTE_PLUS || after == BYTE_MINUS
+    return isDigit(after) || (signed && isDigit(peek(source, cursor, AHEAD_THIRD)))
+}
+
+static method skipExponent(String source, List<Int> cursor) {
+    advance(source, cursor)
+    Int sign = peek(source, cursor, AHEAD_CURRENT)
+
+    if (sign == BYTE_PLUS || sign == BYTE_MINUS) {
+        advance(source, cursor)
+    }
+
+    skipDigits(source, cursor)
+}
+
+static method lexNumber(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    Int kind = TOKEN_NUMBER
+    skipDigits(source, cursor)
+
+    if (startsFraction(source, cursor)) {
+        advance(source, cursor)
+        skipDigits(source, cursor)
+        kind = TOKEN_FLOAT
+    }
+
+    if (startsExponent(source, cursor)) {
+        skipExponent(source, cursor)
+        kind = TOKEN_FLOAT
+    }
+
+    emit(tokens, kind, start, cursor[CURSOR_POSITION] - start, line, column)
+}
+
+static method lexString(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    advance(source, cursor)
+
+    while (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE && peek(source, cursor, AHEAD_CURRENT) != BYTE_QUOTE) {
+        Int current = peek(source, cursor, AHEAD_CURRENT)
+
+        if (current == BYTE_BACKSLASH) {
+            skipEscape(source, cursor)
+            continue
+        }
+
+        if (current == BYTE_DOLLAR && opensInterpolation(peek(source, cursor, AHEAD_NEXT))) {
+            skipInterpolation(source, cursor)
+            continue
+        }
+
+        advance(source, cursor)
+    }
+
+    if (peek(source, cursor, AHEAD_CURRENT) == NO_BYTE) {
+        emit(tokens, TOKEN_UNTERMINATED_STRING, start, cursor[CURSOR_POSITION] - start, line, column)
+        return
+    }
+
+    advance(source, cursor)
+    emit(tokens, TOKEN_STRING, start, cursor[CURSOR_POSITION] - start, line, column)
+}
+
+static method<Bool> opensInterpolation(Int value) {
+    return value == BYTE_OPEN_BRACE || value == BYTE_OPEN_PAREN
+}
+
+static method skipEscape(String source, List<Int> cursor) {
+    advance(source, cursor)
+
+    if (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE) {
+        advance(source, cursor)
+    }
+}
+
+static method skipInterpolation(String source, List<Int> cursor) {
+    advance(source, cursor)
+    Int open = peek(source, cursor, AHEAD_CURRENT)
+    advance(source, cursor)
+    Int close = BYTE_CLOSE_BRACE
+
+    if (open == BYTE_OPEN_PAREN) {
+        close = BYTE_CLOSE_PAREN
+    }
+
+    Int depth = 1
+
+    while (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE && depth > 0) {
+        Int value = peek(source, cursor, AHEAD_CURRENT)
+        advance(source, cursor)
+
+        if (value == open) {
+            depth = depth + 1
+        }
+
+        if (value == close) {
+            depth = depth - 1
+        }
+
+        if (value == BYTE_QUOTE) {
+            skipQuotedRemainder(source, cursor)
+        }
+    }
+}
+
+static method skipQuotedRemainder(String source, List<Int> cursor) {
+    while (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE && peek(source, cursor, AHEAD_CURRENT) != BYTE_QUOTE) {
+        Int inner = peek(source, cursor, AHEAD_CURRENT)
+        advance(source, cursor)
+
+        if (inner == BYTE_BACKSLASH && peek(source, cursor, AHEAD_CURRENT) != NO_BYTE) {
+            advance(source, cursor)
+        }
+    }
+
+    if (peek(source, cursor, AHEAD_CURRENT) != NO_BYTE) {
+        advance(source, cursor)
+    }
+}

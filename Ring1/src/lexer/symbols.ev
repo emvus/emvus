@@ -1,0 +1,70 @@
+package ring1.lexer
+
+final var SYMBOL_NONE = 0
+final var SYMBOL_SINGLE = 1
+final var SYMBOL_DOUBLE = 2
+final var SYMBOL_TRIPLE = 3
+
+static method<String> singleSymbols() {
+    return "(){}[];,.=+-*/%!<>@$:?&|"
+}
+
+static method<Bool> isThreeByteSymbol(Int first, Int second, Int third) {
+    return first == BYTE_DOT && second == BYTE_DOT && third == BYTE_DOT
+}
+
+static method<Bool> isTwoByteSymbol(Int first, Int second) {
+    if (second == BYTE_EQUALS) {
+        return first == BYTE_EQUALS || first == BYTE_BANG || first == BYTE_LESS || first == BYTE_GREATER || first == BYTE_PLUS || first == BYTE_MINUS || first == BYTE_STAR || first == BYTE_SLASH || first == BYTE_PERCENT
+    }
+
+    if (first == BYTE_MINUS && second == BYTE_GREATER) {
+        return true
+    }
+
+    return first == second && (first == BYTE_AMPERSAND || first == BYTE_PIPE || first == BYTE_PLUS || first == BYTE_MINUS || first == BYTE_DOT)
+}
+
+static method<Bool> isSingleSymbol(String source, List<Int> cursor) {
+    Int position = cursor[CURSOR_POSITION]
+    return singleSymbols().indexOf(source.substring(position, position + 1)) >= 0
+}
+
+static method<Int> symbolLength(String source, List<Int> cursor) {
+    Int first = peek(source, cursor, AHEAD_CURRENT)
+    Int second = peek(source, cursor, AHEAD_NEXT)
+
+    if (isThreeByteSymbol(first, second, peek(source, cursor, AHEAD_THIRD))) {
+        return SYMBOL_TRIPLE
+    }
+
+    if (isTwoByteSymbol(first, second)) {
+        return SYMBOL_DOUBLE
+    }
+
+    if (isSingleSymbol(source, cursor)) {
+        return SYMBOL_SINGLE
+    }
+
+    return SYMBOL_NONE
+}
+
+static method lexSymbol(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+    Int length = symbolLength(source, cursor)
+    Int kind = TOKEN_SYMBOL
+    Int consumed = length
+
+    if (length == SYMBOL_NONE) {
+        kind = TOKEN_UNEXPECTED
+        consumed = SYMBOL_SINGLE
+    }
+
+    for (Int step = 0; step < consumed; step++) {
+        advance(source, cursor)
+    }
+
+    emit(tokens, kind, start, consumed, line, column)
+}

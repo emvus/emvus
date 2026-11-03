@@ -1,0 +1,40 @@
+package ring1.lexer
+
+static method<Bool> isKeyword(String word) {
+    return isDeclarationKeyword(word) || isModifierKeyword(word) || isControlKeyword(word) || isValueKeyword(word)
+}
+
+static method<Bool> isDeclarationKeyword(String word) {
+    return word == "package" || word == "use" || word == "var" || word == "dynamic" || word == "enum" || word == "record" || word == "class" || word == "interface" || word == "exception" || word == "method" || word == "macro"
+}
+
+static method<Bool> isModifierKeyword(String word) {
+    return word == "final" || word == "static" || word == "abstract" || word == "override" || word == "private" || word == "protected" || word == "public" || word == "scoped"
+}
+
+static method<Bool> isControlKeyword(String word) {
+    return word == "if" || word == "while" || word == "for" || word == "in" || word == "switch" || word == "return" || word == "fail" || word == "break" || word == "continue"
+}
+
+static method<Bool> isValueKeyword(String word) {
+    return word == "true" || word == "false" || word == "null" || word == "this" || word == "super" || word == "is" || word == "as" || word == "fiber" || word == "virtual" || word == "thread"
+}
+
+static method lexIdentifier(String source, List<Int> cursor, List<Int> tokens) {
+    Int start = cursor[CURSOR_POSITION]
+    Int line = cursor[CURSOR_LINE]
+    Int column = columnAt(cursor)
+
+    while (isIdentifierPart(peek(source, cursor, AHEAD_CURRENT))) {
+        advance(source, cursor)
+    }
+
+    Int end = cursor[CURSOR_POSITION]
+    Int kind = TOKEN_IDENTIFIER
+
+    if (isKeyword(source.substring(start, end))) {
+        kind = TOKEN_KEYWORD
+    }
+
+    emit(tokens, kind, start, end - start, line, column)
+}

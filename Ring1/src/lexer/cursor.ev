@@ -1,0 +1,38 @@
+package ring1.lexer
+
+// The cursor is a list of three Ints because the subset has no list-typed fields.
+final var CURSOR_POSITION = 0
+final var CURSOR_LINE = 1
+final var CURSOR_LINE_START = 2
+final var NO_BYTE = -1
+final var AHEAD_CURRENT = 0
+final var AHEAD_NEXT = 1
+final var AHEAD_THIRD = 2
+final var FIRST_LINE = 1
+final var FIRST_COLUMN = 1
+final var FIRST_POSITION = 0
+
+static method<Int> peek(String source, List<Int> cursor, Int ahead) {
+    Int position = cursor[CURSOR_POSITION] + ahead
+
+    if (position >= source.length()) {
+        return NO_BYTE
+    }
+
+    return source.byteAt(position)
+}
+
+static method advance(String source, List<Int> cursor) {
+    Int position = cursor[CURSOR_POSITION]
+
+    if (source.byteAt(position) == BYTE_NEWLINE) {
+        cursor[CURSOR_LINE] = cursor[CURSOR_LINE] + 1
+        cursor[CURSOR_LINE_START] = position + 1
+    }
+
+    cursor[CURSOR_POSITION] = position + 1
+}
+
+static method<Int> columnAt(List<Int> cursor) {
+    return cursor[CURSOR_POSITION] - cursor[CURSOR_LINE_START] + FIRST_COLUMN
+}
