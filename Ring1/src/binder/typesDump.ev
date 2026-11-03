@@ -113,6 +113,10 @@ static method<String> typeKindWord(Int kind) {
 }
 
 static method<String> switchWord(Int ending) {
+    if (ending == SWITCH_BOOLEAN) {
+        return "boolean"
+    }
+
     if (ending == SWITCH_RESULT) {
         return "result"
     }
@@ -144,6 +148,10 @@ static method<String> ownerText(String source, List<Int> types, Int owner) {
 
     if (owner == OWNER_STRING) {
         return "String"
+    }
+
+    if (owner == OWNER_EXCEPTION) {
+        return "Exception"
     }
 
     if (owner == OWNER_FIBER) {

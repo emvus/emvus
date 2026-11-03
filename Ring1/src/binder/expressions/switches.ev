@@ -19,6 +19,10 @@ static method<Int> bindSwitch(String source, List<Int> nodes, List<Int> types, L
             ending = SWITCH_CATCH_ALL
         }
 
+        if (subjectType == TYPE_BOOLEAN && ending == SWITCH_EXHAUSTIVE) {
+            ending = SWITCH_BOOLEAN
+        }
+
         if (isResult(source, types, subjectType)) {
             ending = SWITCH_RESULT
         }
@@ -77,7 +81,7 @@ static method<Bool> bindPatterns(String source, List<Int> nodes, List<Int> types
             bindChildren(source, nodes, types, symbols, annotations, state, pattern)
         }
 
-        if (kind == NODE_PATTERN && memberOf(source, symbols, state, subjectType, start, length, ROW_ENTRY, ROW_ENTRY, NO_SYMBOL) == NO_SYMBOL) {
+        if (kind == NODE_PATTERN && !isBooleanName(source, start, length) && memberOf(source, symbols, state, subjectType, start, length, ROW_ENTRY, ROW_ENTRY, NO_SYMBOL) == NO_SYMBOL) {
             catchAll = true
             addSymbol(symbols, state, ROW_LOCAL, start, length, subjectType, pattern, 0, NO_TYPE)
         }
@@ -104,4 +108,8 @@ static method bindResultPattern(List<Int> nodes, List<Int> types, List<Int> symb
     if (binding != NO_NODE) {
         addSymbol(symbols, state, ROW_LOCAL, nodeField(nodes, binding, NODE_TEXT_START), nodeField(nodes, binding, NODE_TEXT_LENGTH), typeOrUnknown(typeArgument(types, subjectType, position)), binding, 0, NO_TYPE)
     }
+}
+
+static method<Bool> isBooleanName(String source, Int start, Int length) {
+    return spanIs(source, start, length, "true") || spanIs(source, start, length, "false")
 }

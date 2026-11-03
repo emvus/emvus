@@ -100,10 +100,26 @@ static method<Int> bindMember(String source, List<Int> nodes, List<Int> types, L
         row = lookupMember(source, symbols, state, typeField(types, receiver, TYPE_ELEMENT), nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_ENTRY, ROW_ENTRY, NO_SYMBOL)
     }
 
+    if (row == NO_SYMBOL && isExceptionMessage(source, nodes, types, symbols, state, node, receiver)) {
+        annotate(annotations, node, TYPE_STRING, REFERENCE_PROPERTY, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), OWNER_EXCEPTION, 0)
+        return TYPE_STRING
+    }
+
     if (row == NO_SYMBOL) {
         annotateType(annotations, node, TYPE_UNKNOWN)
         return TYPE_UNKNOWN
     }
 
     return annotateSymbol(annotations, symbols, node, row)
+}
+
+// Every exception has a `message`.
+static method<Bool> isExceptionMessage(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int node, Int receiver) {
+    Int declared = classRow(symbols, state, receiver)
+
+    if (declared == NO_SYMBOL) {
+        return false
+    }
+
+    return nodeField(nodes, symbolField(symbols, declared, SYMBOL_NODE), NODE_KIND) == NODE_EXCEPTION && spanIs(source, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), "message")
 }

@@ -52,6 +52,10 @@ static method<Int> expectedArgument(String source, List<Int> nodes, List<Int> ty
         return lambdaExpected(nodes, types, source, argument, element, previous)
     }
 
+    if (element != NO_TYPE && nodeField(nodes, argument, NODE_KIND) == NODE_LIST_LITERAL) {
+        return element
+    }
+
     return TYPE_UNKNOWN
 }
 
