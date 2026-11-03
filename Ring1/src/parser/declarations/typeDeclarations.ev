@@ -48,7 +48,7 @@ static method<Int> parseTypeDeclaration(String source, List<Int> tokens, List<In
 
     advanceToken(tokens, state)
     Int declaration = addNodeAtToken(nodes, kind, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, typeNameMessage(kind))
     appendModifiers(nodes, declaration, modifiers)
     parseTypeHeader(source, tokens, state, nodes, declaration, kind)
 
@@ -106,7 +106,7 @@ static method<Int> parseWhere(String source, List<Int> tokens, List<Int> state, 
 
     while (true) {
         Int parameter = addNodeAtToken(nodes, NODE_TYPE_PARAMETER, tokens, state)
-        expectIdentifier(tokens, state)
+        expectIdentifier(tokens, state, MSG_TYPE_PARAMETER_NAME)
         appendChild(nodes, where, parameter)
 
         if (atSymbol(source, tokens, state, ":")) {
@@ -131,7 +131,7 @@ static method<Int> parseWhere(String source, List<Int> tokens, List<Int> state, 
 
 static method<Int> parseTypeBody(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
     Int body = addEmptyNode(nodes, NODE_BODY, tokens, state)
-    expectSymbol(source, tokens, state, "{")
+    expectSymbol(source, tokens, state, "{", MSG_BODY_OPEN)
 
     while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
@@ -144,7 +144,7 @@ static method<Int> parseTypeBody(String source, List<Int> tokens, List<Int> stat
         }
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_BODY_CLOSE)
     return body
 }
 
@@ -154,4 +154,29 @@ static method<Int> parseBodyEntry(String source, List<Int> tokens, List<Int> sta
     }
 
     return parseMember(source, tokens, state, nodes)
+}
+
+// Each kind of type declaration names its own missing name.
+static method<Int> typeNameMessage(Int kind) {
+    if (kind == NODE_DATA_CLASS) {
+        return MSG_DATA_CLASS_NAME
+    }
+
+    if (kind == NODE_RECORD) {
+        return MSG_RECORD_NAME
+    }
+
+    if (kind == NODE_INTERFACE) {
+        return MSG_INTERFACE_NAME
+    }
+
+    if (kind == NODE_EXCEPTION) {
+        return MSG_EXCEPTION_NAME
+    }
+
+    if (kind == NODE_ENUM) {
+        return MSG_ENUM_NAME
+    }
+
+    return MSG_CLASS_NAME
 }

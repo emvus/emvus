@@ -22,14 +22,14 @@ static method<Int> parseUse(String source, List<Int> tokens, List<Int> state, Li
         }
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_USE_LIST)
     return use
 }
 
 // A dotted path, ending in a name, a group `.[A, B]`, and an optional `as Alias`.
 static method parseUseItem(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int use) {
     Int first = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_USE_NAME)
 
     while (atSymbol(source, tokens, state, ".")) {
         if (symbolAhead(source, tokens, state, AHEAD_NEXT, "[")) {
@@ -38,7 +38,7 @@ static method parseUseItem(String source, List<Int> tokens, List<Int> state, Lis
         }
 
         advanceToken(tokens, state)
-        expectIdentifier(tokens, state)
+        expectIdentifier(tokens, state, MSG_USE_DOT_NAME)
     }
 
     Int last = tokenIndexAhead(tokens, state, AHEAD_BEFORE)
@@ -62,7 +62,7 @@ static method parseUseGroup(String source, List<Int> tokens, List<Int> state, Li
         Int item = addNode(nodes, NODE_USE_ITEM, start, prefixLength, tokenValue(tokens, index, TOKEN_LINE), tokenValue(tokens, index, TOKEN_COLUMN))
         setNodeField(nodes, item, NODE_EXTRA_START, tokenValue(tokens, index, TOKEN_START))
         setNodeField(nodes, item, NODE_EXTRA_LENGTH, tokenValue(tokens, index, TOKEN_LENGTH))
-        expectIdentifier(tokens, state)
+        expectIdentifier(tokens, state, MSG_USE_GROUP_NAME)
         parseAlias(source, tokens, state, nodes, item)
         appendChild(nodes, use, item)
         ensureProgress(tokens, state, before)
@@ -72,7 +72,7 @@ static method parseUseGroup(String source, List<Int> tokens, List<Int> state, Li
         }
     }
 
-    expectSymbol(source, tokens, state, "]")
+    expectSymbol(source, tokens, state, "]", MSG_USE_GROUP)
 }
 
 static method parseAlias(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int item) {

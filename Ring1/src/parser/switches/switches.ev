@@ -6,10 +6,10 @@ package ring1.parser
 static method<Int> parseSwitch(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Bool asExpression) {
     Int switchNode = addEmptyNode(nodes, NODE_SWITCH, tokens, state)
     advanceToken(tokens, state)
-    expectSymbol(source, tokens, state, "(")
+    expectSymbol(source, tokens, state, "(", MSG_SWITCH_OPEN)
     appendChild(nodes, switchNode, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ")")
-    expectSymbol(source, tokens, state, "{")
+    expectSymbol(source, tokens, state, ")", MSG_SWITCH_SUBJECT)
+    expectSymbol(source, tokens, state, "{", MSG_SWITCH_BRACE)
 
     while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
@@ -17,7 +17,7 @@ static method<Int> parseSwitch(String source, List<Int> tokens, List<Int> state,
         ensureProgress(tokens, state, before)
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_SWITCH_CLOSE)
     return switchNode
 }
 
@@ -32,7 +32,7 @@ static method<Int> parseCase(String source, List<Int> tokens, List<Int> state, L
         parseCasePatterns(source, tokens, state, nodes, caseNode)
     }
 
-    expectSymbol(source, tokens, state, "->")
+    expectSymbol(source, tokens, state, "->", MSG_SWITCH_ARROW)
     appendChild(nodes, caseNode, parseCaseResult(source, tokens, state, nodes, asExpression))
     return caseNode
 }
@@ -78,7 +78,7 @@ static method<Int> parseResultPattern(String source, List<Int> tokens, List<Int>
     }
 
     appendChild(nodes, pattern, parseLeaf(tokens, state, nodes, NODE_BINDING))
-    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, ")", MSG_PATTERN_BINDINGS)
     return pattern
 }
 

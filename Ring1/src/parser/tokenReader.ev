@@ -4,6 +4,9 @@ package ring1.parser
 final var STATE_TOKEN = 0
 final var STATE_ERRORS = 1
 final var STATE_CASCADE = 2
+// Recorded errors follow the header, a message number and a token index each (see diagnostics.ev).
+final var STATE_HEADER = 3
+final var ERROR_STRIDE = 2
 final var CASCADE_OPEN = 0
 final var CASCADE_CLOSED = 1
 final var FIRST_TOKEN = 0
@@ -79,17 +82,14 @@ static method advanceToken(List<Int> tokens, List<Int> state) {
     }
 }
 
-static method recordError(List<Int> state) {
-    state[STATE_ERRORS] = state[STATE_ERRORS] + 1
-}
 
-static method<Bool> expectSymbol(String source, List<Int> tokens, List<Int> state, String text) {
+static method<Bool> expectSymbol(String source, List<Int> tokens, List<Int> state, String text, Int message) {
     if (atSymbol(source, tokens, state, text)) {
         advanceToken(tokens, state)
         return true
     }
 
-    recordError(state)
+    reportError(state, message)
     return false
 }
 
@@ -100,10 +100,9 @@ static method skipSemicolon(String source, List<Int> tokens, List<Int> state) {
     }
 }
 
-// A construct that did not consume a token would make its loop run forever.
+// A construct that did not consume a token would make its loop run forever; it is skipped without a message, as in Ring0.
 static method ensureProgress(List<Int> tokens, List<Int> state, Int before) {
     if (state[STATE_TOKEN] == before) {
-        recordError(state)
         advanceToken(tokens, state)
     }
 }

@@ -7,8 +7,9 @@ package ring1.emvusc
 //   sublang text-build prog.sublang-text prog.sublang-wire
 //   sublang emit-llvm prog.sublang-wire prog.ll auto on
 //   clang prog.ll -o prog
-// Ring1 compiles the subset of Emvus that Ring1 itself is written in (see Ring1/README.md); anything else
-// is reported with the line of the first construct it cannot lower.
+// Syntax errors are reported the way Ring0 reports them and stop the compilation. Ring1 compiles the subset of Emvus that
+// Ring1 itself is written in (see Ring1/README.md); anything else is reported with the line of the first construct it cannot
+// lower.
 final var ARGUMENT_LIMIT = 4096
 final var EXIT_OK = 0
 final var EXIT_USAGE = 2
@@ -31,6 +32,8 @@ static method<Int> main {
     String output = ""
     String program = ""
     String firstFile = ""
+    String fileIndex = ""
+    Int fileCount = 0
     Int index = 0
 
     while (index < ARGUMENT_LIMIT) {
@@ -53,6 +56,9 @@ static method<Int> main {
             return EXIT_FAILED
         }
 
+        fileIndex = fileIndex + "file " + current + " starts at line " + intText(countLineFeeds(program) + 1) + "\n"
+        fileCount = fileCount + 1
+
         if (firstFile.length() == 0) {
             firstFile = current
             program = text
@@ -72,6 +78,17 @@ static method<Int> main {
 
     if (output.length() == 0) {
         output = defaultOutput(firstFile)
+    }
+
+    String errors = syntaxErrors(program)
+
+    if (errors.length() > 0) {
+        if (fileCount > 1) {
+            print(fileIndex)
+        }
+
+        print(errors)
+        return EXIT_FAILED
     }
 
     String lowered = lowerSource(program, firstFile)
@@ -116,4 +133,16 @@ static method<String> defaultOutput(String firstFile) {
     }
 
     return stem + ".sublang-text"
+}
+
+static method<Int> countLineFeeds(String text) {
+    Int count = 0
+
+    for (Int index = 0; index < text.length(); index++) {
+        if (text.byteAt(index) == LINE_FEED) {
+            count = count + 1
+        }
+    }
+
+    return count
 }

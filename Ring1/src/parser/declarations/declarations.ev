@@ -22,11 +22,11 @@ static method<Int> parsePackage(String source, List<Int> tokens, List<Int> state
     advanceToken(tokens, state)
     Int first = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
     Int package = addNodeAtToken(nodes, NODE_PACKAGE, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_PACKAGE_NAME)
 
     while (atSymbol(source, tokens, state, ".")) {
         advanceToken(tokens, state)
-        expectIdentifier(tokens, state)
+        expectIdentifier(tokens, state, MSG_PACKAGE_NAME)
     }
 
     Int last = tokenIndexAhead(tokens, state, AHEAD_BEFORE)
@@ -35,24 +35,24 @@ static method<Int> parsePackage(String source, List<Int> tokens, List<Int> state
     return package
 }
 
-static method<Bool> expectIdentifier(List<Int> tokens, List<Int> state) {
+static method<Bool> expectIdentifier(List<Int> tokens, List<Int> state, Int message) {
     if (atKind(tokens, state, TOKEN_IDENTIFIER)) {
         advanceToken(tokens, state)
         return true
     }
 
-    recordError(state)
+    reportError(state, message)
     return false
 }
 
 // A name: an identifier, or one of the keywords Ring0 lets names use.
-static method<Bool> expectName(String source, List<Int> tokens, List<Int> state) {
+static method<Bool> expectName(String source, List<Int> tokens, List<Int> state, Int message) {
     if (nameAhead(source, tokens, state, AHEAD_CURRENT)) {
         advanceToken(tokens, state)
         return true
     }
 
-    recordError(state)
+    reportError(state, message)
     return false
 }
 
@@ -79,17 +79,17 @@ static method<Int> parseDeclaration(String source, List<Int> tokens, List<Int> s
         return parseTypeDeclaration(source, tokens, state, nodes, modifiers)
     }
 
-    return parseError(tokens, state, nodes)
+    return parseMember(source, tokens, state, nodes)
 }
 
 // `final var NAME = value`: the type node is the `var` keyword.
 static method<Int> parseVariable(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
     Int type = parseLeaf(tokens, state, nodes, NODE_TYPE)
     Int variable = addNodeAtToken(nodes, NODE_VARIABLE, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_VARIABLE_NAME)
     appendModifiers(nodes, variable, modifiers)
     appendChild(nodes, variable, type)
-    expectSymbol(source, tokens, state, "=")
+    expectSymbol(source, tokens, state, "=", MSG_VARIABLE_ASSIGN)
     appendChild(nodes, variable, parseExpression(source, tokens, state, nodes))
     return variable
 }
@@ -99,7 +99,7 @@ static method<Int> parseMethod(String source, List<Int> tokens, List<Int> state,
     advanceToken(tokens, state)
     Int returnType = parseReturnType(source, tokens, state, nodes)
     Int method = addNodeAtToken(nodes, NODE_METHOD, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_METHOD_NAME)
     appendModifiers(nodes, method, modifiers)
 
     if (returnType != NO_NODE) {
@@ -157,7 +157,7 @@ static method<Int> parseParams(String source, List<Int> tokens, List<Int> state,
         advanceToken(tokens, state)
     }
 
-    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, ")", MSG_PARAMETERS_CLOSE)
     return params
 }
 
@@ -165,7 +165,7 @@ static method<Int> parseParam(String source, List<Int> tokens, List<Int> state, 
     Int modifiers = parseModifiers(source, tokens, state, nodes)
     Int type = parseType(source, tokens, state, nodes)
     Int param = addNodeAtToken(nodes, NODE_PARAM, tokens, state)
-    expectName(source, tokens, state)
+    expectName(source, tokens, state, MSG_PARAMETER_NAME)
     appendModifiers(nodes, param, modifiers)
     appendChild(nodes, param, type)
 

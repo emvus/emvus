@@ -2,7 +2,7 @@ package ring1.parser
 
 static method<Int> parseBlock(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int block = addEmptyNode(nodes, NODE_BLOCK, tokens, state)
-    expectSymbol(source, tokens, state, "{")
+    expectSymbol(source, tokens, state, "{", MSG_BLOCK_START)
 
     while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
@@ -11,7 +11,7 @@ static method<Int> parseBlock(String source, List<Int> tokens, List<Int> state, 
         ensureProgress(tokens, state, before)
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_BLOCK_END)
     return block
 }
 
@@ -71,11 +71,28 @@ static method<Int> parseSimpleStatement(String source, List<Int> tokens, List<In
 static method<Int> parseCondition(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int kind) {
     Int statement = withoutText(nodes, addNodeAtToken(nodes, kind, tokens, state))
     advanceToken(tokens, state)
-    expectSymbol(source, tokens, state, "(")
+    expectSymbol(source, tokens, state, "(", MSG_BEFORE_CONDITION)
     appendChild(nodes, statement, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ")")
-    appendChild(nodes, statement, parseBlock(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")", MSG_AFTER_CONDITION)
+    appendChild(nodes, statement, parseBody(source, tokens, state, nodes))
+
+    if (kind == NODE_IF && (atKeyword(source, tokens, state, "else") || atIdentifierText(source, tokens, state, "else"))) {
+        reportError(state, MSG_ELSE)
+        advanceToken(tokens, state)
+        parseBody(source, tokens, state, nodes)
+    }
+
     return statement
+}
+
+// Braces are mandatory; a brace-less body is reported and parsed as a single statement anyway.
+static method<Int> parseBody(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    if (atSymbol(source, tokens, state, "{")) {
+        return parseBlock(source, tokens, state, nodes)
+    }
+
+    reportError(state, MSG_BRACES)
+    return parseStatement(source, tokens, state, nodes)
 }
 
 // Keywords name the statement kind, so the node carries no text.
@@ -87,7 +104,7 @@ static method<Int> withoutText(List<Int> nodes, Int id) {
 static method<Int> parseFor(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int loop = withoutText(nodes, addNodeAtToken(nodes, NODE_FOR, tokens, state))
     advanceToken(tokens, state)
-    expectSymbol(source, tokens, state, "(")
+    expectSymbol(source, tokens, state, "(", MSG_FOR_OPEN)
 
     if (atForeach(source, tokens, state)) {
         return parseForeach(source, tokens, state, nodes, loop)
@@ -95,17 +112,17 @@ static method<Int> parseFor(String source, List<Int> tokens, List<Int> state, Li
 
     Int start = addEmptyNode(nodes, NODE_INIT, tokens, state)
     appendChild(nodes, start, parseStatement(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ";")
+    expectSymbol(source, tokens, state, ";", MSG_FOR_INITIALIZER)
     Int condition = addEmptyNode(nodes, NODE_CONDITION, tokens, state)
     appendChild(nodes, condition, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ";")
+    expectSymbol(source, tokens, state, ";", MSG_FOR_CONDITION)
     Int update = addEmptyNode(nodes, NODE_UPDATE, tokens, state)
     appendChild(nodes, update, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, ")", MSG_FOR_CLAUSES)
     appendChild(nodes, loop, start)
     appendChild(nodes, loop, condition)
     appendChild(nodes, loop, update)
-    appendChild(nodes, loop, parseBlock(source, tokens, state, nodes))
+    appendChild(nodes, loop, parseBody(source, tokens, state, nodes))
     return loop
 }
 
@@ -128,8 +145,8 @@ static method<Int> parseForeach(String source, List<Int> tokens, List<Int> state
     advanceToken(tokens, state)
     appendChild(nodes, loop, type)
     appendChild(nodes, loop, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ")")
-    appendChild(nodes, loop, parseBlock(source, tokens, state, nodes))
+    expectSymbol(source, tokens, state, ")", MSG_FOR_IN)
+    appendChild(nodes, loop, parseBody(source, tokens, state, nodes))
     return loop
 }
 

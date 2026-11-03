@@ -30,7 +30,7 @@ static method parseQuoteBody(String source, List<Int> tokens, List<Int> state, L
         return
     }
 
-    expectSymbol(source, tokens, state, "{")
+    expectSymbol(source, tokens, state, "{", MSG_QUOTE_OPEN)
 
     if (expression) {
         appendChild(nodes, quote, parseExpression(source, tokens, state, nodes))
@@ -42,7 +42,7 @@ static method parseQuoteBody(String source, List<Int> tokens, List<Int> state, L
         ensureProgress(tokens, state, before)
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_QUOTE_BODY)
 }
 
 // `$(expression)` inside a quote inserts a value computed by the macro.
@@ -55,6 +55,6 @@ static method<Int> parseSplice(String source, List<Int> tokens, List<Int> state,
     advanceToken(tokens, state)
     advanceToken(tokens, state)
     appendChild(nodes, splice, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, ")", MSG_SPLICE)
     return splice
 }

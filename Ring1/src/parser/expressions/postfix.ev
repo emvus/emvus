@@ -19,7 +19,7 @@ static method<Int> parsePostfix(String source, List<Int> tokens, List<Int> state
             continue
         }
 
-        if (atSymbol(source, tokens, state, ".")) {
+        if (atSymbol(source, tokens, state, ".") && nameAhead(source, tokens, state, AHEAD_NEXT)) {
             target = parseMemberAccess(source, tokens, state, nodes, target)
             continue
         }
@@ -82,7 +82,7 @@ static method<Int> parseCall(String source, List<Int> tokens, List<Int> state, L
     Int call = addEmptyNode(nodes, NODE_CALL, tokens, state)
     advanceToken(tokens, state)
     appendChild(nodes, call, callee)
-    parseElements(source, tokens, state, nodes, call, ")")
+    parseElements(source, tokens, state, nodes, call, ")", MSG_AFTER_ARGUMENTS)
     return call
 }
 
@@ -91,7 +91,7 @@ static method<Int> parseIndex(String source, List<Int> tokens, List<Int> state, 
     advanceToken(tokens, state)
     appendChild(nodes, index, receiver)
     appendChild(nodes, index, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, "]")
+    expectSymbol(source, tokens, state, "]", MSG_AFTER_INDEX)
     return index
 }
 
@@ -100,7 +100,7 @@ static method<Int> parseMemberAccess(String source, List<Int> tokens, List<Int> 
     advanceToken(tokens, state)
 
     if (!atKind(tokens, state, TOKEN_IDENTIFIER) && !atKind(tokens, state, TOKEN_KEYWORD)) {
-        recordError(state)
+        reportError(state, MSG_MEMBER_NAME)
         return receiver
     }
 
@@ -111,7 +111,7 @@ static method<Int> parseMemberAccess(String source, List<Int> tokens, List<Int> 
 }
 
 // Comma separated expressions up to `closing`, which is consumed. Cascades work again inside.
-static method parseElements(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int parent, String closing) {
+static method parseElements(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int parent, String closing, Int message) {
     Int outer = state[STATE_CASCADE]
     state[STATE_CASCADE] = CASCADE_OPEN
 
@@ -127,6 +127,6 @@ static method parseElements(String source, List<Int> tokens, List<Int> state, Li
         advanceToken(tokens, state)
     }
 
-    expectSymbol(source, tokens, state, closing)
+    expectSymbol(source, tokens, state, closing, message)
     state[STATE_CASCADE] = outer
 }

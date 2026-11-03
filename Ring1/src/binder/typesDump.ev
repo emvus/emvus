@@ -2,32 +2,6 @@ package ring1.binder
 
 // The annotations as text, in the format of Ring0's `--check --types`: one line per annotated node,
 // `line:column kind text : type @ symbol`, parents before children.
-final var RADIX = 10
-
-static method<String> intText(Int value) {
-    if (value == 0) {
-        return "0"
-    }
-
-    if (value < 0) {
-        return "-" + intText(0 - value)
-    }
-
-    String digits = ""
-    Int rest = value
-
-    while (rest > 0) {
-        digits = digitText(rest % RADIX) + digits
-        rest = rest / RADIX
-    }
-
-    return digits
-}
-
-static method<String> digitText(Int digit) {
-    return "0123456789".substring(digit, digit + 1)
-}
-
 static method<String> typesNode(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
     String text = ""
 

@@ -23,11 +23,11 @@ static method<Int> parseModifiers(String source, List<Int> tokens, List<Int> sta
 static method<Int> parseAnnotation(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     advanceToken(tokens, state)
     Int annotation = addNodeAtToken(nodes, NODE_ANNOTATION, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_ANNOTATION_NAME)
 
     if (atSymbol(source, tokens, state, "(") && onPreviousLine(tokens, state)) {
         advanceToken(tokens, state)
-        parseElements(source, tokens, state, nodes, annotation, ")")
+        parseElements(source, tokens, state, nodes, annotation, ")", MSG_ANNOTATION_ARGUMENTS)
     }
 
     return annotation
