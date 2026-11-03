@@ -1,0 +1,235 @@
+package ring1.lowering
+
+// Prints the lowered program as Sublang canonical text (docs/Sublang_Text_IR.md), which
+// `sublang text-build` verifies and turns into the wire format.
+
+static method<String> programText(String source, String moduleName, List<Int> ir, Int entry) {
+    String text = "sublang-text 1 schema=1 stage=High revision=1" + "\n"
+    text = text + "module \"" + moduleName + "\" entry=" + intText(entry) + "\n"
+    text = text + "source id=1 name=\"" + moduleName + "\"" + "\n"
+    text = text + "span id=1 source=1 line=0 column=0 origin=\"\"" + "\n"
+    text = text + moduleHeader()
+    text = text + functionsText(source, ir)
+    return text + "end" + "\n"
+}
+
+static method<String> moduleHeader() {
+    String text = "profile id=1 name=\"sublang.startup\" version=1 integer-rules=\"i64-signed\" float-rules=\"f64-ieee-rne\" failure-model=\"abort\" unwinding-model=\"none\"" + "\n"
+    text = text + failureText(1, "emvus.integer_failure") + failureText(2, "emvus.panic")
+    text = text + "effect id=1 name=\"conservative\" span=0" + "\n"
+    return text + factsText()
+}
+
+static method<String> failureText(Int id, String name) {
+    return "failure id=" + intText(id) + " name=\"" + name + "\" behavior=\"abort\" binding=\"unbound\" signature=\"noreturn void()\" continues=false unwinding=\"none\" span=0" + "\n"
+}
+
+static method<String> factsText() {
+    String text = ""
+    String areas = "allocation escape failure exceptions memory-read memory-write synchronization observable control"
+    Int start = 0
+
+    for (Int index = 0; index <= areas.length(); index++) {
+        if (index == areas.length() || areas.byteAt(index) == SPACE_BYTE) {
+            text = text + "  fact area=\"" + areas.substring(start, index) + "\" value=\"unknown\" provenance=\"assumed-conservative\" detail=\"\" label=\"\" proof-analysis=\"\" proof-revision=0 proof-deps=[] locations=[]" + "\n"
+            start = index + 1
+        }
+    }
+
+    return text
+}
+
+final var SPACE_BYTE = 32
+
+static method<String> functionsText(String source, List<Int> ir) {
+    String text = ""
+    Int index = 0
+    Int functionNumber = 0
+    Int operationNumber = 0
+
+    while (index < ir.size()) {
+        if (ir[index + RECORD_KIND] == REC_FUNCTION) {
+            functionNumber = functionNumber + 1
+            Int end = functionEnd(ir, index)
+            text = text + functionText(source, ir, index, end, functionNumber, operationNumber)
+            operationNumber = operationNumber + countOperations(ir, index, end)
+            index = end
+        }
+
+        if (index < ir.size() && ir[index + RECORD_KIND] != REC_FUNCTION) {
+            index = index + ir[index + RECORD_LENGTH]
+        }
+    }
+
+    return text
+}
+
+// The index just after the last record of the function that starts at `start`.
+static method<Int> functionEnd(List<Int> ir, Int start) {
+    Int index = start + ir[start + RECORD_LENGTH]
+
+    while (index < ir.size() && ir[index + RECORD_KIND] != REC_FUNCTION) {
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return index
+}
+
+static method<Int> countOperations(List<Int> ir, Int start, Int end) {
+    Int count = 0
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == REC_OPERATION) {
+            count = count + 1
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return count
+}
+
+static method<String> functionText(String source, List<Int> ir, Int start, Int end, Int number, Int operationsBefore) {
+    Int nameStart = ir[start + FUNCTION_NAME_START]
+    String text = "func id=" + intText(number) + " name=\"" + functionName(source, ir, start) + "\" returnType=" + intText(ir[start + FUNCTION_RETURN]) + " methodOf=0 span=" + "1" + " profile=1 effect=1 linkage=\"internal\" convention=\"sublang\" definition=\"body\"" + "\n"
+    text = text + valuesText(ir, start, end)
+    text = text + parametersText(source, ir, start, end)
+    Int blocks = countRecords(ir, start, end, REC_BLOCK)
+
+    for (Int block = 1; block <= blocks; block++) {
+        text = text + blockText(ir, start, end, block, operationsBefore + operationsBeforeBlock(ir, start, end, block))
+    }
+
+    return text
+}
+
+static method<Int> countRecords(List<Int> ir, Int start, Int end, Int kind) {
+    Int count = 0
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == kind) {
+            count = count + 1
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return count
+}
+
+// Operation numbers follow the order the operations were created in, not the order of the blocks they
+// are printed in, so a block's first number is found by counting the operations of the earlier blocks.
+static method<Int> operationsBeforeBlock(List<Int> ir, Int start, Int end, Int block) {
+    Int count = 0
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == REC_OPERATION && ir[index + OPERATION_BLOCK] < block) {
+            count = count + 1
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return count
+}
+
+static method<String> valuesText(List<Int> ir, Int start, Int end) {
+    String text = ""
+    Int number = 0
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == REC_VALUE) {
+            number = number + 1
+            text = text + "  value id=" + intText(number) + " type=" + intText(ir[index + VALUE_TYPE]) + "\n"
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return text
+}
+
+static method<String> parametersText(String source, List<Int> ir, Int start, Int end) {
+    String text = ""
+    Int number = 0
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == REC_PARAMETER) {
+            number = number + 1
+            Int nameStart = ir[index + PARAMETER_NAME_START]
+            text = text + "  param id=" + intText(number) + " name=\"" + source.substring(nameStart, nameStart + ir[index + PARAMETER_NAME_LENGTH]) + "\" type=" + intText(ir[index + PARAMETER_TYPE]) + " passing=\"value\" noescape=false" + "\n"
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return text
+}
+
+static method<String> blockText(List<Int> ir, Int start, Int end, Int block, Int firstOperation) {
+    Int record = nthRecord(ir, start, end, REC_BLOCK, block)
+    String text = "  block id=" + intText(block) + " params=" + parametersList(ir, record) + "\n"
+    Int number = firstOperation
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == REC_OPERATION && ir[index + OPERATION_BLOCK] == block) {
+            number = number + 1
+            text = text + operationText(ir, index, number)
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return text
+}
+
+static method<Int> nthRecord(List<Int> ir, Int start, Int end, Int kind, Int position) {
+    Int seen = 0
+    Int index = start
+
+    while (index < end) {
+        if (ir[index + RECORD_KIND] == kind) {
+            seen = seen + 1
+
+            if (seen == position) {
+                return index
+            }
+        }
+
+        index = index + ir[index + RECORD_LENGTH]
+    }
+
+    return -1
+}
+
+static method<String> parametersList(List<Int> ir, Int record) {
+    String text = "["
+
+    for (Int position = 0; position < ir[record + BLOCK_PARAMETER_COUNT]; position++) {
+        if (position > 0) {
+            text = text + ","
+        }
+
+        text = text + intText(ir[record + BLOCK_HEADER_SIZE + position])
+    }
+
+    return text + "]"
+}
+
+// The wrapper around a Void `main` has no name in the source.
+static method<String> functionName(String source, List<Int> ir, Int record) {
+    Int length = ir[record + FUNCTION_NAME_LENGTH]
+
+    if (length == 0) {
+        return "entry"
+    }
+
+    Int start = ir[record + FUNCTION_NAME_START]
+    return source.substring(start, start + length)
+}

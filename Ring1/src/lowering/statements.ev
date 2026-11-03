@@ -1,0 +1,359 @@
+package ring1.lowering
+
+// Lowers the statements of a block. The environment holds the variables in scope; leaving a block
+// moves its end marker back, so the variables the block declared disappear.
+static method lowerBlock(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int block) {
+    Int mark = state[LOWER_ENV]
+    Int statement = nodeField(nodes, block, NODE_FIRST_CHILD)
+
+    while (statement != NO_NODE) {
+        if (state[LOWER_TERMINATED] == 0) {
+            lowerStatement(source, nodes, annotations, ir, env, functions, state, statement)
+        }
+
+        statement = nodeField(nodes, statement, NODE_NEXT_SIBLING)
+    }
+
+    state[LOWER_ENV] = mark
+}
+
+static method lowerStatement(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
+    Int kind = nodeField(nodes, statement, NODE_KIND)
+
+    if (kind == NODE_LOCAL) {
+        lowerLocal(source, nodes, annotations, ir, env, functions, state, statement)
+        return
+    }
+
+    if (kind == NODE_EXPRESSION_STATEMENT) {
+        lowerEffect(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, statement, NODE_FIRST_CHILD))
+        return
+    }
+
+    if (kind == NODE_RETURN) {
+        lowerReturn(source, nodes, annotations, ir, env, functions, state, statement)
+        return
+    }
+
+    if (kind == NODE_IF) {
+        lowerIf(source, nodes, annotations, ir, env, functions, state, statement)
+        return
+    }
+
+    if (kind == NODE_BREAK || kind == NODE_CONTINUE) {
+        lowerJump(ir, env, nodes, state, statement, kind)
+        return
+    }
+
+    if (kind == NODE_WHILE || kind == NODE_FOR) {
+        lowerLoop(source, nodes, annotations, ir, env, functions, state, statement)
+        return
+    }
+
+    markUnsupported(nodes, state, statement)
+}
+
+static method addVariable(List<Int> env, List<Int> state, Int key, Int value, Int type) {
+    Int base = state[LOWER_ENV] * ENV_STRIDE
+
+    if (base < env.size()) {
+        env[base + ENV_KEY] = key
+        env[base + ENV_VALUE] = value
+        env[base + ENV_TYPE] = type
+    }
+
+    if (base >= env.size()) {
+        env.add(key)
+        env.add(value)
+        env.add(type)
+    }
+
+    state[LOWER_ENV] = state[LOWER_ENV] + 1
+}
+
+// A local needs an initializer: its value is the variable's first value.
+static method lowerLocal(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int local) {
+    Int init = childOfKind(nodes, local, NODE_INIT)
+    Int type = wireType(annotationField(annotations, local, ANNOTATION_TYPE))
+
+    if (init == NO_NODE || type == NO_VALUE) {
+        markUnsupported(nodes, state, local)
+        return
+    }
+
+    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, init, NODE_FIRST_CHILD))
+
+    if (value != NO_VALUE) {
+        addVariable(env, state, nodeField(nodes, local, NODE_TEXT_START), value, type)
+    }
+}
+
+// An expression used as a statement: an assignment, an increment or a call.
+static method lowerEffect(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int expression) {
+    Int kind = nodeField(nodes, expression, NODE_KIND)
+
+    if (kind == NODE_ASSIGN) {
+        lowerAssign(source, nodes, annotations, ir, env, functions, state, expression)
+        return
+    }
+
+    if (kind == NODE_POSTFIX) {
+        lowerIncrement(source, nodes, annotations, ir, env, state, expression)
+        return
+    }
+
+    if (kind == NODE_CALL) {
+        lowerExpression(source, nodes, annotations, ir, env, functions, state, expression)
+        return
+    }
+
+    markUnsupported(nodes, state, expression)
+}
+
+static method lowerAssign(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int assign) {
+    Int target = nodeField(nodes, assign, NODE_FIRST_CHILD)
+    Int row = variableRow(nodes, annotations, env, state, target)
+    Int value = lowerExpression(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, target, NODE_NEXT_SIBLING))
+
+    if (row < 0 || value == NO_VALUE) {
+        markUnsupported(nodes, state, assign)
+        return
+    }
+
+    if (!nodeIs(source, nodes, assign, "=")) {
+        value = lowerCompound(source, nodes, ir, state, assign, env[row * ENV_STRIDE + ENV_VALUE], value)
+    }
+
+    if (value != NO_VALUE) {
+        env[row * ENV_STRIDE + ENV_VALUE] = value
+    }
+}
+
+// `x += y` and the like: the operator is the assignment's text without its trailing `=`.
+static method<Int> lowerCompound(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int assign, Int current, Int value) {
+    Int code = compoundCode(source, nodes, assign)
+
+    if (code == 0) {
+        markUnsupported(nodes, state, assign)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, code, result, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, current)
+    addOperand(ir, state, value)
+    return result
+}
+
+static method<Int> compoundCode(String source, List<Int> nodes, Int assign) {
+    if (nodeIs(source, nodes, assign, "+=")) {
+        return OP_ADD
+    }
+
+    if (nodeIs(source, nodes, assign, "-=")) {
+        return OP_SUBTRACT
+    }
+
+    if (nodeIs(source, nodes, assign, "*=")) {
+        return OP_MULTIPLY
+    }
+
+    if (nodeIs(source, nodes, assign, "/=")) {
+        return OP_DIVIDE
+    }
+
+    if (nodeIs(source, nodes, assign, "%=")) {
+        return OP_REMAINDER
+    }
+
+    return 0
+}
+
+static method<Int> variableRow(List<Int> nodes, List<Int> annotations, List<Int> env, List<Int> state, Int name) {
+    Int symbol = annotationField(annotations, name, ANNOTATION_SYMBOL)
+
+    if (nodeField(nodes, name, NODE_KIND) != NODE_NAME || (symbol != REFERENCE_LOCAL && symbol != REFERENCE_PARAMETER)) {
+        return -1
+    }
+
+    return lookupEnvironment(env, state, annotationField(annotations, name, ANNOTATION_NAME_START))
+}
+
+// `x++` and `x--`.
+static method lowerIncrement(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> state, Int postfix) {
+    Int row = variableRow(nodes, annotations, env, state, nodeField(nodes, postfix, NODE_FIRST_CHILD))
+    Int code = OP_ADD
+
+    if (nodeIs(source, nodes, postfix, "--")) {
+        code = OP_SUBTRACT
+    }
+
+    if (row < 0) {
+        markUnsupported(nodes, state, postfix)
+        return
+    }
+
+    Int one = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 1, false)
+    Int result = newValue(ir, state, WIRE_INT)
+    addOperation(ir, state, code, result, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, env[row * ENV_STRIDE + ENV_VALUE])
+    addOperand(ir, state, one)
+    env[row * ENV_STRIDE + ENV_VALUE] = result
+}
+
+static method lowerReturn(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
+    Int value = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    Int result = NO_VALUE
+
+    if (value != NO_NODE) {
+        result = lowerExpression(source, nodes, annotations, ir, env, functions, state, value)
+
+        if (result == NO_VALUE) {
+            return
+        }
+    }
+
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+
+    if (result != NO_VALUE) {
+        addOperand(ir, state, result)
+    }
+
+    state[LOWER_TERMINATED] = 1
+}
+
+// `if (condition) { ... }`: the variables in scope travel through a join block as parameters, so an
+// assignment in the branch is visible after it.
+static method lowerIf(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int statement) {
+    Int condition = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    Int test = lowerExpression(source, nodes, annotations, ir, env, functions, state, condition)
+
+    if (test == NO_VALUE) {
+        return
+    }
+
+    Int count = state[LOWER_ENV]
+    Int thenBlock = newBlock(ir, state, env, 0)
+    Int join = newBlock(ir, state, env, count)
+    Int joinRecord = state[LOWER_LAST_BLOCK]
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, test)
+    addEnvironmentOperands(ir, state, env, count)
+    setTargets(ir, state, thenBlock, join, 0)
+    state[LOWER_BLOCK] = thenBlock
+    lowerBlock(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, condition, NODE_NEXT_SIBLING))
+    branchTo(ir, state, env, join, count)
+    state[LOWER_BLOCK] = join
+    state[LOWER_ENV] = count
+    adoptBlockParameters(ir, env, joinRecord, count)
+}
+
+// Ends the current block with a jump that passes the first `count` variables, unless it already ended.
+static method branchTo(List<Int> ir, List<Int> state, List<Int> env, Int target, Int count) {
+    if (state[LOWER_TERMINATED] == 1) {
+        state[LOWER_TERMINATED] = 0
+        return
+    }
+
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addEnvironmentOperands(ir, state, env, count)
+    setTargets(ir, state, target, NO_BLOCK, 0)
+}
+
+// `while` and `for`: a header block takes every variable in scope as a parameter; the body jumps back to
+// it and the exit block receives the variables again.
+static method lowerLoop(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop) {
+    Int mark = state[LOWER_ENV]
+    Int condition = nodeField(nodes, loop, NODE_FIRST_CHILD)
+    Int update = NO_NODE
+    Int body = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+
+    if (nodeField(nodes, loop, NODE_KIND) == NODE_FOR) {
+        Int start = nodeField(nodes, loop, NODE_FIRST_CHILD)
+        condition = nodeField(nodes, start, NODE_NEXT_SIBLING)
+        update = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+        body = nodeField(nodes, update, NODE_NEXT_SIBLING)
+        lowerStatement(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, start, NODE_FIRST_CHILD))
+    }
+
+    Int count = state[LOWER_ENV]
+    Int header = newBlock(ir, state, env, count)
+    Int headerRecord = state[LOWER_LAST_BLOCK]
+    branchTo(ir, state, env, header, count)
+    state[LOWER_BLOCK] = header
+    adoptBlockParameters(ir, env, headerRecord, count)
+    lowerLoopBody(source, nodes, annotations, ir, env, functions, state, loop, condition, update, body, header, count)
+    state[LOWER_ENV] = mark
+}
+
+// `break` leaves the innermost loop and `continue` goes to its next iteration, both passing the
+// variables the loop carries.
+static method lowerJump(List<Int> ir, List<Int> env, List<Int> nodes, List<Int> state, Int statement, Int kind) {
+    Int target = state[LOWER_BREAK_TARGET]
+
+    if (kind == NODE_CONTINUE) {
+        target = state[LOWER_CONTINUE_TARGET]
+    }
+
+    if (target == NO_BLOCK) {
+        markUnsupported(nodes, state, statement)
+        return
+    }
+
+    addOperation(ir, state, OP_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addEnvironmentOperands(ir, state, env, state[LOWER_LOOP_COUNT])
+    setTargets(ir, state, target, NO_BLOCK, 0)
+    state[LOWER_TERMINATED] = 1
+}
+
+static method lowerLoopBody(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int loop, Int condition, Int update, Int body, Int header, Int count) {
+    Int conditionNode = condition
+
+    if (nodeField(nodes, loop, NODE_KIND) == NODE_FOR) {
+        conditionNode = nodeField(nodes, condition, NODE_FIRST_CHILD)
+    }
+
+    Int test = lowerExpression(source, nodes, annotations, ir, env, functions, state, conditionNode)
+
+    if (test == NO_VALUE) {
+        return
+    }
+
+    Int bodyBlock = newBlock(ir, state, env, 0)
+    Int exit = newBlock(ir, state, env, count)
+    Int exitRecord = state[LOWER_LAST_BLOCK]
+    Int step = header
+    Int stepRecord = 0
+
+    if (update != NO_NODE) {
+        step = newBlock(ir, state, env, count)
+        stepRecord = state[LOWER_LAST_BLOCK]
+    }
+
+    addOperation(ir, state, OP_CONDITIONAL_BRANCH, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, test)
+    addEnvironmentOperands(ir, state, env, count)
+    setTargets(ir, state, bodyBlock, exit, 0)
+    state[LOWER_BLOCK] = bodyBlock
+    Int outerBreak = state[LOWER_BREAK_TARGET]
+    Int outerContinue = state[LOWER_CONTINUE_TARGET]
+    Int outerCount = state[LOWER_LOOP_COUNT]
+    state[LOWER_BREAK_TARGET] = exit
+    state[LOWER_CONTINUE_TARGET] = step
+    state[LOWER_LOOP_COUNT] = count
+    lowerBlock(source, nodes, annotations, ir, env, functions, state, body)
+    state[LOWER_BREAK_TARGET] = outerBreak
+    state[LOWER_CONTINUE_TARGET] = outerContinue
+    state[LOWER_LOOP_COUNT] = outerCount
+    branchTo(ir, state, env, step, count)
+
+    if (update != NO_NODE) {
+        state[LOWER_BLOCK] = step
+        adoptBlockParameters(ir, env, stepRecord, count)
+        lowerEffect(source, nodes, annotations, ir, env, functions, state, nodeField(nodes, update, NODE_FIRST_CHILD))
+        branchTo(ir, state, env, header, count)
+    }
+
+    state[LOWER_BLOCK] = exit
+    adoptBlockParameters(ir, env, exitRecord, count)
+}

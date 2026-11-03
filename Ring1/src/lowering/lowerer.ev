@@ -1,0 +1,148 @@
+package ring1.lowering
+
+// Entry point: source text in, Sublang canonical text out. A program the lowering cannot handle yet
+// yields "unsupported <line>" instead.
+static method<String> lowerSource(String source, String moduleName) {
+    List<Int> nodes = parseSource(source)
+    List<Int> types = newTypeTable()
+    List<Int> symbols = []
+    List<Int> annotations = newAnnotations(nodes)
+    List<Int> bound = [0, 0, NO_TYPE, TYPE_UNKNOWN]
+    bindProgram(source, nodes, types, symbols, annotations, bound)
+    List<Int> functions = declareFunctions(source, nodes, types, symbols, bound)
+    List<Int> state = newLowerState()
+    List<Int> ir = []
+    List<Int> env = []
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_METHOD) {
+            lowerFunction(source, nodes, types, annotations, ir, env, functions, state, declaration)
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    Int entry = findFunctionNamed(source, nodes, functions, "main")
+
+    if (state[LOWER_FAILED] == 1 || entry < 0) {
+        return "unsupported " + intText(state[LOWER_FAILED_LINE])
+    }
+
+    if (functions[entry * FUNCTION_ROW_SIZE + FUNCTION_ROW_RETURN] == WIRE_VOID) {
+        addEntryWrapper(ir, state, entry + 1)
+        entry = functions.size() / FUNCTION_ROW_SIZE
+    }
+
+    return programText(source, moduleName, ir, entry + 1)
+}
+
+static method<List<Int>> newLowerState() {
+    List<Int> state = []
+
+    for (Int index = 0; index < LOWER_STATE_SIZE; index++) {
+        state.add(0)
+    }
+
+    return state
+}
+
+// One row per method of the program, in declaration order: name, wire return type, parameter count.
+static method<List<Int>> declareFunctions(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> bound) {
+    List<Int> functions = []
+    Int declaration = nodeField(nodes, ROOT_NODE, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_METHOD) {
+            functions.add(nodeField(nodes, declaration, NODE_TEXT_START))
+            functions.add(wireType(returnTypeOf(source, nodes, types, declaration)))
+            functions.add(countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS)))
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+
+    return functions
+}
+
+static method<Int> findFunctionNamed(String source, List<Int> nodes, List<Int> functions, String name) {
+    for (Int row = 0; row < functions.size() / FUNCTION_ROW_SIZE; row++) {
+        Int start = functions[row * FUNCTION_ROW_SIZE + FUNCTION_ROW_NAME]
+
+        if (spanIs(source, start, name.length(), name)) {
+            return row
+        }
+    }
+
+    return -1
+}
+
+static method lowerFunction(String source, List<Int> nodes, List<Int> types, List<Int> annotations, List<Int> ir, List<Int> env, List<Int> functions, List<Int> state, Int method) {
+    Int returnType = wireType(returnTypeOf(source, nodes, types, method))
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    state[LOWER_ENV] = 0
+    state[LOWER_TERMINATED] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(nodeField(nodes, method, NODE_TEXT_START))
+    ir.add(nodeField(nodes, method, NODE_TEXT_LENGTH))
+    ir.add(returnType)
+    ir.add(countChildren(nodes, childOfKind(nodes, method, NODE_PARAMS)))
+    declareParameters(source, nodes, types, ir, env, state, method)
+    state[LOWER_BLOCK] = newBlock(ir, state, env, 0)
+    Int body = childOfKind(nodes, method, NODE_BLOCK)
+
+    if (body == NO_NODE || returnType == NO_VALUE) {
+        markUnsupported(nodes, state, method)
+        return
+    }
+
+    lowerBlock(source, nodes, annotations, ir, env, functions, state, body)
+
+    if (state[LOWER_TERMINATED] == 0 && returnType == WIRE_VOID) {
+        addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    }
+
+    if (state[LOWER_TERMINATED] == 0 && returnType != WIRE_VOID) {
+        markUnsupported(nodes, state, method)
+    }
+}
+
+static method declareParameters(String source, List<Int> nodes, List<Int> types, List<Int> ir, List<Int> env, List<Int> state, Int method) {
+    Int param = firstChildOf(nodes, childOfKind(nodes, method, NODE_PARAMS))
+
+    while (param != NO_NODE) {
+        Int type = wireType(typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE)))
+
+        if (type == NO_VALUE) {
+            markUnsupported(nodes, state, param)
+        }
+
+        ir.add(REC_PARAMETER)
+        ir.add(PARAMETER_SIZE)
+        ir.add(nodeField(nodes, param, NODE_TEXT_START))
+        ir.add(nodeField(nodes, param, NODE_TEXT_LENGTH))
+        ir.add(type)
+        addVariable(env, state, nodeField(nodes, param, NODE_TEXT_START), newValue(ir, state, type), type)
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+}
+
+// A Void `main` is wrapped into the `() -> Int` entry the platform expects: call it and return 0.
+static method addEntryWrapper(List<Int> ir, List<Int> state, Int main) {
+    state[LOWER_VALUES] = 0
+    state[LOWER_BLOCKS] = 0
+    ir.add(REC_FUNCTION)
+    ir.add(FUNCTION_SIZE)
+    ir.add(0)
+    ir.add(0)
+    ir.add(WIRE_INT)
+    ir.add(0)
+    List<Int> none = []
+    state[LOWER_BLOCK] = newBlock(ir, state, none, 0)
+    addOperation(ir, state, OP_CALL, NO_VALUE, WIRE_VOID, main, 0, false, PREDICATE_NONE)
+    Int zero = constantValue(ir, state, OP_CONST_INT, WIRE_INT, 0, false)
+    addOperation(ir, state, OP_RETURN, NO_VALUE, 0, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, zero)
+}

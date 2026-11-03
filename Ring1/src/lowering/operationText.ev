@@ -1,0 +1,160 @@
+package ring1.lowering
+
+// One operation as a line of canonical text. Every attribute is written, in the order the grammar fixes.
+static method<String> operationText(List<Int> ir, Int record, Int number) {
+    Int code = ir[record + OPERATION_CODE]
+    Int result = ir[record + OPERATION_RESULT]
+    Int type = ir[record + OPERATION_TYPE]
+
+    if (result == NO_VALUE) {
+        type = 0
+    }
+
+    String text = "    op id=" + intText(number) + " opcode=\"" + opcodeText(code) + "\" span=" + "1" + " result=" + intText(result) + " type=" + intText(type)
+    text = text + " ownership=\"\" ref=" + intText(ir[record + OPERATION_REFERENCE]) + " scope=0 overflow=\"" + overflowText(code) + "\" predicate=\"" + predicateText(ir[record + OPERATION_PREDICATE]) + "\" fpmode=\"\" effect=" + intText(effectOf(code))
+    text = text + " int=" + intText(ir[record + OPERATION_INT]) + " bool=" + boolText(ir[record + OPERATION_BOOL]) + " bits=0 text=\"\" operands=" + operandList(ir, record, false) + " modes=" + operandList(ir, record, true) + " targets=" + targetList(ir, record) + " trueargs=" + intText(ir[record + OPERATION_TRUE_ARGUMENTS]) + "\n"
+    return text
+}
+
+static method<String> boolText(Int value) {
+    if (value == 1) {
+        return "true"
+    }
+
+    return "false"
+}
+
+static method<Int> effectOf(Int code) {
+    if (code == OP_CALL) {
+        return 1
+    }
+
+    return 0
+}
+
+static method<String> overflowText(Int code) {
+    if (code == OP_ADD || code == OP_SUBTRACT || code == OP_MULTIPLY || code == OP_DIVIDE || code == OP_REMAINDER || code == OP_NEGATE) {
+        return "trap"
+    }
+
+    return ""
+}
+
+static method<String> operandList(List<Int> ir, Int record, Bool modes) {
+    String text = "["
+
+    for (Int position = 0; position < ir[record + OPERATION_OPERAND_COUNT]; position++) {
+        if (position > 0) {
+            text = text + ","
+        }
+
+        if (modes) {
+            text = text + "\"value\""
+        }
+
+        if (!modes) {
+            text = text + intText(ir[record + OPERATION_HEADER_SIZE + position])
+        }
+    }
+
+    return text + "]"
+}
+
+static method<String> targetList(List<Int> ir, Int record) {
+    Int first = ir[record + OPERATION_TARGET]
+    Int second = ir[record + OPERATION_SECOND_TARGET]
+
+    if (first == NO_BLOCK) {
+        return "[]"
+    }
+
+    if (second == NO_BLOCK) {
+        return "[" + intText(first) + "]"
+    }
+
+    return "[" + intText(first) + "," + intText(second) + "]"
+}
+
+static method<String> opcodeText(Int code) {
+    if (code == OP_CONST_INT) {
+        return "const.int"
+    }
+
+    if (code == OP_CONST_BOOL) {
+        return "const.bool"
+    }
+
+    if (code == OP_CALL) {
+        return "call.direct"
+    }
+
+    if (code == OP_COMPARE) {
+        return "compare"
+    }
+
+    if (code == OP_BRANCH) {
+        return "branch"
+    }
+
+    if (code == OP_CONDITIONAL_BRANCH) {
+        return "cond_branch"
+    }
+
+    if (code == OP_RETURN) {
+        return "return"
+    }
+
+    return arithmeticText(code)
+}
+
+static method<String> arithmeticText(Int code) {
+    if (code == OP_ADD) {
+        return "int.add"
+    }
+
+    if (code == OP_SUBTRACT) {
+        return "int.sub"
+    }
+
+    if (code == OP_MULTIPLY) {
+        return "int.mul"
+    }
+
+    if (code == OP_DIVIDE) {
+        return "int.div"
+    }
+
+    if (code == OP_REMAINDER) {
+        return "int.rem"
+    }
+
+    return "int.neg"
+}
+
+static method<String> predicateText(Int predicate) {
+    if (predicate == PREDICATE_LESS) {
+        return "lt"
+    }
+
+    if (predicate == PREDICATE_LESS_EQUAL) {
+        return "le"
+    }
+
+    if (predicate == PREDICATE_GREATER) {
+        return "gt"
+    }
+
+    if (predicate == PREDICATE_GREATER_EQUAL) {
+        return "ge"
+    }
+
+    if (predicate == PREDICATE_EQUAL) {
+        return "eq"
+    }
+
+    if (predicate == PREDICATE_NOT_EQUAL) {
+        return "ne"
+    }
+
+    return ""
+}

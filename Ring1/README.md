@@ -78,8 +78,8 @@ expected type) and the statements `if`, `while`, `for`, `return` and expression 
 
 - **Result:** the annotations of Ring1's whole source (lexer, parser, binder: 8,973 lines) are identical to
   Ring0's. `scripts/diffTypes.sh` shows where a program differs; `scripts/runBinderCorpus.sh` measures
-  against Ring0's test sources: 23 are identical, 55 differ because they use classes, `Result`, `switch`,
-  enums, generics, lambdas or interpolation, which the binder does not know yet.
+  against Ring0's test sources: 77 of 78 are identical (the showcase uses built-ins outside the Ring1 subset:
+  `Files`, `Int.parse`, `copy`, the members of `Any`).
 - No diagnostics yet: the binder assumes a valid program.
 
 ## Running the tests
@@ -112,9 +112,25 @@ requirement 10), not a reason to merge small functions: a compiler written in Em
 Sublang's own limits are 32 functions, 64 blocks per function, 4096 values per function and 32768
 spans per module.
 
+## Lowering (`src/lowering/`)
+
+`lowerSource(source, name)` turns a program into Sublang canonical text (`docs/Sublang_Text_IR.md` in
+sub-lang); `sublang text-build` verifies it and writes the wire file, which `sublang emit-llvm` and clang
+turn into an executable. The lowered program is a flat list of records (functions, values, blocks,
+operations) printed at the end, so blocks can be created in any order. Variables in scope are carried through
+blocks as block parameters, the way Ring0 does it.
+
+Supported: functions of `Int`/`Bool`/`Void`, constants, arithmetic, comparisons, `!`, `-`, `&&`/`||`,
+calls, locals, assignment (also `+=` etc.), `++`/`--`, `if`, `while`, `for`, `break`, `continue`, `return`,
+and the wrapping of a `Void` main. Everything else makes the lowering answer `unsupported <line>`.
+
+`scripts/runLoweringCorpus.sh` runs Ring0's lowering fixtures through Ring1 and compares the native
+output with the expected one: 6 pass, 0 fail, 39 are unsupported (floats, text, lists, classes, ...).
+
 ## Open
 
-- Binder: everything outside the Ring1 subset (see above), diagnostics, null flow.
+- Binder: diagnostics, null flow, the built-ins the showcase uses.
+- Lowering: only `Int`/`Bool` functions so far (see below).
 - Not parsed yet: statement-level cascade items, and error recovery that matches Ring0's diagnostics (Ring1
   only produces error nodes). Ring0's trees for sources with syntax errors are not compared.
 - Binder and parser tests as native programs need no file input; running the compiler itself natively on files needs `G1` (file access) in Sublang.

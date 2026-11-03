@@ -72,6 +72,11 @@ method writeProgram(string outDir, Translator translator) {
         os.writeFile(outDir + "/Ring1Types.ems", types)
     }
 
+    if (translator.has("lowerSource")) {
+        var lower = "use ring1::Program;\nuse Std::Io::File;\nuse Std::Process::Process;\n\nmain() {\n    List<String> args = Process.args();\n    println(Program.m_lowerSource(File(args.get(0)).readText(), args.get(0)));\n}\n"
+        os.writeFile(outDir + "/Ring1Lower.ems", lower)
+    }
+
     var entry = "use ring1::Program;\n\nmain() {\n" + report + "    Int failed = Program.m_main();\n    println(\"failed cases: \" + failed.toString());\n}\n"
     os.writeFile(outDir + "/Ring1Main.ems", entry)
     var dump = "use ring1::Program;\nuse Std::Io::File;\nuse Std::Process::Process;\n\nmain() {\n    List<String> args = Process.args();\n    println(Program.m_dumpSource(File(args.get(0)).readText()));\n}\n"
