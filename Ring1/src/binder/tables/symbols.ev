@@ -144,6 +144,23 @@ static method<Int> memberOf(String source, List<Int> symbols, List<Int> state, I
     return NO_SYMBOL
 }
 
+// The n-th property declared by a type (0-based); NO_SYMBOL when it has fewer.
+static method<Int> nthProperty(List<Int> symbols, List<Int> state, Int type, Int n) {
+    Int seen = 0
+
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_PROPERTY && symbolField(symbols, row, SYMBOL_OWNER) == type) {
+            if (seen == n) {
+                return row
+            }
+
+            seen = seen + 1
+        }
+    }
+
+    return NO_SYMBOL
+}
+
 // The first top-level method with this name that takes `parameterCount` arguments.
 static method<Int> lookupMethod(String source, List<Int> symbols, List<Int> state, Int start, Int length, Int parameterCount) {
     return memberOf(source, symbols, state, NO_TYPE, start, length, ROW_METHOD, ROW_METHOD, parameterCount)

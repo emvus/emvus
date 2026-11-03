@@ -20,6 +20,10 @@ static method bindStatement(String source, List<Int> nodes, List<Int> types, Lis
         bindLocal(source, nodes, types, symbols, annotations, state, statement)
     }
 
+    if (kind == NODE_DESTRUCTURE) {
+        bindDestructure(source, nodes, types, symbols, annotations, state, statement)
+    }
+
     if (kind == NODE_IF || kind == NODE_WHILE) {
         bindConditional(source, nodes, types, symbols, annotations, state, statement)
     }
@@ -105,4 +109,33 @@ static method<Int> childOfKind(List<Int> nodes, Int parent, Int kind) {
     }
 
     return NO_NODE
+}
+
+// `var { a, b } = value` takes the properties of the value's type by position.
+static method bindDestructure(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int value = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, childOfKind(nodes, statement, NODE_INIT), NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int binding = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    Int position = 0
+
+    while (binding != NO_NODE) {
+        if (nodeField(nodes, binding, NODE_KIND) == NODE_BINDING) {
+            bindBinding(nodes, symbols, annotations, state, binding, nthProperty(symbols, state, value, position))
+            position = position + 1
+        }
+
+        binding = nodeField(nodes, binding, NODE_NEXT_SIBLING)
+    }
+}
+
+static method bindBinding(List<Int> nodes, List<Int> symbols, List<Int> annotations, List<Int> state, Int binding, Int property) {
+    Int type = TYPE_UNKNOWN
+
+    if (property != NO_SYMBOL) {
+        type = symbolField(symbols, property, SYMBOL_TYPE)
+    }
+
+    Int start = nodeField(nodes, binding, NODE_TEXT_START)
+    Int length = nodeField(nodes, binding, NODE_TEXT_LENGTH)
+    annotate(annotations, binding, type, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
+    addSymbol(symbols, state, ROW_LOCAL, start, length, type, binding, 0, NO_TYPE)
 }

@@ -78,6 +78,7 @@ static method declareTypeMember(String source, List<Int> nodes, List<Int> types,
 // Binds the bodies of the members of one type; `this` and the bare member names refer to that type.
 static method bindTypeBodies(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int declaration) {
     state[BINDER_CLASS] = namedType(source, types, nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))
+    bindDefaults(source, nodes, types, symbols, annotations, state, declaration)
     Int body = childOfKind(nodes, declaration, NODE_BODY)
     Int member = firstChildOf(nodes, body)
 
@@ -92,4 +93,20 @@ static method bindTypeBodies(String source, List<Int> nodes, List<Int> types, Li
     }
 
     state[BINDER_CLASS] = NO_TYPE
+}
+
+// A parameter of a record or data class may end in a default value, the child after its type.
+static method bindDefaults(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int declaration) {
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+    state[BINDER_TOP] = state[BINDER_DECLARED]
+
+    while (param != NO_NODE) {
+        Int after = nodeField(nodes, childOfKind(nodes, param, NODE_TYPE), NODE_NEXT_SIBLING)
+
+        if (after != NO_NODE) {
+            bindExpression(source, nodes, types, symbols, annotations, state, after, TYPE_UNKNOWN)
+        }
+
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
 }

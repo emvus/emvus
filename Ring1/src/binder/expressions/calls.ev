@@ -105,7 +105,11 @@ static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> type
         type = annotateMethod(source, annotations, symbols, node, row)
     }
 
-    if (row == NO_SYMBOL) {
+    if (row == NO_SYMBOL && typeField(types, receiver, TYPE_KIND) == KIND_NAMED) {
+        type = bindWithCall(source, symbols, annotations, state, node, receiver, start, length)
+    }
+
+    if (row == NO_SYMBOL && type == TYPE_UNKNOWN) {
         type = memberResult(source, types, receiver, start, length, argumentCount)
         annotateBuiltinMember(annotations, types, node, receiver, type, start, length)
     }
@@ -122,4 +126,22 @@ static method annotateBuiltinMember(List<Int> annotations, List<Int> types, Int 
     if (type != TYPE_UNKNOWN) {
         annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(types, receiver), 0)
     }
+}
+
+// `value.withName(x)` copies a record or data class with one property replaced: `with` and a property name.
+static method<Int> bindWithCall(String source, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int receiver, Int start, Int length) {
+    Int prefix = 4
+
+    if (length <= prefix || !spanIs(source, start, prefix, "with")) {
+        return TYPE_UNKNOWN
+    }
+
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_PROPERTY && symbolField(symbols, row, SYMBOL_OWNER) == receiver && hasName(source, symbols, row, start + prefix, length - prefix)) {
+            annotate(annotations, node, receiver, REFERENCE_METHOD, start, length, receiver, 0)
+            return receiver
+        }
+    }
+
+    return TYPE_UNKNOWN
 }
