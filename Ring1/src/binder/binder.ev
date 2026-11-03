@@ -1,0 +1,106 @@
+package ring1.binder
+
+// Entry point of the Ring1 binder: gives the nodes of a parsed program their types and symbols.
+// Constants are bound before the methods, so a method sees all of them.
+static method bindProgram(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state) {
+    Int file = ROOT_NODE
+    declareMembers(source, nodes, types, symbols, state, file)
+    state[BINDER_DECLARED] = state[BINDER_TOP]
+    bindConstants(source, nodes, types, symbols, annotations, state, file)
+    bindMethods(source, nodes, types, symbols, annotations, state, file)
+}
+
+static method declareMembers(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int file) {
+    Int declaration = nodeField(nodes, file, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        Int kind = nodeField(nodes, declaration, NODE_KIND)
+        Int start = nodeField(nodes, declaration, NODE_TEXT_START)
+        Int length = nodeField(nodes, declaration, NODE_TEXT_LENGTH)
+
+        if (kind == NODE_VARIABLE) {
+            addSymbol(symbols, state, ROW_VARIABLE, start, length, TYPE_UNKNOWN, declaration, 0)
+        }
+
+        if (kind == NODE_METHOD) {
+            addSymbol(symbols, state, ROW_METHOD, start, length, returnTypeOf(source, nodes, types, declaration), declaration, countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS)))
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+}
+
+static method<Int> returnTypeOf(String source, List<Int> nodes, List<Int> types, Int method) {
+    Int returnType = childOfKind(nodes, method, NODE_RETURN_TYPE)
+
+    if (returnType == NO_NODE) {
+        return TYPE_VOID
+    }
+
+    return typeOfNode(source, nodes, types, nodeField(nodes, returnType, NODE_FIRST_CHILD))
+}
+
+static method<Int> countChildren(List<Int> nodes, Int parent) {
+    Int count = 0
+    Int child = nodeField(nodes, parent, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        count = count + 1
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return count
+}
+
+// The type of a constant is the type of its value, which is its last child.
+static method bindConstants(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int file) {
+    Int declaration = nodeField(nodes, file, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_VARIABLE) {
+            Int value = nodeField(nodes, declaration, NODE_LAST_CHILD)
+            Int type = bindExpression(source, nodes, types, symbols, annotations, state, value, TYPE_UNKNOWN)
+            symbols[rowOfNode(symbols, state, declaration) * SYMBOL_STRIDE + SYMBOL_TYPE] = type
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+}
+
+static method<Int> rowOfNode(List<Int> symbols, List<Int> state, Int node) {
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_NODE) == node) {
+            return row
+        }
+    }
+
+    return NO_SYMBOL
+}
+
+static method bindMethods(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int file) {
+    Int declaration = nodeField(nodes, file, NODE_FIRST_CHILD)
+
+    while (declaration != NO_NODE) {
+        if (nodeField(nodes, declaration, NODE_KIND) == NODE_METHOD) {
+            bindMethod(source, nodes, types, symbols, annotations, state, declaration)
+        }
+
+        declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
+    }
+}
+
+static method bindMethod(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int method) {
+    state[BINDER_TOP] = state[BINDER_DECLARED]
+    Int param = nodeField(nodes, childOfKind(nodes, method, NODE_PARAMS), NODE_FIRST_CHILD)
+
+    while (param != NO_NODE) {
+        addSymbol(symbols, state, ROW_PARAMETER, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE)), param, 0)
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    Int body = childOfKind(nodes, method, NODE_BLOCK)
+
+    if (body != NO_NODE) {
+        bindBlock(source, nodes, types, symbols, annotations, state, body)
+    }
+}

@@ -63,6 +63,25 @@ tasks, string interpolation) and optional semicolons.
   `scripts/diffParse.sh` shows where one file differs.
 - `tests/parserTest.ev` holds five hand-picked cases, expected trees generated from Ring0.
 
+## Binder (`src/binder/`)
+
+Gives the nodes of a parsed program their types and symbols, in tables of Ints: a type table (equal types
+share a row, so comparing types is comparing Ints), a symbol table (methods and constants first, then the
+locals and parameters of the method being bound, with a top marker as scope) and one annotation row per
+node. Names are spans of the source and are compared without regard to case. `typesSource` prints the
+annotations in the format of Ring0's `--check --types`.
+
+v0 covers the constructs Ring1 is written in: Int, Float, Boolean, String, `List<T>` and named types,
+locals and parameters, constants, calls of the program's methods (by name and argument count), the members
+of String and List that the compiler uses, operators, indexing, list literals (an empty list takes the
+expected type) and the statements `if`, `while`, `for`, `return` and expression statements.
+
+- **Result:** the annotations of Ring1's whole source (lexer, parser, binder: 8,973 lines) are identical to
+  Ring0's. `scripts/diffTypes.sh` shows where a program differs; `scripts/runBinderCorpus.sh` measures
+  against Ring0's test sources: 23 are identical, 55 differ because they use classes, `Result`, `switch`,
+  enums, generics, lambdas or interpolation, which the binder does not know yet.
+- No diagnostics yet: the binder assumes a valid program.
+
 ## Running the tests
 
 The Sublang backend does not run yet, so the tests execute on Emerald: Ring0 parses the sources
@@ -95,6 +114,7 @@ spans per module.
 
 ## Open
 
+- Binder: everything outside the Ring1 subset (see above), diagnostics, null flow.
 - Not parsed yet: statement-level cascade items, and error recovery that matches Ring0's diagnostics (Ring1
   only produces error nodes). Ring0's trees for sources with syntax errors are not compared.
 - Wire export and native run, after Sublang raises the module budget and builds again.

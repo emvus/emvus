@@ -59,7 +59,7 @@ const ring1Sources = d => {
     entry.isDirectory() ? ring1Sources(path.join(d, entry.name)) : entry.name.endsWith('.ev') ? [path.join(dir, entry.name)] : []);
 };
 
-for (const f of [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser')), ...ring1Sources('tests')]) {
+for (const f of [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser')), ...ring1Sources(path.join('src', 'binder')), ...ring1Sources('tests')]) {
   test(`ring1/${path.relative(ring1, f)} parses`, () => {
     const errs = errorsOf(fs.readFileSync(f, 'utf8'), false);
     assert.deepEqual(errs, [], '\n    ' + show(errs));
@@ -67,7 +67,7 @@ for (const f of [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(pat
 }
 
 test('ring1 lexer and parser check ok as one program', () => {
-  const files = [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser'))];
+  const files = [...ring1Sources(path.join('src', 'lexer')), ...ring1Sources(path.join('src', 'parser')), ...ring1Sources(path.join('src', 'binder'))];
   if (files.length === 0) return;
   const text = files.map(f => fs.readFileSync(f, 'utf8').replace(/^package .*$/m, '')).join('\n');
   const errs = errorsOf(text);

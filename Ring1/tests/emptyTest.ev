@@ -1,0 +1,5 @@
+package ring1.tests
+
+static method<Int> main {
+    return 0
+}

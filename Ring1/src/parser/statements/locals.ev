@@ -5,6 +5,7 @@ final var NOT_A_TYPE = 0
 // `Type name = value`, `var name = value`, with `final` or `scoped` in front. The modifiers belong
 // directly to the local, not to a modifiers node.
 static method<Int> parseLocal(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
+    Int first = tokenIndexAhead(tokens, state, AHEAD_CURRENT)
     Int holder = addEmptyNode(nodes, NODE_MODIFIERS, tokens, state)
 
     while (atModifier(source, tokens, state)) {
@@ -13,6 +14,8 @@ static method<Int> parseLocal(String source, List<Int> tokens, List<Int> state, 
 
     Int type = parseLocalType(source, tokens, state, nodes)
     Int local = addNodeAtToken(nodes, NODE_LOCAL, tokens, state)
+    setNodeField(nodes, local, NODE_LINE, tokenValue(tokens, first, TOKEN_LINE))
+    setNodeField(nodes, local, NODE_COLUMN, tokenValue(tokens, first, TOKEN_COLUMN))
     advanceToken(tokens, state)
     moveChildren(nodes, holder, local)
     appendChild(nodes, local, type)

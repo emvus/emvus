@@ -1,0 +1,45 @@
+package ring1.binder
+
+// Names are compared without regard to case, as in Emvus, and are always spans of the source.
+final var CASE_DISTANCE = 32
+
+static method<Int> lowerByte(Int value) {
+    if (value >= BYTE_UPPER_A && value <= BYTE_UPPER_Z) {
+        return value + CASE_DISTANCE
+    }
+
+    return value
+}
+
+static method<Bool> sameSpans(String source, Int firstStart, Int firstLength, Int secondStart, Int secondLength) {
+    if (firstLength != secondLength) {
+        return false
+    }
+
+    for (Int offset = 0; offset < firstLength; offset++) {
+        if (lowerByte(source.byteAt(firstStart + offset)) != lowerByte(source.byteAt(secondStart + offset))) {
+            return false
+        }
+    }
+
+    return true
+}
+
+// Does the span read as `text`? `text` is given in the spelling to compare with.
+static method<Bool> spanIs(String source, Int start, Int length, String text) {
+    if (length != text.length()) {
+        return false
+    }
+
+    for (Int offset = 0; offset < length; offset++) {
+        if (lowerByte(source.byteAt(start + offset)) != lowerByte(text.byteAt(offset))) {
+            return false
+        }
+    }
+
+    return true
+}
+
+static method<Bool> nodeIs(String source, List<Int> nodes, Int node, String text) {
+    return spanIs(source, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), text)
+}

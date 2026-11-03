@@ -1,0 +1,108 @@
+package ring1.binder
+
+// Binds the statements of a block. A block opens a scope: the locals it declares disappear at its end.
+static method bindBlock(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int block) {
+    Int mark = state[BINDER_TOP]
+    Int statement = nodeField(nodes, block, NODE_FIRST_CHILD)
+
+    while (statement != NO_NODE) {
+        bindStatement(source, nodes, types, symbols, annotations, state, statement)
+        statement = nodeField(nodes, statement, NODE_NEXT_SIBLING)
+    }
+
+    state[BINDER_TOP] = mark
+}
+
+static method bindStatement(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int kind = nodeField(nodes, statement, NODE_KIND)
+
+    if (kind == NODE_LOCAL) {
+        bindLocal(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_IF || kind == NODE_WHILE) {
+        bindConditional(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_FOR) {
+        bindFor(source, nodes, types, symbols, annotations, state, statement)
+    }
+
+    if (kind == NODE_RETURN || kind == NODE_EXPRESSION_STATEMENT) {
+        bindStatementValue(source, nodes, types, symbols, annotations, state, statement)
+    }
+}
+
+static method bindStatementValue(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int value = nodeField(nodes, statement, NODE_FIRST_CHILD)
+
+    if (value != NO_NODE) {
+        bindExpression(source, nodes, types, symbols, annotations, state, value, TYPE_UNKNOWN)
+    }
+}
+
+// `if (condition) { ... }` and `while (condition) { ... }`.
+static method bindConditional(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int statement) {
+    Int condition = nodeField(nodes, statement, NODE_FIRST_CHILD)
+    bindExpression(source, nodes, types, symbols, annotations, state, condition, TYPE_BOOLEAN)
+    bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, condition, NODE_NEXT_SIBLING))
+}
+
+// The loop variable lives in a scope of its own that also covers the condition and the update.
+static method bindFor(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int loop) {
+    Int mark = state[BINDER_TOP]
+    Int start = nodeField(nodes, loop, NODE_FIRST_CHILD)
+    Int condition = nodeField(nodes, start, NODE_NEXT_SIBLING)
+    Int update = nodeField(nodes, condition, NODE_NEXT_SIBLING)
+    bindStatement(source, nodes, types, symbols, annotations, state, nodeField(nodes, start, NODE_FIRST_CHILD))
+    bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, condition, NODE_FIRST_CHILD), TYPE_BOOLEAN)
+    bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, update, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    bindBlock(source, nodes, types, symbols, annotations, state, nodeField(nodes, update, NODE_NEXT_SIBLING))
+    state[BINDER_TOP] = mark
+}
+
+// A local has a declared type or `var`, and an optional initializer in an init node. The initializer
+// cannot see the local it initializes.
+static method bindLocal(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int local) {
+    Int declared = declaredType(source, nodes, types, local)
+    Int init = childOfKind(nodes, local, NODE_INIT)
+    Int type = declared
+
+    if (init != NO_NODE) {
+        Int value = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, init, NODE_FIRST_CHILD), declared)
+
+        if (declared == TYPE_UNKNOWN) {
+            type = value
+        }
+    }
+
+    Int start = nodeField(nodes, local, NODE_TEXT_START)
+    Int length = nodeField(nodes, local, NODE_TEXT_LENGTH)
+    annotate(annotations, local, type, REFERENCE_LOCAL, start, length, 0)
+    addSymbol(symbols, state, ROW_LOCAL, start, length, type, local, 0)
+}
+
+// TYPE_UNKNOWN for `var`, whose type comes from the initializer.
+static method<Int> declaredType(String source, List<Int> nodes, List<Int> types, Int local) {
+    Int type = childOfKind(nodes, local, NODE_TYPE)
+
+    if (type == NO_NODE) {
+        return TYPE_UNKNOWN
+    }
+
+    return typeOfNode(source, nodes, types, type)
+}
+
+static method<Int> childOfKind(List<Int> nodes, Int parent, Int kind) {
+    Int child = nodeField(nodes, parent, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        if (nodeField(nodes, child, NODE_KIND) == kind) {
+            return child
+        }
+
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return NO_NODE
+}

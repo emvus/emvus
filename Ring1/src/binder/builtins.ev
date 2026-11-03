@@ -1,0 +1,68 @@
+package ring1.binder
+
+// The members of String and List the compiler uses. A member is found by name and argument count; an
+// unknown member keeps the unknown type, like Ring0's unknown standard library calls.
+static method<Int> ownerOf(List<Int> types, Int receiver) {
+    Int kind = typeField(types, receiver, TYPE_KIND)
+
+    if (kind == KIND_STRING) {
+        return OWNER_STRING
+    }
+
+    if (kind == KIND_LIST) {
+        return OWNER_LIST
+    }
+
+    return OWNER_NONE
+}
+
+// The result type of `receiver.name(arguments)`, TYPE_UNKNOWN when there is no such member.
+static method<Int> memberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
+    Int owner = ownerOf(types, receiver)
+
+    if (owner == OWNER_STRING) {
+        return stringMemberResult(source, start, length, argumentCount)
+    }
+
+    if (owner == OWNER_LIST) {
+        return listMemberResult(source, types, receiver, start, length, argumentCount)
+    }
+
+    return TYPE_UNKNOWN
+}
+
+static method<Int> stringMemberResult(String source, Int start, Int length, Int argumentCount) {
+    if (spanIs(source, start, length, "length") && argumentCount == 0) {
+        return TYPE_INT
+    }
+
+    if (spanIs(source, start, length, "byteAt") && argumentCount == 1) {
+        return TYPE_INT
+    }
+
+    if (spanIs(source, start, length, "indexOf") && argumentCount == 1) {
+        return TYPE_INT
+    }
+
+    if (spanIs(source, start, length, "substring") && argumentCount == 2) {
+        return TYPE_STRING
+    }
+
+    return TYPE_UNKNOWN
+}
+
+static method<Int> listMemberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
+    if (spanIs(source, start, length, "add") && argumentCount == 1) {
+        return TYPE_VOID
+    }
+
+    if ((spanIs(source, start, length, "size") || spanIs(source, start, length, "length")) && argumentCount == 0) {
+        return TYPE_INT
+    }
+
+    if (spanIs(source, start, length, "get") && argumentCount == 1) {
+        return typeField(types, receiver, TYPE_ELEMENT)
+    }
+
+    return TYPE_UNKNOWN
+}

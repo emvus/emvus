@@ -67,6 +67,11 @@ method writeProgram(string outDir, Translator translator) {
         report = report + "    println(\"" + name + ": \" + Program.m_" + name + "().toString());\n"
     }
 
+    if (translator.has("typesSource")) {
+        var types = "use ring1::Program;\nuse Std::Io::File;\nuse Std::Process::Process;\n\nmain() {\n    List<String> args = Process.args();\n    println(Program.m_typesSource(File(args.get(0)).readText()));\n}\n"
+        os.writeFile(outDir + "/Ring1Types.ems", types)
+    }
+
     var entry = "use ring1::Program;\n\nmain() {\n" + report + "    Int failed = Program.m_main();\n    println(\"failed cases: \" + failed.toString());\n}\n"
     os.writeFile(outDir + "/Ring1Main.ems", entry)
     var dump = "use ring1::Program;\nuse Std::Io::File;\nuse Std::Process::Process;\n\nmain() {\n    List<String> args = Process.args();\n    println(Program.m_dumpSource(File(args.get(0)).readText()));\n}\n"
@@ -239,12 +244,14 @@ define class Translator {
     private final map arities: get
     private final array translated: get
     private final array cases: get
+    private final array declared: get
 
     construct(Node root) {
         this.constants = {}
         this.arities = {}
         this.translated = []
         this.cases = []
+        this.declared = []
         for (declaration in root.children()) {
             if (declaration.kind() == "variable") {
                 this.constants[declaration.text()] = this.constant(declaration.last())
@@ -255,12 +262,23 @@ define class Translator {
             if (declaration.kind() == "method") {
                 this.translated.append(this.translateMethod(declaration))
                 this.collectCase(declaration)
+                this.declared.append(declaration.text())
             }
         }
     }
 
     method methods(): array<string> {
         return this.translated
+    }
+
+    method has(string name): bool {
+        for (declared in this.declared) {
+            if (declared == name) {
+                return true
+            }
+        }
+
+        return false
     }
 
     // A parameterless method named case... is a test case: the entry prints its result.

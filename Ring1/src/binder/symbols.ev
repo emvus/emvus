@@ -1,0 +1,90 @@
+package ring1.binder
+
+// Symbols are rows of one table. The first rows are the program's methods and constants; the rows
+// after them are the locals and parameters of the method being bound. Leaving a scope only moves
+// the top marker back, the rows above it are overwritten by the next scope.
+final var SYMBOL_ROW_KIND = 0
+final var SYMBOL_NAME_START = 1
+final var SYMBOL_NAME_LENGTH = 2
+final var SYMBOL_TYPE = 3
+final var SYMBOL_NODE = 4
+final var SYMBOL_PARAMETER_COUNT = 5
+final var SYMBOL_STRIDE = 6
+
+final var ROW_METHOD = 1
+final var ROW_VARIABLE = 2
+final var ROW_LOCAL = 3
+final var ROW_PARAMETER = 4
+final var NO_SYMBOL = -1
+
+// The binder's state: the number of symbol rows in use, and how many of them are declarations.
+final var BINDER_TOP = 0
+final var BINDER_DECLARED = 1
+
+static method<Int> symbolField(List<Int> symbols, Int row, Int field) {
+    return symbols[row * SYMBOL_STRIDE + field]
+}
+
+static method addSymbol(List<Int> symbols, List<Int> state, Int rowKind, Int nameStart, Int nameLength, Int type, Int node, Int parameterCount) {
+    Int row = state[BINDER_TOP]
+    Int base = row * SYMBOL_STRIDE
+
+    if (base < symbols.size()) {
+        symbols[base + SYMBOL_ROW_KIND] = rowKind
+        symbols[base + SYMBOL_NAME_START] = nameStart
+        symbols[base + SYMBOL_NAME_LENGTH] = nameLength
+        symbols[base + SYMBOL_TYPE] = type
+        symbols[base + SYMBOL_NODE] = node
+        symbols[base + SYMBOL_PARAMETER_COUNT] = parameterCount
+    }
+
+    if (base >= symbols.size()) {
+        symbols.add(rowKind)
+        symbols.add(nameStart)
+        symbols.add(nameLength)
+        symbols.add(type)
+        symbols.add(node)
+        symbols.add(parameterCount)
+    }
+
+    state[BINDER_TOP] = row + 1
+}
+
+// The innermost local or parameter, else a constant, with this name; NO_SYMBOL when there is none.
+static method<Int> lookupValue(String source, List<Int> symbols, List<Int> state, Int start, Int length) {
+    for (Int row = state[BINDER_TOP] - 1; row >= 0; row--) {
+        Int kind = symbolField(symbols, row, SYMBOL_ROW_KIND)
+        Bool isValue = kind == ROW_LOCAL || kind == ROW_PARAMETER || kind == ROW_VARIABLE
+
+        if (isValue && sameSpans(source, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), start, length)) {
+            return row
+        }
+    }
+
+    return NO_SYMBOL
+}
+
+// Methods with this name that take `parameterCount` arguments, in declaration order: the first one
+// found, and its position among the methods of that name.
+static method<Int> lookupMethod(String source, List<Int> symbols, List<Int> state, Int start, Int length, Int parameterCount) {
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_METHOD && symbolField(symbols, row, SYMBOL_PARAMETER_COUNT) == parameterCount && sameSpans(source, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), start, length)) {
+            return row
+        }
+    }
+
+    return NO_SYMBOL
+}
+
+// How many methods with this name are declared before `row`.
+static method<Int> overloadPosition(String source, List<Int> symbols, Int row) {
+    Int position = 0
+
+    for (Int earlier = 0; earlier < row; earlier++) {
+        if (symbolField(symbols, earlier, SYMBOL_ROW_KIND) == ROW_METHOD && sameSpans(source, symbolField(symbols, earlier, SYMBOL_NAME_START), symbolField(symbols, earlier, SYMBOL_NAME_LENGTH), symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH))) {
+            position = position + 1
+        }
+    }
+
+    return position
+}

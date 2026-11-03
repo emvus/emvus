@@ -1,0 +1,105 @@
+package ring1.binder
+
+// The annotations as text, in the format of Ring0's `--check --types`: one line per annotated node,
+// `line:column kind text : type @ symbol`, parents before children.
+final var RADIX = 10
+
+static method<String> intText(Int value) {
+    if (value == 0) {
+        return "0"
+    }
+
+    String digits = ""
+    Int rest = value
+
+    while (rest > 0) {
+        digits = digitText(rest % RADIX) + digits
+        rest = rest / RADIX
+    }
+
+    return digits
+}
+
+static method<String> digitText(Int digit) {
+    return "0123456789".substring(digit, digit + 1)
+}
+
+static method<String> typesNode(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
+    String text = ""
+
+    if (annotationField(annotations, node, ANNOTATION_TYPE) != NO_TYPE) {
+        text = typesLine(source, nodes, types, annotations, node) + "\n"
+    }
+
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        text = text + typesNode(source, nodes, types, annotations, child)
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+
+    return text
+}
+
+static method<String> typesLine(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
+    String line = intText(nodeField(nodes, node, NODE_LINE)) + ":" + intText(nodeField(nodes, node, NODE_COLUMN)) + " " + kindName(nodeField(nodes, node, NODE_KIND))
+    Int length = nodeField(nodes, node, NODE_TEXT_LENGTH)
+
+    if (length > 0) {
+        line = line + " " + nodeText(source, nodes, node, nodeField(nodes, node, NODE_TEXT_START), length) + extraText(source, nodes, node)
+    }
+
+    line = line + " : " + typeText(source, types, annotationField(annotations, node, ANNOTATION_TYPE))
+    return line + symbolText(source, nodes, annotations, node)
+}
+
+static method<String> symbolText(String source, List<Int> nodes, List<Int> annotations, Int node) {
+    Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
+    Int start = annotationField(annotations, node, ANNOTATION_NAME_START)
+    String name = source.substring(start, start + annotationField(annotations, node, ANNOTATION_NAME_LENGTH))
+
+    if (symbol == REFERENCE_LOCAL) {
+        return " @ local " + name
+    }
+
+    if (symbol == REFERENCE_PARAMETER) {
+        return " @ parameter " + name
+    }
+
+    if (symbol == REFERENCE_VARIABLE) {
+        return " @ variable " + name
+    }
+
+    if (symbol == REFERENCE_METHOD) {
+        return " @ method " + name + " (" + ownerText(annotationField(annotations, node, ANNOTATION_DETAIL) / DETAIL_OWNER_SCALE) + "|" + intText(annotationField(annotations, node, ANNOTATION_DETAIL) % DETAIL_OWNER_SCALE) + "|)"
+    }
+
+    if (symbol == REFERENCE_LITERAL) {
+        return " @ literal " + kindName(nodeField(nodes, node, NODE_KIND))
+    }
+
+    return ""
+}
+
+static method<String> ownerText(Int owner) {
+    if (owner == OWNER_STRING) {
+        return "String"
+    }
+
+    if (owner == OWNER_LIST) {
+        return "List"
+    }
+
+    return ""
+}
+
+// Parses and binds a source text and returns its annotations as text.
+static method<String> typesSource(String source) {
+    List<Int> nodes = parseSource(source)
+    List<Int> types = newTypeTable()
+    List<Int> symbols = []
+    List<Int> annotations = newAnnotations(nodes)
+    List<Int> state = [0, 0]
+    bindProgram(source, nodes, types, symbols, annotations, state)
+    return typesNode(source, nodes, types, annotations, ROOT_NODE)
+}

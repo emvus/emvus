@@ -1,0 +1,181 @@
+package ring1.binder
+
+// Gives every expression of a subtree its type and, where it names something, its symbol. `expected`
+// is the type the context asks for; only an empty list literal looks at it.
+static method<Int> bindExpression(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+
+    if (kind == NODE_NAME) {
+        return bindName(source, nodes, symbols, annotations, state, node)
+    }
+
+    if (kind == NODE_CALL) {
+        return bindCall(source, nodes, types, symbols, annotations, state, node)
+    }
+
+    if (kind == NODE_LIST_LITERAL) {
+        return bindListLiteral(source, nodes, types, symbols, annotations, state, node, expected)
+    }
+
+    Int type = literalType(kind)
+
+    if (type != TYPE_UNKNOWN) {
+        annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, 0)
+        bindChildren(source, nodes, types, symbols, annotations, state, node)
+        return type
+    }
+
+    type = bindOperation(source, nodes, types, symbols, annotations, state, node, expected)
+    annotateType(annotations, node, type)
+    return type
+}
+
+static method<Int> literalType(Int kind) {
+    if (kind == NODE_INT_LITERAL) {
+        return TYPE_INT
+    }
+
+    if (kind == NODE_FLOAT_LITERAL) {
+        return TYPE_FLOAT
+    }
+
+    if (kind == NODE_STRING) {
+        return TYPE_STRING
+    }
+
+    if (kind == NODE_BOOL_LITERAL) {
+        return TYPE_BOOLEAN
+    }
+
+    return TYPE_UNKNOWN
+}
+
+// Binds every child that is an expression, for nodes that hold more than the binder types itself.
+static method bindChildren(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int child = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    while (child != NO_NODE) {
+        bindExpression(source, nodes, types, symbols, annotations, state, child, TYPE_UNKNOWN)
+        child = nodeField(nodes, child, NODE_NEXT_SIBLING)
+    }
+}
+
+static method<Int> bindName(String source, List<Int> nodes, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int row = lookupValue(source, symbols, state, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+
+    if (row == NO_SYMBOL) {
+        annotateType(annotations, node, TYPE_UNKNOWN)
+        return TYPE_UNKNOWN
+    }
+
+    Int type = symbolField(symbols, row, SYMBOL_TYPE)
+    annotate(annotations, node, type, symbolKindOf(symbolField(symbols, row, SYMBOL_ROW_KIND)), symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), 0)
+    return type
+}
+
+static method<Int> symbolKindOf(Int rowKind) {
+    if (rowKind == ROW_LOCAL) {
+        return REFERENCE_LOCAL
+    }
+
+    if (rowKind == ROW_PARAMETER) {
+        return REFERENCE_PARAMETER
+    }
+
+    return REFERENCE_VARIABLE
+}
+
+// Operators and the other expressions without a symbol of their own.
+static method<Int> bindOperation(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int kind = nodeField(nodes, node, NODE_KIND)
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+
+    if (first == NO_NODE) {
+        return TYPE_UNKNOWN
+    }
+
+    Int left = bindExpression(source, nodes, types, symbols, annotations, state, first, TYPE_UNKNOWN)
+    Int second = nodeField(nodes, first, NODE_NEXT_SIBLING)
+    Int right = TYPE_UNKNOWN
+
+    if (second != NO_NODE) {
+        right = bindExpression(source, nodes, types, symbols, annotations, state, second, left)
+    }
+
+    return operationType(source, nodes, types, node, kind, left, right)
+}
+
+static method<Int> operationType(String source, List<Int> nodes, List<Int> types, Int node, Int kind, Int left, Int right) {
+    if (kind == NODE_BINARY) {
+        return binaryType(source, nodes, node, left, right)
+    }
+
+    if (kind == NODE_UNARY && nodeIs(source, nodes, node, "!")) {
+        return TYPE_BOOLEAN
+    }
+
+    if (kind == NODE_UNARY || kind == NODE_POSTFIX || kind == NODE_ASSIGN) {
+        return left
+    }
+
+    if (kind == NODE_INDEX && typeField(types, left, TYPE_KIND) == KIND_LIST) {
+        return typeField(types, left, TYPE_ELEMENT)
+    }
+
+    return TYPE_UNKNOWN
+}
+
+static method<Int> binaryType(String source, List<Int> nodes, Int node, Int left, Int right) {
+    if (isArithmetic(source, nodes, node)) {
+        return arithmeticType(source, nodes, node, left, right)
+    }
+
+    return TYPE_BOOLEAN
+}
+
+static method<Bool> isArithmetic(String source, List<Int> nodes, Int node) {
+    return nodeIs(source, nodes, node, "+") || nodeIs(source, nodes, node, "-") || nodeIs(source, nodes, node, "*") || nodeIs(source, nodes, node, "/") || nodeIs(source, nodes, node, "%")
+}
+
+// `+` joins text when either side is text; a Float on either side makes the result a Float.
+static method<Int> arithmeticType(String source, List<Int> nodes, Int node, Int left, Int right) {
+    if (nodeIs(source, nodes, node, "+") && (left == TYPE_STRING || right == TYPE_STRING)) {
+        return TYPE_STRING
+    }
+
+    if (left == TYPE_FLOAT || right == TYPE_FLOAT) {
+        return TYPE_FLOAT
+    }
+
+    if (left == TYPE_INT && right == TYPE_INT) {
+        return TYPE_INT
+    }
+
+    return TYPE_UNKNOWN
+}
+
+// The elements share the type of the first one; an empty list takes the type the context expects.
+static method<Int> bindListLiteral(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int first = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int type = expected
+
+    if (first != NO_NODE) {
+        type = listType(types, bindListElements(source, nodes, types, symbols, annotations, state, first))
+    }
+
+    annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, 0)
+    return type
+}
+
+// Binds all elements and returns the type of the first.
+static method<Int> bindListElements(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int first) {
+    Int element = bindExpression(source, nodes, types, symbols, annotations, state, first, TYPE_UNKNOWN)
+    Int next = nodeField(nodes, first, NODE_NEXT_SIBLING)
+
+    while (next != NO_NODE) {
+        bindExpression(source, nodes, types, symbols, annotations, state, next, element)
+        next = nodeField(nodes, next, NODE_NEXT_SIBLING)
+    }
+
+    return element
+}

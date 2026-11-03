@@ -1,0 +1,70 @@
+package ring1.binder
+
+// `name(arguments)` calls a method of the program; `receiver.name(arguments)` a member of String or List.
+static method<Int> bindCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int callee = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int argumentCount = countSiblings(nodes, callee)
+
+    if (nodeField(nodes, callee, NODE_KIND) == NODE_MEMBER) {
+        return bindMemberCall(source, nodes, types, symbols, annotations, state, node, callee, argumentCount)
+    }
+
+    return bindMethodCall(source, nodes, types, symbols, annotations, state, node, callee, argumentCount)
+}
+
+// Number of nodes after `node` in its sibling list.
+static method<Int> countSiblings(List<Int> nodes, Int node) {
+    Int count = 0
+    Int next = nodeField(nodes, node, NODE_NEXT_SIBLING)
+
+    while (next != NO_NODE) {
+        count = count + 1
+        next = nodeField(nodes, next, NODE_NEXT_SIBLING)
+    }
+
+    return count
+}
+
+static method bindArguments(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int callee) {
+    Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+
+    while (argument != NO_NODE) {
+        bindExpression(source, nodes, types, symbols, annotations, state, argument, TYPE_UNKNOWN)
+        argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
+    }
+}
+
+static method<Int> bindMethodCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int argumentCount) {
+    Int row = lookupMethod(source, symbols, state, nodeField(nodes, callee, NODE_TEXT_START), nodeField(nodes, callee, NODE_TEXT_LENGTH), argumentCount)
+    Int type = TYPE_UNKNOWN
+
+    if (row == NO_SYMBOL) {
+        annotateType(annotations, node, type)
+    }
+
+    if (row != NO_SYMBOL) {
+        type = symbolField(symbols, row, SYMBOL_TYPE)
+        annotate(annotations, node, type, REFERENCE_METHOD, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), OWNER_NONE * DETAIL_OWNER_SCALE + overloadPosition(source, symbols, row))
+    }
+
+    bindArguments(source, nodes, types, symbols, annotations, state, callee)
+    return type
+}
+
+static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int argumentCount) {
+    Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, callee, NODE_FIRST_CHILD), TYPE_UNKNOWN)
+    Int start = nodeField(nodes, callee, NODE_TEXT_START)
+    Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
+    Int type = memberResult(source, types, receiver, start, length, argumentCount)
+
+    if (type == TYPE_UNKNOWN) {
+        annotateType(annotations, node, type)
+    }
+
+    if (type != TYPE_UNKNOWN) {
+        annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(types, receiver) * DETAIL_OWNER_SCALE)
+    }
+
+    bindArguments(source, nodes, types, symbols, annotations, state, callee)
+    return type
+}
