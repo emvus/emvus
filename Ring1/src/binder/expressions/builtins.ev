@@ -13,6 +13,10 @@ static method<Int> ownerOf(String source, List<Int> types, Int receiver) {
         return OWNER_LIST
     }
 
+    if (typeField(types, receiver, TYPE_KIND) == KIND_FIBER) {
+        return OWNER_FIBER
+    }
+
     if (isResult(source, types, receiver)) {
         return OWNER_RESULT
     }
@@ -34,6 +38,10 @@ static method<Int> memberResult(String source, List<Int> types, Int receiver, In
 
     if (owner == OWNER_LIST) {
         return listMemberResult(source, types, receiver, start, length, argumentCount)
+    }
+
+    if (owner == OWNER_FIBER && isMember(source, start, length, "await", argumentCount, 0)) {
+        return typeArgument(types, receiver, 0)
     }
 
     if (owner == OWNER_RESULT) {

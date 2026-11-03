@@ -1,0 +1,89 @@
+package ring1.binder
+
+// Cascades, tasks and dictionary literals: expressions that hold statements or pairs.
+static method<Int> bindSpecial(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int kind) {
+    if (kind == NODE_CASCADE) {
+        return bindCascade(source, nodes, types, symbols, annotations, state, node)
+    }
+
+    if (kind == NODE_TASK) {
+        return bindTask(source, nodes, types, symbols, annotations, state, node)
+    }
+
+    return bindDictionary(source, nodes, types, symbols, annotations, state, node)
+}
+
+// `receiver ..call() ..property = value`: the sections see the members of the receiver's type as if
+// they were written inside it. An assignment section is typed by its value; its target has no annotation.
+static method<Int> bindCascade(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int receiverNode = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, receiverNode, TYPE_UNKNOWN)
+    Int outer = state[BINDER_CLASS]
+    state[BINDER_CLASS] = receiver
+    Int section = nodeField(nodes, receiverNode, NODE_NEXT_SIBLING)
+
+    while (section != NO_NODE) {
+        bindSection(source, nodes, types, symbols, annotations, state, section)
+        section = nodeField(nodes, section, NODE_NEXT_SIBLING)
+    }
+
+    state[BINDER_CLASS] = outer
+    annotateType(annotations, node, receiver)
+    return receiver
+}
+
+static method bindSection(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int section) {
+    Int inner = nodeField(nodes, section, NODE_FIRST_CHILD)
+    Int type = TYPE_UNKNOWN
+
+    if (nodeField(nodes, inner, NODE_KIND) == NODE_ASSIGN) {
+        type = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, nodeField(nodes, inner, NODE_FIRST_CHILD), NODE_NEXT_SIBLING), TYPE_UNKNOWN)
+        annotateType(annotations, inner, type)
+    }
+
+    if (nodeField(nodes, inner, NODE_KIND) != NODE_ASSIGN) {
+        type = bindExpression(source, nodes, types, symbols, annotations, state, inner, TYPE_UNKNOWN)
+    }
+
+    annotateType(annotations, section, type)
+}
+
+// `fiber { ... }` is a Fiber of the first value its block returns.
+static method<Int> bindTask(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int block = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int outer = state[BINDER_RETURN]
+    state[BINDER_RETURN] = TYPE_UNKNOWN
+    bindBlock(source, nodes, types, symbols, annotations, state, block)
+    state[BINDER_RETURN] = outer
+    Int returned = childOfKind(nodes, block, NODE_RETURN)
+    Int type = TYPE_UNKNOWN
+
+    if (returned != NO_NODE && spanIs(source, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), "fiber")) {
+        type = appliedType(source, types, KIND_FIBER, 0, 0, annotationField(annotations, nodeField(nodes, returned, NODE_FIRST_CHILD), ANNOTATION_TYPE), NO_TYPE, NO_TYPE)
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+// `{ key: value, ... }` takes the types of its first pair; the pairs have no annotation of their own.
+static method<Int> bindDictionary(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int entry = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int type = TYPE_UNKNOWN
+    Int first = entry
+
+    while (entry != NO_NODE) {
+        Int key = nodeField(nodes, entry, NODE_FIRST_CHILD)
+        Int keyType = bindExpression(source, nodes, types, symbols, annotations, state, key, TYPE_UNKNOWN)
+        Int valueType = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, key, NODE_NEXT_SIBLING), TYPE_UNKNOWN)
+
+        if (entry == first) {
+            type = appliedType(source, types, KIND_DICTIONARY, 0, 0, keyType, valueType, NO_TYPE)
+        }
+
+        entry = nodeField(nodes, entry, NODE_NEXT_SIBLING)
+    }
+
+    annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, OWNER_NONE, 0)
+    return type
+}

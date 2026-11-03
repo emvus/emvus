@@ -2,6 +2,20 @@ package ring1.binder
 
 // Generic types (`Result<Int, E>`, `Function<A, B>`) and tuples (`[Int, Bool]`) are rows of their own
 // kind with up to three arguments. Equal ones share a row like every other type.
+// Dictionary and Fiber are known to the binder by kind, so a literal can build them without a name in
+// the source; every other generic type is named by its span.
+static method<Int> genericKind(String source, Int start, Int length) {
+    if (spanIs(source, start, length, "Dictionary")) {
+        return KIND_DICTIONARY
+    }
+
+    if (spanIs(source, start, length, "Fiber")) {
+        return KIND_FIBER
+    }
+
+    return KIND_APPLIED
+}
+
 static method<Int> typeArgument(List<Int> types, Int type, Int position) {
     if (position >= MAX_ARGUMENTS) {
         return NO_TYPE
@@ -57,7 +71,7 @@ static method<Int> appliedType(String source, List<Int> types, Int kind, Int sta
         }
     }
 
-    Int id = addTypeRow(types, kind, start, length, first)
+    Int id = addTypeRow(types, kind, nameStart(kind, start), nameLength(kind, length), first)
     types[id * TYPE_STRIDE + TYPE_SECOND] = second
     types[id * TYPE_STRIDE + TYPE_THIRD] = third
     return id
@@ -78,8 +92,35 @@ static method<String> argumentsText(String source, List<Int> types, Int type) {
         return "[" + text + "]"
     }
 
+    Int kind = typeField(types, type, TYPE_KIND)
+
+    if (kind == KIND_DICTIONARY) {
+        return "Dictionary<" + text + ">"
+    }
+
+    if (kind == KIND_FIBER) {
+        return "Fiber<" + text + ">"
+    }
+
     Int start = typeField(types, type, TYPE_NAME_START)
     return source.substring(start, start + typeField(types, type, TYPE_NAME_LENGTH)) + "<" + text + ">"
+}
+
+// Built-in generic kinds have no name span of their own.
+static method<Int> nameStart(Int kind, Int start) {
+    if (kind == KIND_APPLIED) {
+        return start
+    }
+
+    return 0
+}
+
+static method<Int> nameLength(Int kind, Int length) {
+    if (kind == KIND_APPLIED) {
+        return length
+    }
+
+    return 0
 }
 
 // The text of an Int literal that indexes a tuple, 0 to 9.

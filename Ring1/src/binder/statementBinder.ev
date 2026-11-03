@@ -20,6 +20,14 @@ static method bindStatement(String source, List<Int> nodes, List<Int> types, Lis
         bindLocal(source, nodes, types, symbols, annotations, state, statement)
     }
 
+    if (kind == NODE_SWITCH) {
+        bindSwitch(source, nodes, types, symbols, annotations, state, statement, TYPE_UNKNOWN, true)
+    }
+
+    if (kind == NODE_BLOCK) {
+        bindBlock(source, nodes, types, symbols, annotations, state, statement)
+    }
+
     if (kind == NODE_FOREACH) {
         bindForEach(source, nodes, types, symbols, annotations, state, statement)
     }

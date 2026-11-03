@@ -49,7 +49,10 @@ static method<String> typesLine(String source, List<Int> nodes, List<Int> types,
         line = line + " " + nodeText(source, nodes, node, nodeField(nodes, node, NODE_TEXT_START), length) + extraText(source, nodes, node)
     }
 
-    line = line + " : " + typeText(source, types, annotationField(annotations, node, ANNOTATION_TYPE))
+    if (annotationField(annotations, node, ANNOTATION_TYPE) != TYPE_STATEMENT) {
+        line = line + " : " + typeText(source, types, annotationField(annotations, node, ANNOTATION_TYPE))
+    }
+
     return line + symbolText(source, nodes, types, annotations, node)
 }
 
@@ -106,6 +109,10 @@ static method<String> typeKindWord(Int kind) {
 }
 
 static method<String> switchWord(Int ending) {
+    if (ending == SWITCH_RESULT) {
+        return "result"
+    }
+
     if (ending == SWITCH_CATCH_ALL) {
         return "catch-all"
     }
@@ -133,6 +140,10 @@ static method<String> ownerText(String source, List<Int> types, Int owner) {
 
     if (owner == OWNER_STRING) {
         return "String"
+    }
+
+    if (owner == OWNER_FIBER) {
+        return "Fiber"
     }
 
     if (owner == OWNER_RESULT) {

@@ -27,6 +27,8 @@ final var KIND_TYPE_OBJECT = 9
 final var KIND_CHAR = 10
 final var KIND_APPLIED = 11
 final var KIND_TUPLE = 12
+final var KIND_DICTIONARY = 13
+final var KIND_FIBER = 14
 
 // The first rows are the built-in types, so their ids equal their kinds.
 final var TYPE_UNKNOWN = 0
@@ -142,7 +144,7 @@ static method<Int> typeOfNode(String source, List<Int> nodes, List<Int> types, I
     }
 
     if (nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE && !spanIs(source, start, length, "List")) {
-        return argumentsType(source, nodes, types, node, KIND_APPLIED, start, length)
+        return argumentsType(source, nodes, types, node, genericKind(source, start, length), start, length)
     }
 
     if (spanIs(source, start, length, "List") && nodeField(nodes, node, NODE_FIRST_CHILD) != NO_NODE) {
@@ -191,7 +193,7 @@ static method<String> typeText(String source, List<Int> types, Int type) {
         return "List<" + typeText(source, types, typeField(types, type, TYPE_ELEMENT)) + ">"
     }
 
-    if (kind == KIND_APPLIED || kind == KIND_TUPLE) {
+    if (kind == KIND_APPLIED || kind == KIND_TUPLE || kind == KIND_DICTIONARY || kind == KIND_FIBER) {
         return argumentsText(source, types, type)
     }
 

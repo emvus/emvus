@@ -3,7 +3,7 @@ package ring1.binder
 // `switch (subject) { pattern -> value ... }`: the type of the switch is the type of its first value.
 // It ends exhaustively when every pattern names an entry of the subject's enum, otherwise it has a
 // catch-all pattern whose name stands for the subject inside that case.
-static method<Int> bindSwitch(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+static method<Int> bindSwitch(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected, Bool statement) {
     Int subject = nodeField(nodes, node, NODE_FIRST_CHILD)
     Int subjectType = bindExpression(source, nodes, types, symbols, annotations, state, subject, TYPE_UNKNOWN)
     Int result = TYPE_UNKNOWN
@@ -12,13 +12,18 @@ static method<Int> bindSwitch(String source, List<Int> nodes, List<Int> types, L
 
     while (branch != NO_NODE) {
         Int mark = state[BINDER_TOP]
-        Int patterns = childOfKind(nodes, branch, NODE_PATTERNS)
+        Int head = nodeField(nodes, branch, NODE_FIRST_CHILD)
+        Bool several = nodeField(nodes, head, NODE_KIND) == NODE_PATTERNS
 
-        if (bindPatterns(source, nodes, types, symbols, annotations, state, patterns, subjectType)) {
+        if (bindPatterns(source, nodes, types, symbols, annotations, state, head, several, subjectType)) {
             ending = SWITCH_CATCH_ALL
         }
 
-        Int value = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, patterns, NODE_NEXT_SIBLING), expected)
+        if (isResult(source, types, subjectType)) {
+            ending = SWITCH_RESULT
+        }
+
+        Int value = bindCase(source, nodes, types, symbols, annotations, state, nodeField(nodes, head, NODE_NEXT_SIBLING), expected)
 
         if (result == TYPE_UNKNOWN) {
             result = value
@@ -28,19 +33,45 @@ static method<Int> bindSwitch(String source, List<Int> nodes, List<Int> types, L
         branch = nodeField(nodes, branch, NODE_NEXT_SIBLING)
     }
 
+    if (statement) {
+        annotate(annotations, node, TYPE_STATEMENT, REFERENCE_SWITCH, 0, 0, subjectType, ending)
+        return TYPE_VOID
+    }
+
     annotate(annotations, node, result, REFERENCE_SWITCH, 0, 0, subjectType, ending)
     return result
 }
 
-// True when one of the patterns is a catch-all name.
-static method<Bool> bindPatterns(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int patterns, Int subjectType) {
+// The body of a case is a statement in a switch statement and a value in a switch expression.
+static method<Int> bindCase(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int body, Int expected) {
+    Int kind = nodeField(nodes, body, NODE_KIND)
+
+    if (kind == NODE_EXPRESSION_STATEMENT || kind == NODE_BLOCK || kind == NODE_RETURN || kind == NODE_FAIL || kind == NODE_SUCCESS) {
+        bindStatement(source, nodes, types, symbols, annotations, state, body)
+        return TYPE_VOID
+    }
+
+    return bindExpression(source, nodes, types, symbols, annotations, state, body, expected)
+}
+
+// A case starts with a `patterns` list or with a single result pattern. True when one of the patterns
+// is a catch-all name.
+static method<Bool> bindPatterns(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int head, Bool several, Int subjectType) {
     Bool catchAll = false
-    Int pattern = nodeField(nodes, patterns, NODE_FIRST_CHILD)
+    Int pattern = head
+
+    if (several) {
+        pattern = nodeField(nodes, head, NODE_FIRST_CHILD)
+    }
 
     while (pattern != NO_NODE) {
         Int kind = nodeField(nodes, pattern, NODE_KIND)
         Int start = nodeField(nodes, pattern, NODE_TEXT_START)
         Int length = nodeField(nodes, pattern, NODE_TEXT_LENGTH)
+
+        if (kind == NODE_PATTERN_SUCCESS || kind == NODE_PATTERN_ERROR) {
+            bindResultPattern(nodes, types, symbols, state, pattern, subjectType, kind)
+        }
 
         if (kind == NODE_PATTERN_LITERAL) {
             bindChildren(source, nodes, types, symbols, annotations, state, pattern)
@@ -52,7 +83,25 @@ static method<Bool> bindPatterns(String source, List<Int> nodes, List<Int> types
         }
 
         pattern = nodeField(nodes, pattern, NODE_NEXT_SIBLING)
+
+        if (!several) {
+            pattern = NO_NODE
+        }
     }
 
     return catchAll
+}
+
+// `success(value)` binds the value of the Result, `error(problem)` its error.
+static method bindResultPattern(List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int pattern, Int subjectType, Int kind) {
+    Int binding = nodeField(nodes, pattern, NODE_FIRST_CHILD)
+    Int position = 0
+
+    if (kind == NODE_PATTERN_ERROR) {
+        position = 1
+    }
+
+    if (binding != NO_NODE) {
+        addSymbol(symbols, state, ROW_LOCAL, nodeField(nodes, binding, NODE_TEXT_START), nodeField(nodes, binding, NODE_TEXT_LENGTH), typeOrUnknown(typeArgument(types, subjectType, position)), binding, 0, NO_TYPE)
+    }
 }

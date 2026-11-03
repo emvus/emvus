@@ -29,12 +29,16 @@ final var TYPE_IS_ENUM = 0
 final var TYPE_IS_CLASS = 1
 final var SWITCH_EXHAUSTIVE = 0
 final var SWITCH_CATCH_ALL = 1
+final var SWITCH_RESULT = 2
 
 // Owners of members: a type id for the types of the program, these values for built-in types.
 final var OWNER_NONE = -1
 final var OWNER_STRING = -2
 final var OWNER_LIST = -3
 final var OWNER_RESULT = -4
+final var OWNER_FIBER = -5
+// Annotation type of a statement, which has no type of its own but still carries a symbol.
+final var TYPE_STATEMENT = -2
 
 static method<List<Int>> newAnnotations(List<Int> nodes) {
     List<Int> annotations = []

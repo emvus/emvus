@@ -58,3 +58,26 @@ static method<Int> stringOneArgument(String source, List<Int> types, Int start, 
 
     return TYPE_UNKNOWN
 }
+
+// List<T>.add(T):Void and the other members of the list type that need no function types.
+static method<Int> listMemberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
+    Int element = typeField(types, receiver, TYPE_ELEMENT)
+
+    if (isMember(source, start, length, "add", argumentCount, 1) || isMember(source, start, length, "set", argumentCount, 2) || isMember(source, start, length, "clear", argumentCount, 0)) {
+        return TYPE_VOID
+    }
+
+    if (isMember(source, start, length, "size", argumentCount, 0) || isMember(source, start, length, "length", argumentCount, 0) || isMember(source, start, length, "indexOf", argumentCount, 1)) {
+        return TYPE_INT
+    }
+
+    if (isMember(source, start, length, "isEmpty", argumentCount, 0) || isMember(source, start, length, "contains", argumentCount, 1) || isMember(source, start, length, "remove", argumentCount, 1)) {
+        return TYPE_BOOLEAN
+    }
+
+    if (isMember(source, start, length, "get", argumentCount, 1) || isMember(source, start, length, "removeAt", argumentCount, 1) || isMember(source, start, length, "first", argumentCount, 0) || isMember(source, start, length, "last", argumentCount, 0)) {
+        return element
+    }
+
+    return TYPE_UNKNOWN
+}
