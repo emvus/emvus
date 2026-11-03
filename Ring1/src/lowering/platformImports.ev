@@ -13,7 +13,9 @@ final var IMPORT_ARGUMENT = 5
 final var IMPORT_ARGUMENT_COUNT = 6
 final var IMPORT_EXIT = 7
 final var IMPORT_LAST_ERROR = 8
-final var IMPORT_COUNT = 9
+final var IMPORT_MILLISECONDS = 9
+final var IMPORT_ENVIRONMENT = 10
+final var IMPORT_COUNT = 11
 final var NO_IMPORT = -1
 
 final var GREATER_BYTE = 62
@@ -62,11 +64,19 @@ static method<String> importName(Int slot) {
         return "platform.io.last_error"
     }
 
+    if (slot == IMPORT_MILLISECONDS) {
+        return "platform.time.milliseconds"
+    }
+
+    if (slot == IMPORT_ENVIRONMENT) {
+        return "platform.env.variable"
+    }
+
     return "platform.process.exit"
 }
 
 static method<String> importSignature(Int slot) {
-    if (slot == IMPORT_READ_FILE) {
+    if (slot == IMPORT_READ_FILE || slot == IMPORT_ENVIRONMENT) {
         return "t>T"
     }
 
@@ -86,7 +96,7 @@ static method<String> importSignature(Int slot) {
         return "i>T"
     }
 
-    if (slot == IMPORT_ARGUMENT_COUNT || slot == IMPORT_LAST_ERROR) {
+    if (slot == IMPORT_ARGUMENT_COUNT || slot == IMPORT_LAST_ERROR || slot == IMPORT_MILLISECONDS) {
         return ">i"
     }
 
@@ -121,6 +131,14 @@ static method<Int> importForName(String source, List<Int> nodes, Int callee) {
 
     if (nodeIs(source, nodes, callee, "argumentCount")) {
         return IMPORT_ARGUMENT_COUNT
+    }
+
+    if (nodeIs(source, nodes, callee, "milliseconds")) {
+        return IMPORT_MILLISECONDS
+    }
+
+    if (nodeIs(source, nodes, callee, "environmentVariable")) {
+        return IMPORT_ENVIRONMENT
     }
 
     if (nodeIs(source, nodes, callee, "lastError")) {

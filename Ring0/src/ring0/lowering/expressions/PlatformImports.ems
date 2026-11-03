@@ -9,7 +9,7 @@ public class PlatformImports {
     }
 
     public static Int count() {
-        return 9;
+        return 11;
     }
 
     public static Int readFile() {
@@ -48,6 +48,14 @@ public class PlatformImports {
         return 8;
     }
 
+    public static Int milliseconds() {
+        return 9;
+    }
+
+    public static Int environmentVariable() {
+        return 10;
+    }
+
     public static String nameOf(Int slot) {
         List<String> names = List();
         names.add("platform.io.read_file");
@@ -59,6 +67,8 @@ public class PlatformImports {
         names.add("platform.process.argument_count");
         names.add("platform.process.exit");
         names.add("platform.io.last_error");
+        names.add("platform.time.milliseconds");
+        names.add("platform.env.variable");
         return names.get(slot) + "";
     }
 
@@ -74,6 +84,8 @@ public class PlatformImports {
         signatures.add(">i");
         signatures.add("i>v");
         signatures.add(">i");
+        signatures.add(">i");
+        signatures.add("t>T");
         return signatures.get(slot) + "";
     }
 

@@ -1,0 +1,21 @@
+// expect-status: 0
+// environmentVariable reads the process environment (PATH exists, an invented name does not); milliseconds is the
+// wall clock and does not run backwards.
+static method<Int> main {
+    if (environmentVariable("PATH").length() == 0) {
+        return 1
+    }
+
+    if (environmentVariable("EMVUS_SURELY_NOT_SET_9f3a").length() != 0) {
+        return 2
+    }
+
+    Int first = milliseconds()
+    Int second = milliseconds()
+
+    if (first < 1000000000000 || second < first) {
+        return 3
+    }
+
+    return 0
+}

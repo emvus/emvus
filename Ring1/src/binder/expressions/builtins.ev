@@ -74,11 +74,11 @@ static method<Int> builtinFunctionType(String source, Int start, Int length, Int
         return TYPE_BOOLEAN
     }
 
-    if (argumentCount == 0 && (spanIs(source, start, length, "argumentCount") || spanIs(source, start, length, "lastError"))) {
+    if (argumentCount == 0 && (spanIs(source, start, length, "argumentCount") || spanIs(source, start, length, "lastError") || spanIs(source, start, length, "milliseconds"))) {
         return TYPE_INT
     }
 
-    if (argumentCount == 1 && (spanIs(source, start, length, "readFile") || spanIs(source, start, length, "argument"))) {
+    if (argumentCount == 1 && (spanIs(source, start, length, "readFile") || spanIs(source, start, length, "argument") || spanIs(source, start, length, "environmentVariable"))) {
         return TYPE_STRING
     }
 

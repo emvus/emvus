@@ -38,7 +38,8 @@ What the compiled programs can do today: integers, floats, booleans, text (`+`, 
 generics, lambdas, `Result` with `switch`, top-level constants. The program prints the `Int` its `main`
 returns (or exits with it, see below). Not yet: dictionaries, tasks, `null` on references (they need
 Sublang runtime support, see `Ring0/docs/plan.md`). Programs reach the platform through Sublang's platform imports: `print`, `println`, `errprint`, `errprintln`,
-`readFile`, `writeFile`, `fileExists`, `lastError` (why the last file operation failed), `argument`, `argumentCount` and
+`readFile`, `writeFile`, `fileExists`, `lastError` (why the last file operation failed), `argument`, `argumentCount`, `milliseconds`,
+`environmentVariable` and
 `exit`, all on Strings; such a program exits with
 the Int its `main` returns.
 
