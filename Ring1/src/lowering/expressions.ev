@@ -98,6 +98,10 @@ static method<Int> wireOf(List<Int> types, Int type) {
         return WIRE_STRING
     }
 
+    if (type == TYPE_FLOAT) {
+        return WIRE_FLOAT
+    }
+
     if (kind == KIND_LIST && typeField(types, type, TYPE_ELEMENT) == TYPE_INT) {
         return WIRE_REF_LIST_INT
     }
@@ -118,6 +122,10 @@ static method<Int> lowerExpression(String source, List<Int> nodes, List<Int> ann
 
     if (kind == NODE_BOOL_LITERAL) {
         return constantValue(ir, state, OP_CONST_BOOL, WIRE_BOOL, 0, nodeIs(source, nodes, node, "true"))
+    }
+
+    if (kind == NODE_FLOAT_LITERAL) {
+        return lowerFloatLiteral(source, nodes, ir, state, node)
     }
 
     if (kind == NODE_NAME) {
@@ -218,6 +226,12 @@ static method<Int> lowerUnary(String source, List<Int> nodes, List<Int> annotati
         return NO_VALUE
     }
 
+    if (nodeIs(source, nodes, node, "-") && annotationField(annotations, nodeField(nodes, node, NODE_FIRST_CHILD), ANNOTATION_TYPE) == TYPE_FLOAT) {
+        Int minusOne = newValue(ir, state, WIRE_FLOAT)
+        addOperation(ir, state, OP_CONST_FLOAT, minusOne, WIRE_FLOAT, 0, MINUS_ONE_BITS, false, PREDICATE_NONE)
+        return emitFloatOperation(ir, state, OP_FLOAT_MULTIPLY, operand, minusOne)
+    }
+
     if (nodeIs(source, nodes, node, "-")) {
         Int result = newValue(ir, state, WIRE_INT)
         addOperation(ir, state, OP_NEGATE, result, WIRE_INT, REFERENCE_FAILURE, 0, false, PREDICATE_NONE)
@@ -256,6 +270,10 @@ static method<Int> lowerBinary(String source, List<Int> nodes, List<Int> annotat
 
     if (annotationField(annotations, first, ANNOTATION_TYPE) == TYPE_STRING) {
         return lowerTextOperator(source, nodes, ir, state, node, left, right)
+    }
+
+    if (annotationField(annotations, first, ANNOTATION_TYPE) == TYPE_FLOAT) {
+        return lowerFloatOperator(source, nodes, annotations, ir, state, node, left, right)
     }
 
     Int code = arithmeticCode(source, nodes, node)
@@ -803,4 +821,97 @@ static method<Int> emitLineFeed(List<Int> ir, List<Int> state) {
     setOwned(ir, state)
     addOperand(ir, state, constant)
     return text
+}
+
+// A Float literal is a constant holding the bit pattern of the value.
+static method<Int> lowerFloatLiteral(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int node) {
+    Int bits = floatBits(source, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+
+    if (bits < 0) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, WIRE_FLOAT)
+    addOperation(ir, state, OP_CONST_FLOAT, result, WIRE_FLOAT, 0, bits, false, PREDICATE_NONE)
+    return result
+}
+
+static method<Int> emitFloatOperation(List<Int> ir, List<Int> state, Int code, Int left, Int right) {
+    Int result = newValue(ir, state, WIRE_FLOAT)
+    addOperation(ir, state, code, result, WIRE_FLOAT, 0, 0, false, PREDICATE_NONE)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+// Arithmetic and comparisons of two Floats; Float comparisons name ordered predicates, `!=` the unordered one so that
+// NaN != NaN holds. `%` has no Float form.
+static method<Int> lowerFloatOperator(String source, List<Int> nodes, List<Int> annotations, List<Int> ir, List<Int> state, Int node, Int left, Int right) {
+    Int code = floatArithmeticCode(source, nodes, node)
+
+    if (code != 0) {
+        return emitFloatOperation(ir, state, code, left, right)
+    }
+
+    Int predicate = floatPredicate(source, nodes, node)
+
+    if (predicate == PREDICATE_NONE) {
+        markUnsupported(nodes, state, node)
+        return NO_VALUE
+    }
+
+    Int result = newValue(ir, state, WIRE_BOOL)
+    addOperation(ir, state, OP_COMPARE, result, WIRE_BOOL, 0, 0, false, predicate)
+    addOperand(ir, state, left)
+    addOperand(ir, state, right)
+    return result
+}
+
+static method<Int> floatArithmeticCode(String source, List<Int> nodes, Int node) {
+    if (nodeIs(source, nodes, node, "+")) {
+        return OP_FLOAT_ADD
+    }
+
+    if (nodeIs(source, nodes, node, "-")) {
+        return OP_FLOAT_SUBTRACT
+    }
+
+    if (nodeIs(source, nodes, node, "*")) {
+        return OP_FLOAT_MULTIPLY
+    }
+
+    if (nodeIs(source, nodes, node, "/")) {
+        return OP_FLOAT_DIVIDE
+    }
+
+    return 0
+}
+
+static method<Int> floatPredicate(String source, List<Int> nodes, Int node) {
+    if (nodeIs(source, nodes, node, "<")) {
+        return PREDICATE_ORDERED_LESS
+    }
+
+    if (nodeIs(source, nodes, node, "<=")) {
+        return PREDICATE_ORDERED_LESS_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, ">")) {
+        return PREDICATE_ORDERED_GREATER
+    }
+
+    if (nodeIs(source, nodes, node, ">=")) {
+        return PREDICATE_ORDERED_GREATER_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, "==")) {
+        return PREDICATE_ORDERED_EQUAL
+    }
+
+    if (nodeIs(source, nodes, node, "!=")) {
+        return PREDICATE_UNORDERED_NOT_EQUAL
+    }
+
+    return PREDICATE_NONE
 }

@@ -3,7 +3,7 @@
 LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
 PARSER=(src/parser/*.ev src/parser/*/*.ev)
 BINDER=(src/binder/*.ev src/binder/*/*.ev)
-LOWERING=(src/lowering/*.ev)
+LOWERING=(src/lowering/*.ev src/lowering/*/*.ev)
 
 # build <emvusc> <output-binary> <file.ev>...
 build() {

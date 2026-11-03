@@ -9,6 +9,10 @@ static method<String> intText(Int value) {
         return "0"
     }
 
+    if (value < 0) {
+        return "-" + intText(0 - value)
+    }
+
     String digits = ""
     Int rest = value
 

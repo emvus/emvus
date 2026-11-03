@@ -8,7 +8,7 @@ RING0_EMVUSC="$(realpath "$1")"
 SUBLANG="$(realpath "$2")"
 OUT="$(realpath -m "$3")"
 cd "$ROOT"
-SOURCES=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev src/parser/*.ev src/parser/*/*.ev src/binder/*.ev src/binder/*/*.ev src/lowering/*.ev src/emvusc/*.ev)
+SOURCES=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev src/parser/*.ev src/parser/*/*.ev src/binder/*.ev src/binder/*/*.ev src/lowering/*.ev src/lowering/*/*.ev src/emvusc/*.ev)
 mkdir -p "$OUT"
 native() {
     local text="$1" name="$2"

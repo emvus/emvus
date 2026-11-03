@@ -89,6 +89,14 @@ final var OP_TEXT_SLICE = 24
 final var OP_TEXT_EQUAL = 25
 final var OP_BYTE_TO_INT = 26
 final var OP_LIST_CLEAR = 27
+final var OP_CONST_FLOAT = 28
+final var OP_FLOAT_ADD = 29
+final var OP_FLOAT_SUBTRACT = 30
+final var OP_FLOAT_MULTIPLY = 31
+final var OP_FLOAT_DIVIDE = 32
+
+// A Float multiplied by this constant, -1.0, is negated.
+final var MINUS_ONE_BITS = -4616189618054758400
 
 // A string constant whose text start is this value is a single line feed, which no source span holds.
 final var TEXT_LINE_FEED = -1
@@ -109,6 +117,12 @@ final var PREDICATE_GREATER = 3
 final var PREDICATE_GREATER_EQUAL = 4
 final var PREDICATE_EQUAL = 5
 final var PREDICATE_NOT_EQUAL = 6
+final var PREDICATE_ORDERED_LESS = 7
+final var PREDICATE_ORDERED_LESS_EQUAL = 8
+final var PREDICATE_ORDERED_GREATER = 9
+final var PREDICATE_ORDERED_GREATER_EQUAL = 10
+final var PREDICATE_ORDERED_EQUAL = 11
+final var PREDICATE_UNORDERED_NOT_EQUAL = 12
 
 // The lowering's own state, indexed by these positions.
 final var LOWER_BLOCK = 0
@@ -134,6 +148,7 @@ final var LOWER_STATE_SIZE = 27
 final var WIRE_VOID = 1
 final var WIRE_BOOL = 2
 final var WIRE_INT = 3
+final var WIRE_FLOAT = 4
 final var WIRE_BYTE = 9
 final var WIRE_LIST_BYTE = 10
 final var WIRE_STRING = 11

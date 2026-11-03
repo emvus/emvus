@@ -158,7 +158,7 @@ static method lowerAssign(String source, List<Int> nodes, List<Int> annotations,
     }
 
     if (!nodeIs(source, nodes, assign, "=")) {
-        value = lowerCompound(source, nodes, ir, state, assign, env[row * ENV_STRIDE + ENV_VALUE], value)
+        value = lowerCompound(source, nodes, ir, state, assign, env[row * ENV_STRIDE + ENV_VALUE], value, env[row * ENV_STRIDE + ENV_TYPE])
     }
 
     if (value != NO_VALUE) {
@@ -201,7 +201,7 @@ static method lowerIndexAssign(String source, List<Int> nodes, List<Int> annotat
     }
 
     if (!nodeIs(source, nodes, assign, "=")) {
-        value = lowerCompound(source, nodes, ir, state, assign, emitListGet(nodes, annotations, ir, state, target, list, index), value)
+        value = lowerCompound(source, nodes, ir, state, assign, emitListGet(nodes, annotations, ir, state, target, list, index), value, WIRE_INT)
 
         if (value == NO_VALUE) {
             return
@@ -215,7 +215,11 @@ static method lowerIndexAssign(String source, List<Int> nodes, List<Int> annotat
 }
 
 // `x += y` and the like: the operator is the assignment's text without its trailing `=`.
-static method<Int> lowerCompound(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int assign, Int current, Int value) {
+static method<Int> lowerCompound(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int assign, Int current, Int value, Int type) {
+    if (type == WIRE_FLOAT) {
+        return lowerFloatCompound(source, nodes, ir, state, assign, current, value)
+    }
+
     Int code = compoundCode(source, nodes, assign)
 
     if (code == 0) {
@@ -584,4 +588,32 @@ static method loopStep(String source, List<Int> nodes, List<Int> annotations, Li
     addOperand(ir, state, env[items[ITEMS_INDEX_ROW] * ENV_STRIDE + ENV_VALUE])
     addOperand(ir, state, one)
     env[items[ITEMS_INDEX_ROW] * ENV_STRIDE + ENV_VALUE] = next
+}
+
+// `x += y` on Floats: the operator is the assignment's text without its trailing `=`; `%=` has no Float form.
+static method<Int> lowerFloatCompound(String source, List<Int> nodes, List<Int> ir, List<Int> state, Int assign, Int current, Int value) {
+    Int code = 0
+
+    if (nodeIs(source, nodes, assign, "+=")) {
+        code = OP_FLOAT_ADD
+    }
+
+    if (nodeIs(source, nodes, assign, "-=")) {
+        code = OP_FLOAT_SUBTRACT
+    }
+
+    if (nodeIs(source, nodes, assign, "*=")) {
+        code = OP_FLOAT_MULTIPLY
+    }
+
+    if (nodeIs(source, nodes, assign, "/=")) {
+        code = OP_FLOAT_DIVIDE
+    }
+
+    if (code == 0) {
+        markUnsupported(nodes, state, assign)
+        return NO_VALUE
+    }
+
+    return emitFloatOperation(ir, state, code, current, value)
 }

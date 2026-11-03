@@ -11,8 +11,8 @@ static method<String> operationText(String source, List<Int> ir, Int record, Int
     }
 
     String text = "    op id=" + intText(number) + " opcode=\"" + opcodeText(code) + "\" span=" + "1" + " result=" + intText(result) + " type=" + intText(type)
-    text = text + " ownership=\"" + ownershipText(ir[record + OPERATION_OWNERSHIP]) + "\" ref=" + intText(ir[record + OPERATION_REFERENCE]) + " scope=" + intText(ir[record + OPERATION_SCOPE]) + " overflow=\"" + overflowText(code) + "\" predicate=\"" + predicateText(ir[record + OPERATION_PREDICATE]) + "\" fpmode=\"\" effect=" + intText(effectOf(code))
-    text = text + " int=" + intText(ir[record + OPERATION_INT]) + " bool=" + boolText(ir[record + OPERATION_BOOL]) + " bits=0 text=\"" + escapedText(source, ir[record + OPERATION_TEXT_START], ir[record + OPERATION_TEXT_LENGTH]) + "\" operands=" + operandList(ir, record, false) + " modes=" + operandList(ir, record, true) + " targets=" + targetList(ir, record) + " trueargs=" + intText(ir[record + OPERATION_TRUE_ARGUMENTS]) + "\n"
+    text = text + " ownership=\"" + ownershipText(ir[record + OPERATION_OWNERSHIP]) + "\" ref=" + intText(ir[record + OPERATION_REFERENCE]) + " scope=" + intText(ir[record + OPERATION_SCOPE]) + " overflow=\"" + overflowText(code) + "\" predicate=\"" + predicateText(ir[record + OPERATION_PREDICATE]) + "\" fpmode=\"" + floatModeText(code) + "\" effect=" + intText(effectOf(code))
+    text = text + " int=" + intText(integerOf(ir, record)) + " bool=" + boolText(ir[record + OPERATION_BOOL]) + " bits=" + intText(bitsOf(ir, record)) + " text=\"" + escapedText(source, ir[record + OPERATION_TEXT_START], ir[record + OPERATION_TEXT_LENGTH]) + "\" operands=" + operandList(ir, record, false) + " modes=" + operandList(ir, record, true) + " targets=" + targetList(ir, record) + " trueargs=" + intText(ir[record + OPERATION_TRUE_ARGUMENTS]) + "\n"
     return text
 }
 
@@ -108,6 +108,10 @@ static method<String> opcodeText(Int code) {
         return "list.clear"
     }
 
+    if (code >= OP_CONST_FLOAT) {
+        return floatOpcodeText(code)
+    }
+
     if (code >= OP_CONST_STRING) {
         return textOpcodeText(code)
     }
@@ -166,6 +170,34 @@ static method<String> predicateText(Int predicate) {
 
     if (predicate == PREDICATE_NOT_EQUAL) {
         return "ne"
+    }
+
+    return orderedPredicateText(predicate)
+}
+
+static method<String> orderedPredicateText(Int predicate) {
+    if (predicate == PREDICATE_ORDERED_LESS) {
+        return "olt"
+    }
+
+    if (predicate == PREDICATE_ORDERED_LESS_EQUAL) {
+        return "ole"
+    }
+
+    if (predicate == PREDICATE_ORDERED_GREATER) {
+        return "ogt"
+    }
+
+    if (predicate == PREDICATE_ORDERED_GREATER_EQUAL) {
+        return "oge"
+    }
+
+    if (predicate == PREDICATE_ORDERED_EQUAL) {
+        return "oeq"
+    }
+
+    if (predicate == PREDICATE_UNORDERED_NOT_EQUAL) {
+        return "une"
     }
 
     return ""
@@ -315,4 +347,49 @@ static method<String> escapedByte(String source, Int position, Int byte) {
 
     String digits = "0123456789abcdef"
     return "\\x" + digits.substring(byte / HEX_BASE, byte / HEX_BASE + 1) + digits.substring(byte % HEX_BASE, byte % HEX_BASE + 1)
+}
+
+// The int and bits attributes: a float constant keeps its bit pattern in the int field.
+static method<Int> integerOf(List<Int> ir, Int record) {
+    if (ir[record + OPERATION_CODE] == OP_CONST_FLOAT) {
+        return 0
+    }
+
+    return ir[record + OPERATION_INT]
+}
+
+static method<Int> bitsOf(List<Int> ir, Int record) {
+    if (ir[record + OPERATION_CODE] == OP_CONST_FLOAT) {
+        return ir[record + OPERATION_INT]
+    }
+
+    return 0
+}
+
+static method<String> floatModeText(Int code) {
+    if (code >= OP_FLOAT_ADD && code <= OP_FLOAT_DIVIDE) {
+        return "rne"
+    }
+
+    return ""
+}
+
+static method<String> floatOpcodeText(Int code) {
+    if (code == OP_CONST_FLOAT) {
+        return "const.float"
+    }
+
+    if (code == OP_FLOAT_ADD) {
+        return "float.add"
+    }
+
+    if (code == OP_FLOAT_SUBTRACT) {
+        return "float.sub"
+    }
+
+    if (code == OP_FLOAT_MULTIPLY) {
+        return "float.mul"
+    }
+
+    return "float.div"
 }
