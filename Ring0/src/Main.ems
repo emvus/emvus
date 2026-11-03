@@ -10,7 +10,7 @@ use Std::Io::File;
 use Std::Process::Process;
 
 // Ring0: bootstrap compiler for Emvus, written in Emerald.
-// Usage: ring0 <file.ev>... [--tokens | --check [--types]]
+// Usage: ring0 <file.ev>... [--tokens | --ast | --check [--types]]
 // Several files form one program; --tokens reads the first file only.
 main() {
     List<String> args = Process.args();
@@ -62,6 +62,11 @@ main() {
         SourceSet.printIndex(args, sources, bag);
         bag.printAll();
         Process.exit(1);
+    }
+
+    if (args.length() > sources && args.get(sources) == "--ast") {
+        println(tree.dumpEscaped(0));
+        return;
     }
 
     if (args.length() > sources && args.get(sources) == "--check") {

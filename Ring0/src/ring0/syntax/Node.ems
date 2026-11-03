@@ -112,4 +112,62 @@ public class Node {
 
         return line;
     }
+
+    // Like dump, but node text has \\, line breaks and tabs escaped, so every node is exactly one
+    // line and tools can read the tree back line by line (`ring0 file.ev --ast`).
+    public String dumpEscaped(Int depth) {
+        String line = "";
+        Int index = 0;
+
+        while (index < depth) {
+            line = line + "  ";
+            index = index + 1;
+        }
+
+        line = line + this.kindValue;
+
+        if (!this.textValue.isEmpty()) {
+            line = line + " " + Node.escape(this.textValue);
+        }
+
+        line = line + "\n";
+        index = 0;
+
+        while (index < this.childList.length()) {
+            line = line + this.childList.get(index).dumpEscaped(depth + 1);
+            index = index + 1;
+        }
+
+        return line;
+    }
+
+    private static String escape(String text) {
+        String result = "";
+        Int index = 0;
+
+        while (index < text.length()) {
+            String character = text.charAt(index).toString();
+
+            if (character == "\\") {
+                character = "\\\\";
+            }
+
+            if (character == "\n") {
+                character = "\\n";
+            }
+
+            if (character == "\r") {
+                character = "\\r";
+            }
+
+            if (character == "\t") {
+                character = "\\t";
+            }
+
+            result = result + character;
+            index = index + 1;
+        }
+
+        return result;
+    }
 }

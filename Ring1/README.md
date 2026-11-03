@@ -55,6 +55,19 @@ becomes an error node; there is no `else`, `switch`, class, lambda or `Result` y
 - Build order: the eight lexer files, then `nodeTable tokenReader expressions statements declarations
   treeDump parser`, then `tests/parserTest.ev`.
 
+## Running the tests
+
+The Sublang backend does not run yet, so the tests execute on Emerald: Ring0 parses the sources
+(`ring0 files... --ast`), `scripts/emvusToEmerald.py` translates the Ring1 subset to an Emerald class, the
+Emerald compiler builds it and the program prints the number of failed cases.
+
+```bash
+bash scripts/runTests.sh <ring0-binary> <emerald-compiler> <work-dir>
+```
+
+The translator is a test harness for exactly the constructs Ring1 uses, not a second compiler; it stops with an
+error on anything else. It replaces constants by their values (like Ring0's lowering) and emulates `byteAt` for ASCII.
+
 ## State
 
 | Check | Result |
@@ -63,7 +76,8 @@ becomes an error node; there is no `else`, `switch`, class, lambda or `Result` y
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
 | Parser, lexer and tests together | check ok; lowers to 113 functions, verifier: structure and semantics valid |
 | Wire export | **blocked**: Sublang allows at most 32 functions per module (`SUBLANG-W001 count budget exceeded`), the lexer and its test lower to 45 functions including 4 generated text helpers |
-| Native run of the self tests | not done (needs the wire export and a working Sublang backend) |
+| Self tests on Emerald (translated) | lexer 17 of 17 cases, parser 5 of 5 cases pass; a deliberately wrong expectation fails as it should |
+| Native run of the self tests through Sublang | not done (needs the wire export and a working Sublang backend) |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend
 requirement 10), not a reason to merge small functions: a compiler written in Emvus has hundreds.
