@@ -25,13 +25,48 @@ static method<Int> countSiblings(List<Int> nodes, Int node) {
     return count
 }
 
-static method bindArguments(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int callee) {
+// Binds the arguments after the callee and returns the type of the last one. A lambda argument is
+// expected to have the type of the matching parameter of the declaration, or, for the members of a list,
+// the function type its parameter count implies.
+static method<Int> bindArguments(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int callee, Int declaration, Int element) {
     Int argument = nodeField(nodes, callee, NODE_NEXT_SIBLING)
+    Int position = 0
+    Int previous = TYPE_UNKNOWN
 
     while (argument != NO_NODE) {
-        bindExpression(source, nodes, types, symbols, annotations, state, argument, TYPE_UNKNOWN)
+        Int expected = expectedArgument(source, nodes, types, declaration, element, previous, position, argument)
+        previous = bindExpression(source, nodes, types, symbols, annotations, state, argument, expected)
+        position = position + 1
         argument = nodeField(nodes, argument, NODE_NEXT_SIBLING)
     }
+
+    return previous
+}
+
+static method<Int> expectedArgument(String source, List<Int> nodes, List<Int> types, Int declaration, Int element, Int previous, Int position, Int argument) {
+    if (declaration != NO_NODE) {
+        return declaredParameterType(source, nodes, types, declaration, position)
+    }
+
+    if (element != NO_TYPE && nodeField(nodes, argument, NODE_KIND) == NODE_LAMBDA) {
+        return lambdaExpected(nodes, types, source, argument, element, previous)
+    }
+
+    return TYPE_UNKNOWN
+}
+
+static method<Int> declaredParameterType(String source, List<Int> nodes, List<Int> types, Int declaration, Int position) {
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+
+    for (Int index = 0; index < position && param != NO_NODE; index++) {
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    if (param == NO_NODE || childOfKind(nodes, param, NODE_TYPE) == NO_NODE) {
+        return TYPE_UNKNOWN
+    }
+
+    return typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE))
 }
 
 // A bare call names a method of the surrounding type, a method of the program or, failing both, the
@@ -39,6 +74,12 @@ static method bindArguments(String source, List<Int> nodes, List<Int> types, Lis
 static method<Int> bindMethodCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int argumentCount) {
     Int start = nodeField(nodes, callee, NODE_TEXT_START)
     Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
+    Int local = lookupLocal(source, symbols, state, start, length)
+
+    if (local != NO_SYMBOL && isFunctionType(types, symbolField(symbols, local, SYMBOL_TYPE))) {
+        return bindValueCall(source, nodes, types, symbols, annotations, state, node, callee, local)
+    }
+
     Int row = NO_SYMBOL
 
     if (state[BINDER_CLASS] != NO_TYPE) {
@@ -59,7 +100,29 @@ static method<Int> bindMethodCall(String source, List<Int> nodes, List<Int> type
         type = bindConstructorCall(source, symbols, annotations, state, node, start, length, argumentCount)
     }
 
-    bindArguments(source, nodes, types, symbols, annotations, state, callee)
+    bindArguments(source, nodes, types, symbols, annotations, state, callee, declarationOf(symbols, row), NO_TYPE)
+    return type
+}
+
+static method<Int> declarationOf(List<Int> symbols, Int row) {
+    if (row == NO_SYMBOL) {
+        return NO_NODE
+    }
+
+    return symbolField(symbols, row, SYMBOL_NODE)
+}
+
+static method<Bool> isFunctionType(List<Int> types, Int type) {
+    return typeField(types, type, TYPE_KIND) == KIND_FUNCTION || typeField(types, type, TYPE_KIND) == KIND_BIFUNCTION
+}
+
+// `f(x)` on a local or parameter of a function type applies it; the result is the last type argument.
+static method<Int> bindValueCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int local) {
+    Int function = symbolField(symbols, local, SYMBOL_TYPE)
+    Int type = typeOrUnknown(typeArgument(types, function, argumentCount(types, function) - 1))
+    bindExpression(source, nodes, types, symbols, annotations, state, callee, TYPE_UNKNOWN)
+    annotate(annotations, node, type, REFERENCE_VALUE, symbolField(symbols, local, SYMBOL_NAME_START), symbolField(symbols, local, SYMBOL_NAME_LENGTH), OWNER_NONE, 0)
+    bindArguments(source, nodes, types, symbols, annotations, state, callee, NO_NODE, NO_TYPE)
     return type
 }
 
@@ -99,12 +162,20 @@ static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> type
     Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, callee, NODE_FIRST_CHILD), TYPE_UNKNOWN)
     Int start = nodeField(nodes, callee, NODE_TEXT_START)
     Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
-    Int type = TYPE_UNKNOWN
     Int row = NO_SYMBOL
 
     if (typeField(types, receiver, TYPE_KIND) == KIND_NAMED) {
         row = lookupMember(source, symbols, state, receiver, start, length, ROW_METHOD, ROW_METHOD, argumentCount)
     }
+
+    Int element = NO_TYPE
+
+    if (typeField(types, receiver, TYPE_KIND) == KIND_LIST) {
+        element = typeField(types, receiver, TYPE_ELEMENT)
+    }
+
+    Int last = bindArguments(source, nodes, types, symbols, annotations, state, callee, declarationOf(symbols, row), element)
+    Int type = TYPE_UNKNOWN
 
     if (row != NO_SYMBOL) {
         type = annotateMethod(source, annotations, symbols, node, row)
@@ -115,21 +186,24 @@ static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> type
     }
 
     if (row == NO_SYMBOL && type == TYPE_UNKNOWN) {
-        type = memberResult(source, types, receiver, start, length, argumentCount)
-        annotateBuiltinMember(source, annotations, types, node, receiver, type, start, length)
+        type = memberResult(source, types, receiver, start, length, argumentCount, last)
+        annotateBuiltinMember(source, annotations, types, node, receiver, type, start, length, last)
     }
 
-    bindArguments(source, nodes, types, symbols, annotations, state, callee)
     return type
 }
 
-static method annotateBuiltinMember(String source, List<Int> annotations, List<Int> types, Int node, Int receiver, Int type, Int start, Int length) {
+static method annotateBuiltinMember(String source, List<Int> annotations, List<Int> types, Int node, Int receiver, Int type, Int start, Int length, Int last) {
     if (type == TYPE_UNKNOWN) {
         annotateType(annotations, node, type)
     }
 
     if (type != TYPE_UNKNOWN) {
         annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(source, types, receiver), 0)
+
+        if (typeField(types, receiver, TYPE_KIND) == KIND_LIST && (spanIs(source, start, length, "map") || spanIs(source, start, length, "reduce"))) {
+            annotateArgument(annotations, node, typeArgument(types, last, argumentCount(types, last) - 1))
+        }
     }
 }
 

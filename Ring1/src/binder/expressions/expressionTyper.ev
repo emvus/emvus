@@ -9,6 +9,10 @@ static method<Int> bindExpression(String source, List<Int> nodes, List<Int> type
         return bindName(source, nodes, types, symbols, annotations, state, node)
     }
 
+    if (kind == NODE_LAMBDA) {
+        return bindLambda(source, nodes, types, symbols, annotations, state, node, expected)
+    }
+
     if (kind == NODE_PROPAGATE || kind == NODE_UNWRAP) {
         return bindResultFlow(source, nodes, types, symbols, annotations, state, node)
     }

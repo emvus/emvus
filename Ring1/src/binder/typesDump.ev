@@ -74,7 +74,11 @@ static method<String> symbolText(String source, List<Int> nodes, List<Int> types
     }
 
     if (symbol == REFERENCE_METHOD) {
-        return " @ method " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|)"
+        return " @ method " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|" + argumentText(source, types, annotations, node) + ")"
+    }
+
+    if (symbol == REFERENCE_VALUE) {
+        return " @ value " + name
     }
 
     if (symbol == REFERENCE_TYPE) {
@@ -166,4 +170,14 @@ static method<String> typesSource(String source) {
     List<Int> state = [0, 0, NO_TYPE, TYPE_UNKNOWN]
     bindProgram(source, nodes, types, symbols, annotations, state)
     return typesNode(source, nodes, types, annotations, ROOT_NODE)
+}
+
+static method<String> argumentText(String source, List<Int> types, List<Int> annotations, Int node) {
+    Int argument = annotationField(annotations, node, ANNOTATION_ARGUMENT)
+
+    if (argument == NO_TYPE) {
+        return ""
+    }
+
+    return typeText(source, types, argument)
 }

@@ -1,0 +1,94 @@
+package ring1.binder
+
+// `(a, b) -> body`: the parameters take their types from the function type the context expects (or
+// from their own annotation), and the lambda is typed by them and by its body.
+static method<Int> bindLambda(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int params = childOfKind(nodes, node, NODE_PARAMS)
+    Int mark = state[BINDER_TOP]
+    Int first = TYPE_UNKNOWN
+    Int second = TYPE_UNKNOWN
+    Int count = 0
+    Int param = firstChildOf(nodes, params)
+
+    while (param != NO_NODE) {
+        Int type = lambdaParameterType(source, nodes, types, param, expected, count)
+        addSymbol(symbols, state, ROW_PARAMETER, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), type, param, 0, NO_TYPE)
+
+        if (count == 0) {
+            first = type
+        }
+
+        if (count == 1) {
+            second = type
+        }
+
+        count = count + 1
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    Int result = lambdaBody(source, nodes, types, symbols, annotations, state, nodeField(nodes, params, NODE_NEXT_SIBLING))
+    state[BINDER_TOP] = mark
+    Int type = TYPE_UNKNOWN
+
+    if (count == 1) {
+        type = appliedType(source, types, KIND_FUNCTION, 0, 0, first, result, NO_TYPE)
+    }
+
+    if (count == 2) {
+        type = appliedType(source, types, KIND_BIFUNCTION, 0, 0, first, second, result)
+    }
+
+    annotateType(annotations, node, type)
+    return type
+}
+
+static method<Int> lambdaParameterType(String source, List<Int> nodes, List<Int> types, Int param, Int expected, Int position) {
+    Int declared = childOfKind(nodes, param, NODE_TYPE)
+
+    if (declared != NO_NODE) {
+        return typeOfNode(source, nodes, types, declared)
+    }
+
+    Int kind = typeField(types, expected, TYPE_KIND)
+
+    if (kind == KIND_FUNCTION || kind == KIND_BIFUNCTION) {
+        return typeOrUnknown(typeArgument(types, expected, position))
+    }
+
+    return TYPE_UNKNOWN
+}
+
+// An expression body is the result; a block body returns the value of its first `return`.
+static method<Int> lambdaBody(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int body) {
+    if (nodeField(nodes, body, NODE_KIND) != NODE_BLOCK) {
+        return bindExpression(source, nodes, types, symbols, annotations, state, body, TYPE_UNKNOWN)
+    }
+
+    Int outer = state[BINDER_RETURN]
+    state[BINDER_RETURN] = TYPE_UNKNOWN
+    bindBlock(source, nodes, types, symbols, annotations, state, body)
+    state[BINDER_RETURN] = outer
+    Int returned = childOfKind(nodes, body, NODE_RETURN)
+
+    if (returned == NO_NODE) {
+        return TYPE_VOID
+    }
+
+    return typeOrUnknown(annotationField(annotations, nodeField(nodes, returned, NODE_FIRST_CHILD), ANNOTATION_TYPE))
+}
+
+// The function type a lambda argument of a list member is expected to have, given the list's element
+// type and the type of the argument before it.
+static method<Int> lambdaExpected(List<Int> nodes, List<Int> types, String source, Int lambda, Int element, Int previous) {
+    Int count = countChildren(nodes, childOfKind(nodes, lambda, NODE_PARAMS))
+
+    if (count == 1) {
+        return appliedType(source, types, KIND_FUNCTION, 0, 0, element, TYPE_UNKNOWN, NO_TYPE)
+    }
+
+    if (count == 2) {
+        return appliedType(source, types, KIND_BIFUNCTION, 0, 0, previous, element, TYPE_UNKNOWN)
+    }
+
+    return TYPE_UNKNOWN
+}

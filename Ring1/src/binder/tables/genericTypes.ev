@@ -13,6 +13,14 @@ static method<Int> genericKind(String source, Int start, Int length) {
         return KIND_FIBER
     }
 
+    if (spanIs(source, start, length, "Function")) {
+        return KIND_FUNCTION
+    }
+
+    if (spanIs(source, start, length, "BiFunction")) {
+        return KIND_BIFUNCTION
+    }
+
     return KIND_APPLIED
 }
 
@@ -100,6 +108,14 @@ static method<String> argumentsText(String source, List<Int> types, Int type) {
 
     if (kind == KIND_FIBER) {
         return "Fiber<" + text + ">"
+    }
+
+    if (kind == KIND_FUNCTION) {
+        return "Function<" + text + ">"
+    }
+
+    if (kind == KIND_BIFUNCTION) {
+        return "BiFunction<" + text + ">"
     }
 
     Int start = typeField(types, type, TYPE_NAME_START)

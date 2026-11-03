@@ -60,7 +60,7 @@ static method<Int> stringOneArgument(String source, List<Int> types, Int start, 
 }
 
 // List<T>.add(T):Void and the other members of the list type that need no function types.
-static method<Int> listMemberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
+static method<Int> listMemberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount, Int last) {
     Int element = typeField(types, receiver, TYPE_ELEMENT)
 
     if (isMember(source, start, length, "add", argumentCount, 1) || isMember(source, start, length, "set", argumentCount, 2) || isMember(source, start, length, "clear", argumentCount, 0)) {
@@ -77,6 +77,33 @@ static method<Int> listMemberResult(String source, List<Int> types, Int receiver
 
     if (isMember(source, start, length, "get", argumentCount, 1) || isMember(source, start, length, "removeAt", argumentCount, 1) || isMember(source, start, length, "first", argumentCount, 0) || isMember(source, start, length, "last", argumentCount, 0)) {
         return element
+    }
+
+    return listFunctionalResult(types, receiver, source, start, length, argumentCount, last)
+}
+
+// map, filter, reduce and forEach take function values; the result of the function decides the type.
+static method<Int> listFunctionalResult(List<Int> types, Int receiver, String source, Int start, Int length, Int argumentCount, Int last) {
+    Int returned = NO_TYPE
+
+    if (isFunctionType(types, last)) {
+        returned = typeArgument(types, last, argumentCount(types, last) - 1)
+    }
+
+    if (isMember(source, start, length, "map", argumentCount, 1) && returned != NO_TYPE) {
+        return listType(types, returned)
+    }
+
+    if (isMember(source, start, length, "filter", argumentCount, 1)) {
+        return receiver
+    }
+
+    if (isMember(source, start, length, "reduce", argumentCount, 2) && returned != NO_TYPE) {
+        return returned
+    }
+
+    if (isMember(source, start, length, "forEach", argumentCount, 1)) {
+        return TYPE_VOID
     }
 
     return TYPE_UNKNOWN

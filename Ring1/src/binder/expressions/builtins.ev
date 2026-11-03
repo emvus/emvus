@@ -29,7 +29,7 @@ static method<Bool> isResult(String source, List<Int> types, Int type) {
 }
 
 // The result type of `receiver.name(arguments)`, TYPE_UNKNOWN when there is no such member.
-static method<Int> memberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount) {
+static method<Int> memberResult(String source, List<Int> types, Int receiver, Int start, Int length, Int argumentCount, Int last) {
     Int owner = ownerOf(source, types, receiver)
 
     if (owner == OWNER_STRING) {
@@ -37,7 +37,7 @@ static method<Int> memberResult(String source, List<Int> types, Int receiver, In
     }
 
     if (owner == OWNER_LIST) {
-        return listMemberResult(source, types, receiver, start, length, argumentCount)
+        return listMemberResult(source, types, receiver, start, length, argumentCount, last)
     }
 
     if (owner == OWNER_FIBER && isMember(source, start, length, "await", argumentCount, 0)) {

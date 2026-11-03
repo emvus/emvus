@@ -9,7 +9,8 @@ final var ANNOTATION_NAME_START = 2
 final var ANNOTATION_NAME_LENGTH = 3
 final var ANNOTATION_OWNER = 4
 final var ANNOTATION_OVERLOAD = 5
-final var ANNOTATION_STRIDE = 6
+final var ANNOTATION_ARGUMENT = 6
+final var ANNOTATION_STRIDE = 7
 
 final var REFERENCE_NONE = 0
 final var REFERENCE_LOCAL = 1
@@ -23,6 +24,7 @@ final var REFERENCE_CONSTRUCTOR = 8
 final var REFERENCE_ENTRY = 9
 final var REFERENCE_TYPE = 10
 final var REFERENCE_SWITCH = 11
+final var REFERENCE_VALUE = 12
 
 // The overload column of a type name tells what kind of type it names; of a switch, how it ends.
 final var TYPE_IS_ENUM = 0
@@ -50,6 +52,7 @@ static method<List<Int>> newAnnotations(List<Int> nodes) {
         annotations.add(0)
         annotations.add(OWNER_NONE)
         annotations.add(0)
+        annotations.add(NO_TYPE)
     }
 
     return annotations
@@ -71,4 +74,9 @@ static method annotate(List<Int> annotations, Int node, Int type, Int symbol, In
 
 static method annotateType(List<Int> annotations, Int node, Int type) {
     annotate(annotations, node, type, REFERENCE_NONE, 0, 0, OWNER_NONE, 0)
+}
+
+// The type argument a generic member was called with, such as the R of `list.map(...)`.
+static method annotateArgument(List<Int> annotations, Int node, Int argument) {
+    annotations[node * ANNOTATION_STRIDE + ANNOTATION_ARGUMENT] = argument
 }
