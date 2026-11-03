@@ -1,24 +1,23 @@
 #!/usr/bin/env bash
-# Measures the Ring1 parser against Ring0's test sources and Ring1's own sources: the generated cases compare the tree printed
-# by Ring1 with the one printed by Ring0 (the oracle). Prints the failing cases and a summary.
-# Usage: EMERALD_HOME=<kit> scripts/runCorpus.sh <ring0-binary> <emerald-compiler> <novusc> <work-dir>
+# Measures the Ring1 parser against Ring0's: for every test source of Ring0 and every source of Ring1, the tree Ring1
+# prints must equal `ring0 file` (the oracle). Prints the sources that differ and a summary.
+# Usage: scripts/runCorpus.sh <emvusc> <ring0-binary> <work-dir>
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RING0="$1"
-EMERALD="$2"
-NOVUSC="$3"
-WORK="$4"
+EMVUSC="$(realpath "$1")"
+RING0="$(realpath "$2")"
+WORK="$(realpath -m "$3")"
 TESTS="$ROOT/../Ring0/tests"
 cd "$ROOT"
-LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
-PARSER=(src/parser/*.ev src/parser/*/*.ev)
-mkdir -p "$WORK/corpus"
-"$NOVUSC" build scripts/generateParserCases.nv -o "$WORK/generateParserCases" > /dev/null
-"$NOVUSC" build scripts/emvusToEmerald.nv -o "$WORK/emvusToEmerald" > /dev/null
-"$WORK/generateParserCases" "$RING0" "$WORK/corpus/parserCorpus.ev" "$TESTS"/lowering/*.ev "$TESTS"/syntax/p*.ev "$TESTS"/binding/*.ev "$TESTS"/flow/*.ev "$TESTS"/types/*.ev "$TESTS"/showcase.ev src/lexer/*.ev src/parser/*.ev src/parser/*/*.ev tests/lexerTest.ev
-"$WORK/emvusToEmerald" "$RING0" "$WORK/corpus" "${LEXER[@]}" "${PARSER[@]}" "$WORK/corpus/parserCorpus.ev"
-"$EMERALD" build "$WORK/corpus/Ring1Main.ems" -o "$WORK/corpus/run" > /dev/null
-rm -f "$WORK/corpus/dump"
-"$WORK/corpus/run" > "$WORK/corpus/result.txt"
-grep ': 1$' "$WORK/corpus/result.txt" || true
-echo "passed: $(grep -c ': 0$' "$WORK/corpus/result.txt"), failed: $(grep -c ': 1$' "$WORK/corpus/result.txt")"
+source scripts/common.sh
+mkdir -p "$WORK"
+build "$EMVUSC" "$WORK/astTool" "${LEXER[@]}" "${PARSER[@]}" tests/astTool.ev
+same=0
+different=0
+for file in "$TESTS"/lowering/*.ev "$TESTS"/syntax/p*.ev "$TESTS"/binding/*.ev "$TESTS"/flow/*.ev "$TESTS"/types/*.ev "$TESTS"/showcase.ev src/lexer/*.ev src/parser/*.ev src/parser/*/*.ev src/binder/*.ev src/binder/*/*.ev src/lowering/*.ev src/emvusc/*.ev tests/*.ev; do
+    if ! "$RING0" "$file" > "$WORK/expected.txt" 2>/dev/null; then continue; fi
+    "$WORK/astTool" "$file" > "$WORK/actual.txt" 2>&1 || true
+    if cmp -s "$WORK/expected.txt" "$WORK/actual.txt"; then same=$((same + 1)); else different=$((different + 1)); echo "differs: $file"; fi
+done
+echo "identical: $same, different: $different"
+[[ $different -eq 0 ]]

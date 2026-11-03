@@ -63,9 +63,22 @@ static method<Int> resultMemberResult(String source, List<Int> types, Int receiv
     return TYPE_UNKNOWN
 }
 
-// Global functions: they take one argument and return nothing.
-static method<Bool> isBuiltinFunction(String source, Int start, Int length) {
-    return spanIs(source, start, length, "println") || spanIs(source, start, length, "print") || spanIs(source, start, length, "errprintln") || spanIs(source, start, length, "panic")
+// Global functions, after Ring0's built-in table: the ones that print or panic take one argument and return
+// nothing, `readFile` and `argument` return a String, `writeFile` a Boolean. TYPE_UNKNOWN when there is none.
+static method<Int> builtinFunctionType(String source, Int start, Int length, Int argumentCount) {
+    if (argumentCount == 1 && (spanIs(source, start, length, "println") || spanIs(source, start, length, "print") || spanIs(source, start, length, "errprintln") || spanIs(source, start, length, "panic"))) {
+        return TYPE_VOID
+    }
+
+    if (argumentCount == 1 && (spanIs(source, start, length, "readFile") || spanIs(source, start, length, "argument"))) {
+        return TYPE_STRING
+    }
+
+    if (argumentCount == 2 && spanIs(source, start, length, "writeFile")) {
+        return TYPE_BOOLEAN
+    }
+
+    return TYPE_UNKNOWN
 }
 
 static method<Bool> isMember(String source, Int start, Int length, String name, Int argumentCount, Int expectedCount) {

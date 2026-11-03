@@ -1,32 +1,30 @@
 #!/usr/bin/env bash
-# Measures the Ring1 binder against Ring0's: for every test source Ring0 accepts, Ring1's type
-# annotations must equal `ring0 file --check --types`. Prints the sources that differ.
-# Usage: EMERALD_HOME=<kit> scripts/runBinderCorpus.sh <ring0-binary> <emerald-compiler> <novusc> <work-dir>
+# Measures the Ring1 binder against Ring0's: for every test source Ring0 accepts, the annotations Ring1 prints must equal
+# `ring0 file --check --types`. Prints the sources that differ. With file arguments, only those (joined into one
+# program) are compared and the first differences are shown.
+# Usage: scripts/runBinderCorpus.sh <emvusc> <ring0-binary> <work-dir> [file.ev...]
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-RING0="$1"
-EMERALD="$2"
-NOVUSC="$3"
-WORK="$4"
+EMVUSC="$(realpath "$1")"
+RING0="$(realpath "$2")"
+WORK="$(realpath -m "$3")"
+shift 3
 TESTS="$ROOT/../Ring0/tests"
 cd "$ROOT"
-LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
-TOOL=("${LEXER[@]}" src/parser/*.ev src/parser/*/*.ev src/binder/*.ev src/binder/*/*.ev)
-mkdir -p "$WORK/types"
-"$NOVUSC" build scripts/emvusToEmerald.nv -o "$WORK/emvusToEmerald" > /dev/null
-"$WORK/emvusToEmerald" "$RING0" "$WORK/types" "${TOOL[@]}" tests/emptyTest.ev
-"$EMERALD" build "$WORK/types/Ring1Types.ems" -o "$WORK/types/run" > /dev/null
+source scripts/common.sh
+mkdir -p "$WORK"
+build "$EMVUSC" "$WORK/typesTool" "${LEXER[@]}" "${PARSER[@]}" "${BINDER[@]}" tests/typesTool.ev
+if [[ $# -gt 0 ]]; then
+    join "$WORK/program.ev" "$@"
+    diff <("$RING0" "$WORK/program.ev" --check --types | head -n -2) <("$WORK/typesTool" "$WORK/program.ev") && echo "identical"
+    exit
+fi
 same=0
 different=0
 for file in "$TESTS"/lowering/*.ev "$TESTS"/types/*.ev "$TESTS"/flow/*.ev "$TESTS"/syntax/p*.ev "$TESTS"/showcase.ev; do
-    if ! "$RING0" "$file" --check --types > "$WORK/types/expected.txt" 2>&1; then continue; fi
-    head -n -2 "$WORK/types/expected.txt" > "$WORK/types/expected.body"
-    "$WORK/types/run" "$file" 2>&1 | head -n -1 > "$WORK/types/actual.body"
-    if cmp -s "$WORK/types/expected.body" "$WORK/types/actual.body"; then
-        same=$((same + 1))
-        continue
-    fi
-    different=$((different + 1))
-    echo "differs: $(basename "$file")"
+    if ! "$RING0" "$file" --check --types > "$WORK/expected.txt" 2>&1; then continue; fi
+    head -n -2 "$WORK/expected.txt" > "$WORK/expected.body"
+    "$WORK/typesTool" "$file" > "$WORK/actual.body" 2>&1 || true
+    if cmp -s "$WORK/expected.body" "$WORK/actual.body"; then same=$((same + 1)); else different=$((different + 1)); echo "differs: $(basename "$file")"; fi
 done
 echo "identical: $same, different: $different"

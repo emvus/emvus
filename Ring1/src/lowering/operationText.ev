@@ -244,6 +244,22 @@ static method<String> textOpcodeText(Int code) {
         return "text.equal"
     }
 
+    if (code == OP_TEXT_FROM_FILE) {
+        return "text.from_file"
+    }
+
+    if (code == OP_TEXT_WRITE_FILE) {
+        return "text.write_file"
+    }
+
+    if (code == OP_TEXT_PRINT) {
+        return "text.print"
+    }
+
+    if (code == OP_TEXT_ARGUMENT) {
+        return "text.argument"
+    }
+
     return "byte.to_int"
 }
 
@@ -261,6 +277,10 @@ final var PRINTABLE_END = 127
 static method<String> escapedText(String source, Int start, Int length) {
     String text = ""
     Int index = 0
+
+    if (start == TEXT_LINE_FEED) {
+        return "\\n"
+    }
 
     while (index < length) {
         Int position = start + index

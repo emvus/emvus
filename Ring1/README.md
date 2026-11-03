@@ -56,11 +56,10 @@ tasks, string interpolation) and optional semicolons.
 
 - The tree has the shape of Ring0's AST (`Ring0/ast.md`); `dumpSource` prints it like Ring0's `dump`,
   including resolved string escapes.
-- **Corpus:** `scripts/runCorpus.sh` generates one test case per Ring0 test source (lowering, syntax,
-  binding, flow, types, showcase) and per Ring1 source file, and compares Ring1's tree with Ring0's.
-  131 cases, all identical to Ring0's tree: the whole language draft (`showcase.ev`), the Ring0 test sources
+- **Corpus:** `scripts/runCorpus.sh` runs the native `tests/astTool.ev` on every Ring0 test source (lowering,
+  syntax, binding, flow, types, showcase) and every Ring1 source file and compares its tree with Ring0's.
+  163 files, all identical to Ring0's tree: the whole language draft (`showcase.ev`), the Ring0 test sources
   and every Ring1 file, so the parser parses its own source tree.
-  `scripts/diffParse.sh` shows where one file differs.
 - `tests/parserTest.ev` holds five hand-picked cases, expected trees generated from Ring0.
 
 ## Binder (`src/binder/`)
@@ -77,7 +76,7 @@ of String and List that the compiler uses, operators, indexing, list literals (a
 expected type) and the statements `if`, `while`, `for`, `return` and expression statements.
 
 - **Result:** the annotations of Ring1's whole source (lexer, parser, binder: 8,973 lines) are identical to
-  Ring0's. `scripts/diffTypes.sh` shows where a program differs; `scripts/runBinderCorpus.sh` measures
+  Ring0's. `scripts/runBinderCorpus.sh` (with file arguments it shows the differences of that program) measures
   against Ring0's test sources: 77 of 78 are identical (the showcase uses built-ins outside the Ring1 subset:
   `Files`, `Int.parse`, `copy`, the members of `Any`; remaining differences also include interface calls,
   exception members, switch results, Dictionary/Tuple typing and task/async types).
@@ -88,33 +87,38 @@ expected type) and the statements `if`, `while`, `for`, `return` and expression 
 
 ## Running the tests
 
-The frontend unit tests execute on Emerald: Ring0 parses the sources
-(`ring0 files... --ast`), `scripts/emvusToEmerald.nv` translates the Ring1 subset to an Emerald class, the
-Emerald compiler builds it and the program prints the number of failed cases.
+All scripts build native programs with `emvusc` (Ring0, the Emerald-built binary from `scripts/buildEmvusc.sh`)
+and clang; the tests read files and print through the platform functions of Sublang's byte-text extension
+(`readFile`, `argument`, `print`). No translation to Emerald is involved.
 
 ```bash
-EMERALD_HOME=<kit> bash scripts/runTests.sh <ring0-binary> <emerald-compiler> <novusc> <work-dir>
+bash scripts/runTests.sh <emvusc> <work-dir>                       # lexer, parser, null flow, bootstrap: failed cases
+bash scripts/runCorpus.sh <emvusc> <ring0-binary> <work-dir>       # parser against Ring0's trees
+bash scripts/runBinderCorpus.sh <emvusc> <ring0-binary> <work-dir> # binder against Ring0's annotations
 ```
 
-`runTests.sh` includes the lexer, parser and null-flow regressions. The scripts resolve source globs
-from the Ring1 directory and can also be invoked from the workspace root. Tool and work-directory
-arguments should be absolute paths.
+`<ring0-binary>` is Ring0's own command line tool (`Ring0/src/Main.ems`, built by the Emerald compiler), the oracle.
+The bootstrap test runs Ring1's frontend and lowering natively on a small program and compares the type
+annotations with Ring0's and the lowered text with what an earlier build produced. Full diagnostic and IR
+parity with Ring0 remains open.
 
-The native bootstrap regression lowers the combined frontend and lowering with Ring1, builds the
-Sublang wire output and executes the resulting compiler on a sample program:
+## The Emvus compiler in Emvus: `emvusc`
+
+`src/emvusc/emvusc.ev` is the command line tool: `emvusc <file.ev>... [-o out.sublang-text]`. It lowers the Ring1
+subset to Sublang canonical text; `sublang text-build`, `sublang emit-llvm` and clang turn that into a program.
 
 ```bash
-EMERALD_HOME=<kit> bash scripts/runBootstrap.sh <ring0-binary> <emerald-compiler> <novusc> <sublang> <work-dir>
+bash scripts/buildEmvuscRing1.sh <ring0-emvusc> <sublang> <work-dir>
 ```
 
-The integrated review run passes all four bootstrap checks (`bootstrap: failed checks: 0`),
-77/78 binder corpus comparisons and all 12 supported native lowering cases (33 unsupported).
-An owned reference return closes its remaining scopes through Sublang's `return` with `owned`
-operand mode; borrowed String returns are copied first. Full diagnostic and IR parity remains open.
+builds it in three stages: the Emerald-built `emvusc` compiles Ring1 (stage 1), stage 1 compiles Ring1 (stage 2),
+stage 2 compiles Ring1 again (stage 3). The script succeeds when stages 2 and 3 produce the same text, a fixed point,
+and leaves `<work-dir>/emvusc`. `bash scripts/runLoweringCorpus.sh <emvusc> <sublang> <work-dir>` runs Ring0's lowering
+fixtures through it.
 
-The translator `scripts/emvusToEmerald.nv` is written in Novus (https://github.com/ezTxmMC/novus, `novusc` from its
-releases; it needs a C compiler to build). It is a test harness for exactly the constructs Ring1 uses, not a second compiler; it stops with an
-error on anything else. It replaces constants by their values (like Ring0's lowering) and emulates `byteAt` for ASCII.
+Ring1 compiles only what it is written in (`Int`, `Bool`, `String`, `List<Int>`, `List<Bool>`, functions, control
+flow), not yet floats, classes, records, `Result`, lambdas or generics; the tool answers with the line of the first
+construct it cannot lower. It does not report syntax errors the way Ring0 does.
 
 ## State
 
@@ -123,9 +127,10 @@ error on anything else. It replaces constants by their values (like Ring0's lowe
 | `ring0 <lexer files> tests/lexerTest.ev --check` | ok |
 | Lowering to Sublang IR (`--dump`) | verifier: structure valid, semantics valid |
 | Parser, lexer and tests together | check ok; lowers to 201 functions, verifier: structure and semantics valid |
-| Native run through `emvusc` (Ring0 -> Sublang -> clang) | lexer tests, parser tests and the 131-case parser corpus: 0 failed cases each, `scripts/runNative.sh` |
+| Native tests (Ring0 `emvusc` -> clang) | lexer, parser, null flow and bootstrap: 0 failed cases each, `scripts/runTests.sh` |
+| Parser corpus | 163 of 163 identical to Ring0's trees, `scripts/runCorpus.sh` |
+| Emvus `emvusc` bootstrap | stage 2 and stage 3 produce the same text, `scripts/buildEmvuscRing1.sh` |
 | Wire export (formerly blocked by Sublang's 32-function limit) | works; the limits are raised in `sub-lang/src/sublang/limits/SublangLimits.ems` |
-| Self tests on Emerald (translated) | lexer 17 of 17, parser 5 of 5, corpus 131 of 131 cases pass; a deliberately wrong expectation fails as it should |
 
 The function budget is a documented Sublang requirement (`Ring0/docs/lowering.md`, open backend
 requirement 10), not a reason to merge small functions: a compiler written in Emvus has hundreds.
@@ -146,15 +151,14 @@ calls, locals, assignment (also `+=` etc.), `++`/`--`, `if`, `while`, `for`, `br
 and the wrapping of a `Void` main. Everything else makes the lowering answer `unsupported <line>`.
 
 `scripts/runLoweringCorpus.sh` runs Ring0's lowering fixtures through Ring1 and compares the native
-output with the expected one: 9 pass, 0 fail, 36 are unsupported (floats, text, classes, ...).
+output with the expected one: 12 pass, 0 fail, 33 are unsupported (floats, classes, `Result`, ...).
 
 ## Open
 
 - Binder: diagnostics, null flow, the built-ins the showcase uses.
-- Lowering: only `Int`/`Bool` functions so far (see below).
+- Lowering: floats, records, classes, `Result`, lambdas, generics, the rest of the language.
 - Not parsed yet: statement-level cascade items, and error recovery that matches Ring0's diagnostics (Ring1
   only produces error nodes). Ring0's trees for sources with syntax errors are not compared.
-- Binder and parser tests as native programs need no file input; running the compiler itself natively on files needs `G1` (file access) in Sublang.
-- Token stream comparison with Ring0 on every syntax fixture: needs file input (`G1`) and a shared
-  dump format; Ring0's `--tokens` prints `line:column kind text`.
+- Token stream comparison with Ring0 on every syntax fixture: needs a shared dump format; Ring0's `--tokens`
+  prints `line:column kind text`.
 - Parser, binder, null flow, lowering (see `Ring0/docs/plan.md`, Self-hosting).

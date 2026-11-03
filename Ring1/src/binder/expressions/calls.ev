@@ -191,9 +191,11 @@ static method<Int> selfTypeWith(String source, List<Int> nodes, List<Int> types,
 static method<Int> bindUnknownCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int start, Int length, Int argumentCount) {
     bindArguments(source, nodes, types, symbols, annotations, state, callee, newCall(NO_NODE, NO_NODE, NO_TYPE))
 
-    if (isBuiltinFunction(source, start, length) && argumentCount == 1) {
-        annotate(annotations, node, TYPE_VOID, REFERENCE_METHOD, start, length, OWNER_NONE, 0)
-        return TYPE_VOID
+    Int builtin = builtinFunctionType(source, start, length, argumentCount)
+
+    if (builtin != TYPE_UNKNOWN) {
+        annotate(annotations, node, builtin, REFERENCE_METHOD, start, length, OWNER_NONE, 0)
+        return builtin
     }
 
     annotateType(annotations, node, TYPE_UNKNOWN)

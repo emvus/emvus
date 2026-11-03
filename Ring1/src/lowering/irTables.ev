@@ -89,6 +89,13 @@ final var OP_TEXT_SLICE = 24
 final var OP_TEXT_EQUAL = 25
 final var OP_BYTE_TO_INT = 26
 final var OP_LIST_CLEAR = 27
+final var OP_TEXT_FROM_FILE = 28
+final var OP_TEXT_WRITE_FILE = 29
+final var OP_TEXT_PRINT = 30
+final var OP_TEXT_ARGUMENT = 31
+
+// A string constant whose text start is this value is a single line feed, which no source span holds.
+final var TEXT_LINE_FEED = -1
 
 // Function 1 of every module copies one text into another; the functions of the program follow it.
 final var TEXT_ASSIGN_FUNCTION = 1

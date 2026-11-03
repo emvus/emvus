@@ -6,7 +6,7 @@ AST macros. This repository holds its compiler, in stages:
 | Stage | What | Written in |
 |---|---|---|
 | `Ring0/` | the bootstrap compiler: parse, bind, lower to Sublang | Emerald |
-| `Ring1/` | the first self-hosted compiler: lexer, parser, binder and a lowering for `Int`, `Bool`, `List` and `String`; it compiles itself (`Ring1/scripts/runBootstrap.sh`) | Emvus |
+| `Ring1/` | the first self-hosted compiler: lexer, parser, binder and a lowering for `Int`, `Bool`, `List` and `String`; it compiles itself (`Ring1/scripts/buildEmvuscRing1.sh`) | Emvus |
 | `vscode-emvus/` | VS Code extension: highlighting, completion, diagnostics | TypeScript |
 
 Native code comes from [Sublang](https://github.com/emvus/sub-lang) (LLVM) and a C compiler.
@@ -15,7 +15,7 @@ Native code comes from [Sublang](https://github.com/emvus/sub-lang) (LLVM) and a
 ## The compiler binary: `emvusc`
 
 There are two Emvus compilers, and both are called `emvusc`: the one in `Ring0/` is written in Emerald, the one in
-`Ring1/` in Emvus itself (it is not a command line tool yet, see below).
+`Ring1/` in Emvus itself (`Ring1/README.md`).
 
 ```bash
 scripts/buildEmvusc.sh <emerald-kit> <sub-lang-checkout>        # builds dist/emvusc-<version>/emvusc
@@ -36,9 +36,9 @@ Emerald-built Sublang backend (see `scripts/buildEmvusc.sh`). Versions are
 What the compiled programs can do today: integers, floats, booleans, text (`+`, `length`, `byteAt`,
 `substring`, `indexOf`), lists, records, data classes, enums, classes with inheritance and interfaces,
 generics, lambdas, `Result` with `switch`, top-level constants. The program prints the `Int` its `main`
-returns. Not yet: `println`, files, arguments, dictionaries, tasks, `null` on references (they need
-Sublang runtime support, see `Ring0/docs/plan.md`). The Emvus `emvusc` in `Ring1/` becomes a command line tool
-when Sublang can read files, take arguments and write output, which a compiler written in Emvus needs.
+returns (or exits with it, see below). Not yet: dictionaries, tasks, `null` on references (they need
+Sublang runtime support, see `Ring0/docs/plan.md`). Programs can print (`print`, `println`), read and write files
+(`readFile`, `writeFile`) and take arguments (`argument`) as Strings; such a program exits with the Int its `main` returns.
 
 ## Contributing
 
@@ -47,10 +47,11 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.
 
 ## Tests
 
-- `Ring0/scripts/checkLoweringNative.sh`: all 67 lowering fixtures to native programs and back to their
+- `Ring0/scripts/checkLoweringNative.sh <emvusc> <work-dir>`: all 68 lowering fixtures to native programs and back to their
   expected output.
-- `Ring1/scripts/runTests.sh`, `runCorpus.sh`, `runBinderCorpus.sh`: Ring1 against Ring0 as the oracle.
-- The same Ring1 tests also run natively through `emvusc`; see `Ring1/README.md`.
+- `Ring1/scripts/runTests.sh`, `runCorpus.sh`, `runBinderCorpus.sh`: Ring1 against Ring0 as the oracle, all as native
+  programs built with `emvusc`.
+- `Ring1/scripts/buildEmvuscRing1.sh`: the Emvus compiler in Emvus compiles itself until the output stops changing.
 
 ## State and plan
 
