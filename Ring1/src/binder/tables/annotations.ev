@@ -20,6 +20,15 @@ final var REFERENCE_LITERAL = 5
 final var REFERENCE_PROPERTY = 6
 final var REFERENCE_FIELD = 7
 final var REFERENCE_CONSTRUCTOR = 8
+final var REFERENCE_ENTRY = 9
+final var REFERENCE_TYPE = 10
+final var REFERENCE_SWITCH = 11
+
+// The overload column of a type name tells what kind of type it names; of a switch, how it ends.
+final var TYPE_IS_ENUM = 0
+final var TYPE_IS_CLASS = 1
+final var SWITCH_EXHAUSTIVE = 0
+final var SWITCH_CATCH_ALL = 1
 
 // Owners of members: a type id for the types of the program, these values for built-in types.
 final var OWNER_NONE = -1

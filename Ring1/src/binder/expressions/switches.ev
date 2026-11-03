@@ -1,0 +1,58 @@
+package ring1.binder
+
+// `switch (subject) { pattern -> value ... }`: the type of the switch is the type of its first value.
+// It ends exhaustively when every pattern names an entry of the subject's enum, otherwise it has a
+// catch-all pattern whose name stands for the subject inside that case.
+static method<Int> bindSwitch(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int expected) {
+    Int subject = nodeField(nodes, node, NODE_FIRST_CHILD)
+    Int subjectType = bindExpression(source, nodes, types, symbols, annotations, state, subject, TYPE_UNKNOWN)
+    Int result = TYPE_UNKNOWN
+    Int ending = SWITCH_EXHAUSTIVE
+    Int branch = nodeField(nodes, subject, NODE_NEXT_SIBLING)
+
+    while (branch != NO_NODE) {
+        Int mark = state[BINDER_TOP]
+        Int patterns = childOfKind(nodes, branch, NODE_PATTERNS)
+
+        if (bindPatterns(source, nodes, types, symbols, annotations, state, patterns, subjectType)) {
+            ending = SWITCH_CATCH_ALL
+        }
+
+        Int value = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, patterns, NODE_NEXT_SIBLING), expected)
+
+        if (result == TYPE_UNKNOWN) {
+            result = value
+        }
+
+        state[BINDER_TOP] = mark
+        branch = nodeField(nodes, branch, NODE_NEXT_SIBLING)
+    }
+
+    annotate(annotations, node, result, REFERENCE_SWITCH, 0, 0, subjectType, ending)
+    return result
+}
+
+// True when one of the patterns is a catch-all name.
+static method<Bool> bindPatterns(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int patterns, Int subjectType) {
+    Bool catchAll = false
+    Int pattern = nodeField(nodes, patterns, NODE_FIRST_CHILD)
+
+    while (pattern != NO_NODE) {
+        Int kind = nodeField(nodes, pattern, NODE_KIND)
+        Int start = nodeField(nodes, pattern, NODE_TEXT_START)
+        Int length = nodeField(nodes, pattern, NODE_TEXT_LENGTH)
+
+        if (kind == NODE_PATTERN_LITERAL) {
+            bindChildren(source, nodes, types, symbols, annotations, state, pattern)
+        }
+
+        if (kind == NODE_PATTERN && memberOf(source, symbols, state, subjectType, start, length, ROW_ENTRY, ROW_ENTRY, NO_SYMBOL) == NO_SYMBOL) {
+            catchAll = true
+            addSymbol(symbols, state, ROW_LOCAL, start, length, subjectType, pattern, 0, NO_TYPE)
+        }
+
+        pattern = nodeField(nodes, pattern, NODE_NEXT_SIBLING)
+    }
+
+    return catchAll
+}

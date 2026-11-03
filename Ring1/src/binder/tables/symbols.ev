@@ -21,6 +21,8 @@ final var ROW_CLASS = 5
 final var ROW_FIELD = 6
 final var ROW_PROPERTY = 7
 final var ROW_CONSTRUCTOR = 8
+final var ROW_ENUM = 9
+final var ROW_ENTRY = 10
 final var NO_SYMBOL = -1
 
 // The binder's state: the number of symbol rows in use, how many of them are declarations, and the type
@@ -86,9 +88,13 @@ static method<Int> lookupVariable(String source, List<Int> symbols, List<Int> st
 }
 
 // The row of a type of the program, by its type id; NO_SYMBOL for any other type.
+static method<Bool> isTypeRow(Int rowKind) {
+    return rowKind == ROW_CLASS || rowKind == ROW_ENUM
+}
+
 static method<Int> classRow(List<Int> symbols, List<Int> state, Int type) {
     for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
-        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_CLASS && symbolField(symbols, row, SYMBOL_TYPE) == type) {
+        if (isTypeRow(symbolField(symbols, row, SYMBOL_ROW_KIND)) && symbolField(symbols, row, SYMBOL_TYPE) == type) {
             return row
         }
     }
@@ -99,7 +105,7 @@ static method<Int> classRow(List<Int> symbols, List<Int> state, Int type) {
 // The row of a type with this name; NO_SYMBOL when the program declares none.
 static method<Int> classNamed(String source, List<Int> symbols, List<Int> state, Int start, Int length) {
     for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
-        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_CLASS && hasName(source, symbols, row, start, length)) {
+        if (isTypeRow(symbolField(symbols, row, SYMBOL_ROW_KIND)) && hasName(source, symbols, row, start, length)) {
             return row
         }
     }

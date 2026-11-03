@@ -9,6 +9,10 @@ static method<Int> bindExpression(String source, List<Int> nodes, List<Int> type
         return bindName(source, nodes, types, symbols, annotations, state, node)
     }
 
+    if (kind == NODE_SWITCH) {
+        return bindSwitch(source, nodes, types, symbols, annotations, state, node, expected)
+    }
+
     if (kind == NODE_MEMBER) {
         return bindMember(source, nodes, types, symbols, annotations, state, node)
     }
@@ -93,18 +97,37 @@ static method<Int> bindName(String source, List<Int> nodes, List<Int> types, Lis
     }
 
     if (row == NO_SYMBOL) {
+        return bindTypeName(source, types, symbols, annotations, state, node, start, length)
+    }
+
+    return annotateSymbol(annotations, symbols, node, row)
+}
+
+// A name that is none of the above may name a type of the program, used as a value (`Color.RED`).
+static method<Int> bindTypeName(String source, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int start, Int length) {
+    Int row = classNamed(source, symbols, state, start, length)
+
+    if (row == NO_SYMBOL) {
         annotateType(annotations, node, TYPE_UNKNOWN)
         return TYPE_UNKNOWN
     }
 
-    return annotateSymbol(annotations, symbols, node, row)
+    Int type = symbolField(symbols, row, SYMBOL_TYPE)
+    Int kind = TYPE_IS_CLASS
+
+    if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_ENUM) {
+        kind = TYPE_IS_ENUM
+    }
+
+    annotate(annotations, node, typeObject(types, type), REFERENCE_TYPE, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), type, kind)
+    return typeObject(types, type)
 }
 
 static method<Int> annotateSymbol(List<Int> annotations, List<Int> symbols, Int node, Int row) {
     Int type = symbolField(symbols, row, SYMBOL_TYPE)
     Int owner = OWNER_NONE
 
-    if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_PROPERTY || symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_FIELD) {
+    if (symbolField(symbols, row, SYMBOL_OWNER) != NO_TYPE && symbolField(symbols, row, SYMBOL_ROW_KIND) != ROW_METHOD) {
         owner = symbolField(symbols, row, SYMBOL_OWNER)
     }
 
@@ -119,6 +142,10 @@ static method<Int> symbolKindOf(Int rowKind) {
 
     if (rowKind == ROW_PARAMETER) {
         return REFERENCE_PARAMETER
+    }
+
+    if (rowKind == ROW_ENTRY) {
+        return REFERENCE_ENTRY
     }
 
     if (rowKind == ROW_PROPERTY) {

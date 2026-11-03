@@ -74,7 +74,15 @@ static method<String> symbolText(String source, List<Int> nodes, List<Int> types
         return " @ method " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|)"
     }
 
-    if (symbol == REFERENCE_PROPERTY || symbol == REFERENCE_FIELD) {
+    if (symbol == REFERENCE_TYPE) {
+        return " @ type " + name + " (" + typeKindWord(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + ")"
+    }
+
+    if (symbol == REFERENCE_SWITCH) {
+        return " @ switch " + switchWord(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + ")"
+    }
+
+    if (symbol == REFERENCE_PROPERTY || symbol == REFERENCE_FIELD || symbol == REFERENCE_ENTRY) {
         return " @ " + referenceWord(symbol) + " " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + ")"
     }
 
@@ -89,7 +97,27 @@ static method<String> symbolText(String source, List<Int> nodes, List<Int> types
     return ""
 }
 
+static method<String> typeKindWord(Int kind) {
+    if (kind == TYPE_IS_ENUM) {
+        return "enum"
+    }
+
+    return "class"
+}
+
+static method<String> switchWord(Int ending) {
+    if (ending == SWITCH_CATCH_ALL) {
+        return "catch-all"
+    }
+
+    return "enum"
+}
+
 static method<String> referenceWord(Int symbol) {
+    if (symbol == REFERENCE_ENTRY) {
+        return "entry"
+    }
+
     if (symbol == REFERENCE_FIELD) {
         return "field"
     }

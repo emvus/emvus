@@ -9,6 +9,10 @@ static method<Int> bindMember(String source, List<Int> nodes, List<Int> types, L
         row = lookupMember(source, symbols, state, receiver, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_PROPERTY, ROW_FIELD, NO_SYMBOL)
     }
 
+    if (typeField(types, receiver, TYPE_KIND) == KIND_TYPE_OBJECT) {
+        row = lookupMember(source, symbols, state, typeField(types, receiver, TYPE_ELEMENT), nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH), ROW_ENTRY, ROW_ENTRY, NO_SYMBOL)
+    }
+
     if (row == NO_SYMBOL) {
         annotateType(annotations, node, TYPE_UNKNOWN)
         return TYPE_UNKNOWN

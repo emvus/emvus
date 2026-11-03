@@ -12,7 +12,7 @@ static method<Int> firstChildOf(List<Int> nodes, Int parent) {
 }
 
 static method<Bool> isTypeDeclaration(Int kind) {
-    return kind == NODE_CLASS || kind == NODE_RECORD || kind == NODE_DATA_CLASS
+    return kind == NODE_CLASS || kind == NODE_RECORD || kind == NODE_DATA_CLASS || kind == NODE_ENUM
 }
 
 static method declareType(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int declaration) {
@@ -26,7 +26,13 @@ static method declareType(String source, List<Int> nodes, List<Int> types, List<
         base = typeOfNode(source, nodes, types, nodeField(nodes, based, NODE_FIRST_CHILD))
     }
 
-    addSymbol(symbols, state, ROW_CLASS, start, length, type, declaration, 0, base)
+    Int rowKind = ROW_CLASS
+
+    if (nodeField(nodes, declaration, NODE_KIND) == NODE_ENUM) {
+        rowKind = ROW_ENUM
+    }
+
+    addSymbol(symbols, state, rowKind, start, length, type, declaration, 0, base)
     declareRecordProperties(source, nodes, types, symbols, state, declaration, type)
     declareTypeMembers(source, nodes, types, symbols, state, childOfKind(nodes, declaration, NODE_BODY), type)
 }
@@ -64,6 +70,10 @@ static method declareTypeMember(String source, List<Int> nodes, List<Int> types,
         }
 
         addSymbol(symbols, state, rowKind, start, length, typeOfNode(source, nodes, types, childOfKind(nodes, member, NODE_TYPE)), member, 0, type)
+    }
+
+    if (kind == NODE_ENUM_ENTRY) {
+        addSymbol(symbols, state, ROW_ENTRY, start, length, type, member, 0, type)
     }
 
     if (kind == NODE_METHOD) {
