@@ -6,7 +6,11 @@ static method<Int> bindExpression(String source, List<Int> nodes, List<Int> type
     Int kind = nodeField(nodes, node, NODE_KIND)
 
     if (kind == NODE_NAME) {
-        return bindName(source, nodes, symbols, annotations, state, node)
+        return bindName(source, nodes, types, symbols, annotations, state, node)
+    }
+
+    if (kind == NODE_MEMBER) {
+        return bindMember(source, nodes, types, symbols, annotations, state, node)
     }
 
     if (kind == NODE_CALL) {
@@ -20,7 +24,7 @@ static method<Int> bindExpression(String source, List<Int> nodes, List<Int> type
     Int type = literalType(kind)
 
     if (type != TYPE_UNKNOWN) {
-        annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, 0)
+        annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, OWNER_NONE, 0)
         bindChildren(source, nodes, types, symbols, annotations, state, node)
         return type
     }
@@ -47,6 +51,10 @@ static method<Int> literalType(Int kind) {
         return TYPE_BOOLEAN
     }
 
+    if (kind == NODE_NULL_LITERAL) {
+        return TYPE_NULL
+    }
+
     return TYPE_UNKNOWN
 }
 
@@ -60,16 +68,43 @@ static method bindChildren(String source, List<Int> nodes, List<Int> types, List
     }
 }
 
-static method<Int> bindName(String source, List<Int> nodes, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
-    Int row = lookupValue(source, symbols, state, nodeField(nodes, node, NODE_TEXT_START), nodeField(nodes, node, NODE_TEXT_LENGTH))
+// A name is, in this order: `this`, a local or parameter, a member of the surrounding type, a variable.
+static method<Int> bindName(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node) {
+    Int start = nodeField(nodes, node, NODE_TEXT_START)
+    Int length = nodeField(nodes, node, NODE_TEXT_LENGTH)
+
+    if (state[BINDER_CLASS] != NO_TYPE && spanIs(source, start, length, "this")) {
+        annotate(annotations, node, state[BINDER_CLASS], REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
+        return state[BINDER_CLASS]
+    }
+
+    Int row = lookupLocal(source, symbols, state, start, length)
+
+    if (row == NO_SYMBOL && state[BINDER_CLASS] != NO_TYPE) {
+        row = lookupMember(source, symbols, state, state[BINDER_CLASS], start, length, ROW_PROPERTY, ROW_FIELD, NO_SYMBOL)
+    }
+
+    if (row == NO_SYMBOL) {
+        row = lookupVariable(source, symbols, state, start, length)
+    }
 
     if (row == NO_SYMBOL) {
         annotateType(annotations, node, TYPE_UNKNOWN)
         return TYPE_UNKNOWN
     }
 
+    return annotateSymbol(annotations, symbols, node, row)
+}
+
+static method<Int> annotateSymbol(List<Int> annotations, List<Int> symbols, Int node, Int row) {
     Int type = symbolField(symbols, row, SYMBOL_TYPE)
-    annotate(annotations, node, type, symbolKindOf(symbolField(symbols, row, SYMBOL_ROW_KIND)), symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), 0)
+    Int owner = OWNER_NONE
+
+    if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_PROPERTY || symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_FIELD) {
+        owner = symbolField(symbols, row, SYMBOL_OWNER)
+    }
+
+    annotate(annotations, node, type, symbolKindOf(symbolField(symbols, row, SYMBOL_ROW_KIND)), symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), owner, 0)
     return type
 }
 
@@ -80,6 +115,14 @@ static method<Int> symbolKindOf(Int rowKind) {
 
     if (rowKind == ROW_PARAMETER) {
         return REFERENCE_PARAMETER
+    }
+
+    if (rowKind == ROW_PROPERTY) {
+        return REFERENCE_PROPERTY
+    }
+
+    if (rowKind == ROW_FIELD) {
+        return REFERENCE_FIELD
     }
 
     return REFERENCE_VARIABLE
@@ -163,7 +206,7 @@ static method<Int> bindListLiteral(String source, List<Int> nodes, List<Int> typ
         type = listType(types, bindListElements(source, nodes, types, symbols, annotations, state, first))
     }
 
-    annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, 0)
+    annotate(annotations, node, type, REFERENCE_LITERAL, 0, 0, OWNER_NONE, 0)
     return type
 }
 

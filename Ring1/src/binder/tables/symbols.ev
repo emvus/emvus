@@ -1,31 +1,39 @@
 package ring1.binder
 
-// Symbols are rows of one table. The first rows are the program's methods and constants; the rows
-// after them are the locals and parameters of the method being bound. Leaving a scope only moves
-// the top marker back, the rows above it are overwritten by the next scope.
+// Symbols are rows of one table. The first rows are the declarations of the program: methods, constants,
+// types and their members. The rows after them are the locals and parameters of the method being bound.
+// Leaving a scope only moves the top marker back, the rows above it are overwritten by the next scope.
+// A member row names its owner type; a type row names its base type.
 final var SYMBOL_ROW_KIND = 0
 final var SYMBOL_NAME_START = 1
 final var SYMBOL_NAME_LENGTH = 2
 final var SYMBOL_TYPE = 3
 final var SYMBOL_NODE = 4
 final var SYMBOL_PARAMETER_COUNT = 5
-final var SYMBOL_STRIDE = 6
+final var SYMBOL_OWNER = 6
+final var SYMBOL_STRIDE = 7
 
 final var ROW_METHOD = 1
 final var ROW_VARIABLE = 2
 final var ROW_LOCAL = 3
 final var ROW_PARAMETER = 4
+final var ROW_CLASS = 5
+final var ROW_FIELD = 6
+final var ROW_PROPERTY = 7
+final var ROW_CONSTRUCTOR = 8
 final var NO_SYMBOL = -1
 
-// The binder's state: the number of symbol rows in use, and how many of them are declarations.
+// The binder's state: the number of symbol rows in use, how many of them are declarations, and the type
+// whose members are being bound (NO_TYPE outside of types).
 final var BINDER_TOP = 0
 final var BINDER_DECLARED = 1
+final var BINDER_CLASS = 2
 
 static method<Int> symbolField(List<Int> symbols, Int row, Int field) {
     return symbols[row * SYMBOL_STRIDE + field]
 }
 
-static method addSymbol(List<Int> symbols, List<Int> state, Int rowKind, Int nameStart, Int nameLength, Int type, Int node, Int parameterCount) {
+static method addSymbol(List<Int> symbols, List<Int> state, Int rowKind, Int nameStart, Int nameLength, Int type, Int node, Int parameterCount, Int owner) {
     Int row = state[BINDER_TOP]
     Int base = row * SYMBOL_STRIDE
 
@@ -36,6 +44,7 @@ static method addSymbol(List<Int> symbols, List<Int> state, Int rowKind, Int nam
         symbols[base + SYMBOL_TYPE] = type
         symbols[base + SYMBOL_NODE] = node
         symbols[base + SYMBOL_PARAMETER_COUNT] = parameterCount
+        symbols[base + SYMBOL_OWNER] = owner
     }
 
     if (base >= symbols.size()) {
@@ -45,18 +54,20 @@ static method addSymbol(List<Int> symbols, List<Int> state, Int rowKind, Int nam
         symbols.add(type)
         symbols.add(node)
         symbols.add(parameterCount)
+        symbols.add(owner)
     }
 
     state[BINDER_TOP] = row + 1
 }
 
-// The innermost local or parameter, else a constant, with this name; NO_SYMBOL when there is none.
-static method<Int> lookupValue(String source, List<Int> symbols, List<Int> state, Int start, Int length) {
-    for (Int row = state[BINDER_TOP] - 1; row >= 0; row--) {
-        Int kind = symbolField(symbols, row, SYMBOL_ROW_KIND)
-        Bool isValue = kind == ROW_LOCAL || kind == ROW_PARAMETER || kind == ROW_VARIABLE
+static method<Bool> hasName(String source, List<Int> symbols, Int row, Int start, Int length) {
+    return sameSpans(source, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), start, length)
+}
 
-        if (isValue && sameSpans(source, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), start, length)) {
+// The innermost local or parameter with this name; NO_SYMBOL when there is none.
+static method<Int> lookupLocal(String source, List<Int> symbols, List<Int> state, Int start, Int length) {
+    for (Int row = state[BINDER_TOP] - 1; row >= state[BINDER_DECLARED]; row--) {
+        if (hasName(source, symbols, row, start, length)) {
             return row
         }
     }
@@ -64,11 +75,9 @@ static method<Int> lookupValue(String source, List<Int> symbols, List<Int> state
     return NO_SYMBOL
 }
 
-// Methods with this name that take `parameterCount` arguments, in declaration order: the first one
-// found, and its position among the methods of that name.
-static method<Int> lookupMethod(String source, List<Int> symbols, List<Int> state, Int start, Int length, Int parameterCount) {
+static method<Int> lookupVariable(String source, List<Int> symbols, List<Int> state, Int start, Int length) {
     for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
-        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_METHOD && symbolField(symbols, row, SYMBOL_PARAMETER_COUNT) == parameterCount && sameSpans(source, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), start, length)) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_VARIABLE && hasName(source, symbols, row, start, length)) {
             return row
         }
     }
@@ -76,12 +85,79 @@ static method<Int> lookupMethod(String source, List<Int> symbols, List<Int> stat
     return NO_SYMBOL
 }
 
-// How many methods with this name are declared before `row`.
+// The row of a type of the program, by its type id; NO_SYMBOL for any other type.
+static method<Int> classRow(List<Int> symbols, List<Int> state, Int type) {
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_CLASS && symbolField(symbols, row, SYMBOL_TYPE) == type) {
+            return row
+        }
+    }
+
+    return NO_SYMBOL
+}
+
+// The row of a type with this name; NO_SYMBOL when the program declares none.
+static method<Int> classNamed(String source, List<Int> symbols, List<Int> state, Int start, Int length) {
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        if (symbolField(symbols, row, SYMBOL_ROW_KIND) == ROW_CLASS && hasName(source, symbols, row, start, length)) {
+            return row
+        }
+    }
+
+    return NO_SYMBOL
+}
+
+// The first member of `kind1` or `kind2` named so in the type or, failing that, in its base types.
+static method<Int> lookupMember(String source, List<Int> symbols, List<Int> state, Int owner, Int start, Int length, Int kind1, Int kind2, Int parameterCount) {
+    Int type = owner
+
+    while (type != NO_TYPE) {
+        Int found = memberOf(source, symbols, state, type, start, length, kind1, kind2, parameterCount)
+
+        if (found != NO_SYMBOL) {
+            return found
+        }
+
+        Int declared = classRow(symbols, state, type)
+
+        if (declared == NO_SYMBOL) {
+            return NO_SYMBOL
+        }
+
+        type = symbolField(symbols, declared, SYMBOL_OWNER)
+    }
+
+    return NO_SYMBOL
+}
+
+// A parameter count of NO_SYMBOL accepts every member of the name.
+static method<Int> memberOf(String source, List<Int> symbols, List<Int> state, Int type, Int start, Int length, Int kind1, Int kind2, Int parameterCount) {
+    for (Int row = 0; row < state[BINDER_DECLARED]; row++) {
+        Int kind = symbolField(symbols, row, SYMBOL_ROW_KIND)
+        Bool wanted = kind == kind1 || kind == kind2
+
+        if (wanted && symbolField(symbols, row, SYMBOL_OWNER) == type && hasName(source, symbols, row, start, length) && (parameterCount == NO_SYMBOL || symbolField(symbols, row, SYMBOL_PARAMETER_COUNT) == parameterCount)) {
+            return row
+        }
+    }
+
+    return NO_SYMBOL
+}
+
+// The first top-level method with this name that takes `parameterCount` arguments.
+static method<Int> lookupMethod(String source, List<Int> symbols, List<Int> state, Int start, Int length, Int parameterCount) {
+    return memberOf(source, symbols, state, NO_TYPE, start, length, ROW_METHOD, ROW_METHOD, parameterCount)
+}
+
+// How many rows of the same kind and owner and with this name are declared before `row`.
 static method<Int> overloadPosition(String source, List<Int> symbols, Int row) {
     Int position = 0
 
     for (Int earlier = 0; earlier < row; earlier++) {
-        if (symbolField(symbols, earlier, SYMBOL_ROW_KIND) == ROW_METHOD && sameSpans(source, symbolField(symbols, earlier, SYMBOL_NAME_START), symbolField(symbols, earlier, SYMBOL_NAME_LENGTH), symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH))) {
+        Bool sameKind = symbolField(symbols, earlier, SYMBOL_ROW_KIND) == symbolField(symbols, row, SYMBOL_ROW_KIND)
+        Bool sameOwner = symbolField(symbols, earlier, SYMBOL_OWNER) == symbolField(symbols, row, SYMBOL_OWNER)
+
+        if (sameKind && sameOwner && hasName(source, symbols, earlier, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH))) {
             position = position + 1
         }
     }

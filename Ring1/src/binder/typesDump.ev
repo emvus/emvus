@@ -50,10 +50,10 @@ static method<String> typesLine(String source, List<Int> nodes, List<Int> types,
     }
 
     line = line + " : " + typeText(source, types, annotationField(annotations, node, ANNOTATION_TYPE))
-    return line + symbolText(source, nodes, annotations, node)
+    return line + symbolText(source, nodes, types, annotations, node)
 }
 
-static method<String> symbolText(String source, List<Int> nodes, List<Int> annotations, Int node) {
+static method<String> symbolText(String source, List<Int> nodes, List<Int> types, List<Int> annotations, Int node) {
     Int symbol = annotationField(annotations, node, ANNOTATION_SYMBOL)
     Int start = annotationField(annotations, node, ANNOTATION_NAME_START)
     String name = source.substring(start, start + annotationField(annotations, node, ANNOTATION_NAME_LENGTH))
@@ -71,7 +71,15 @@ static method<String> symbolText(String source, List<Int> nodes, List<Int> annot
     }
 
     if (symbol == REFERENCE_METHOD) {
-        return " @ method " + name + " (" + ownerText(annotationField(annotations, node, ANNOTATION_DETAIL) / DETAIL_OWNER_SCALE) + "|" + intText(annotationField(annotations, node, ANNOTATION_DETAIL) % DETAIL_OWNER_SCALE) + "|)"
+        return " @ method " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|)"
+    }
+
+    if (symbol == REFERENCE_PROPERTY || symbol == REFERENCE_FIELD) {
+        return " @ " + referenceWord(symbol) + " " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + ")"
+    }
+
+    if (symbol == REFERENCE_CONSTRUCTOR) {
+        return " @ constructor " + name + " (" + ownerText(source, types, annotationField(annotations, node, ANNOTATION_OWNER)) + "|" + intText(annotationField(annotations, node, ANNOTATION_OVERLOAD)) + "|)"
     }
 
     if (symbol == REFERENCE_LITERAL) {
@@ -81,7 +89,20 @@ static method<String> symbolText(String source, List<Int> nodes, List<Int> annot
     return ""
 }
 
-static method<String> ownerText(Int owner) {
+static method<String> referenceWord(Int symbol) {
+    if (symbol == REFERENCE_FIELD) {
+        return "field"
+    }
+
+    return "property"
+}
+
+// Built-in owners have fixed names; any other owner is a type of the program.
+static method<String> ownerText(String source, List<Int> types, Int owner) {
+    if (owner >= 0) {
+        return typeText(source, types, owner)
+    }
+
     if (owner == OWNER_STRING) {
         return "String"
     }
@@ -99,7 +120,7 @@ static method<String> typesSource(String source) {
     List<Int> types = newTypeTable()
     List<Int> symbols = []
     List<Int> annotations = newAnnotations(nodes)
-    List<Int> state = [0, 0]
+    List<Int> state = [0, 0, NO_TYPE]
     bindProgram(source, nodes, types, symbols, annotations, state)
     return typesNode(source, nodes, types, annotations, ROOT_NODE)
 }

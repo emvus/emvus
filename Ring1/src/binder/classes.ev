@@ -1,0 +1,95 @@
+package ring1.binder
+
+// Types of the program: classes, records and data classes. A type is a symbol row of its own whose owner
+// column holds its base type, followed by one row per member (owned by the type).
+// NO_NODE for a parent that does not exist, such as the body of a record.
+static method<Int> firstChildOf(List<Int> nodes, Int parent) {
+    if (parent == NO_NODE) {
+        return NO_NODE
+    }
+
+    return nodeField(nodes, parent, NODE_FIRST_CHILD)
+}
+
+static method<Bool> isTypeDeclaration(Int kind) {
+    return kind == NODE_CLASS || kind == NODE_RECORD || kind == NODE_DATA_CLASS
+}
+
+static method declareType(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int declaration) {
+    Int start = nodeField(nodes, declaration, NODE_TEXT_START)
+    Int length = nodeField(nodes, declaration, NODE_TEXT_LENGTH)
+    Int type = namedType(source, types, start, length)
+    Int based = childOfKind(nodes, declaration, NODE_BASED)
+    Int base = NO_TYPE
+
+    if (based != NO_NODE) {
+        base = typeOfNode(source, nodes, types, nodeField(nodes, based, NODE_FIRST_CHILD))
+    }
+
+    addSymbol(symbols, state, ROW_CLASS, start, length, type, declaration, 0, base)
+    declareRecordProperties(source, nodes, types, symbols, state, declaration, type)
+    declareTypeMembers(source, nodes, types, symbols, state, childOfKind(nodes, declaration, NODE_BODY), type)
+}
+
+// The parameters of a record or data class are its properties.
+static method declareRecordProperties(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int declaration, Int type) {
+    Int param = firstChildOf(nodes, childOfKind(nodes, declaration, NODE_PARAMS))
+
+    while (param != NO_NODE) {
+        addSymbol(symbols, state, ROW_PROPERTY, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE)), param, 0, type)
+        param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+}
+
+static method declareTypeMembers(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int body, Int type) {
+    Int member = firstChildOf(nodes, body)
+
+    while (member != NO_NODE) {
+        declareTypeMember(source, nodes, types, symbols, state, member, type)
+        member = nodeField(nodes, member, NODE_NEXT_SIBLING)
+    }
+}
+
+static method declareTypeMember(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> state, Int member, Int type) {
+    Int kind = nodeField(nodes, member, NODE_KIND)
+    Int start = nodeField(nodes, member, NODE_TEXT_START)
+    Int length = nodeField(nodes, member, NODE_TEXT_LENGTH)
+    Int count = countChildren(nodes, childOfKind(nodes, member, NODE_PARAMS))
+
+    if (kind == NODE_PROPERTY || kind == NODE_FIELD) {
+        Int rowKind = ROW_PROPERTY
+
+        if (kind == NODE_FIELD) {
+            rowKind = ROW_FIELD
+        }
+
+        addSymbol(symbols, state, rowKind, start, length, typeOfNode(source, nodes, types, childOfKind(nodes, member, NODE_TYPE)), member, 0, type)
+    }
+
+    if (kind == NODE_METHOD) {
+        addSymbol(symbols, state, ROW_METHOD, start, length, returnTypeOf(source, nodes, types, member), member, count, type)
+    }
+
+    if (kind == NODE_CONSTRUCTOR) {
+        addSymbol(symbols, state, ROW_CONSTRUCTOR, start, length, namedType(source, types, nodeField(nodes, member, NODE_TEXT_START), length), member, count, type)
+    }
+}
+
+// Binds the bodies of the members of one type; `this` and the bare member names refer to that type.
+static method bindTypeBodies(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int declaration) {
+    state[BINDER_CLASS] = namedType(source, types, nodeField(nodes, declaration, NODE_TEXT_START), nodeField(nodes, declaration, NODE_TEXT_LENGTH))
+    Int body = childOfKind(nodes, declaration, NODE_BODY)
+    Int member = firstChildOf(nodes, body)
+
+    while (member != NO_NODE) {
+        Int kind = nodeField(nodes, member, NODE_KIND)
+
+        if (kind == NODE_METHOD || kind == NODE_CONSTRUCTOR) {
+            bindMethod(source, nodes, types, symbols, annotations, state, member)
+        }
+
+        member = nodeField(nodes, member, NODE_NEXT_SIBLING)
+    }
+
+    state[BINDER_CLASS] = NO_TYPE
+}

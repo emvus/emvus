@@ -78,8 +78,8 @@ static method bindLocal(String source, List<Int> nodes, List<Int> types, List<In
 
     Int start = nodeField(nodes, local, NODE_TEXT_START)
     Int length = nodeField(nodes, local, NODE_TEXT_LENGTH)
-    annotate(annotations, local, type, REFERENCE_LOCAL, start, length, 0)
-    addSymbol(symbols, state, ROW_LOCAL, start, length, type, local, 0)
+    annotate(annotations, local, type, REFERENCE_LOCAL, start, length, OWNER_NONE, 0)
+    addSymbol(symbols, state, ROW_LOCAL, start, length, type, local, 0, NO_TYPE)
 }
 
 // TYPE_UNKNOWN for `var`, whose type comes from the initializer.

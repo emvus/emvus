@@ -19,11 +19,15 @@ static method declareMembers(String source, List<Int> nodes, List<Int> types, Li
         Int length = nodeField(nodes, declaration, NODE_TEXT_LENGTH)
 
         if (kind == NODE_VARIABLE) {
-            addSymbol(symbols, state, ROW_VARIABLE, start, length, TYPE_UNKNOWN, declaration, 0)
+            addSymbol(symbols, state, ROW_VARIABLE, start, length, TYPE_UNKNOWN, declaration, 0, NO_TYPE)
+        }
+
+        if (isTypeDeclaration(kind)) {
+            declareType(source, nodes, types, symbols, state, declaration)
         }
 
         if (kind == NODE_METHOD) {
-            addSymbol(symbols, state, ROW_METHOD, start, length, returnTypeOf(source, nodes, types, declaration), declaration, countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS)))
+            addSymbol(symbols, state, ROW_METHOD, start, length, returnTypeOf(source, nodes, types, declaration), declaration, countChildren(nodes, childOfKind(nodes, declaration, NODE_PARAMS)), NO_TYPE)
         }
 
         declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
@@ -42,7 +46,7 @@ static method<Int> returnTypeOf(String source, List<Int> nodes, List<Int> types,
 
 static method<Int> countChildren(List<Int> nodes, Int parent) {
     Int count = 0
-    Int child = nodeField(nodes, parent, NODE_FIRST_CHILD)
+    Int child = firstChildOf(nodes, parent)
 
     while (child != NO_NODE) {
         count = count + 1
@@ -85,6 +89,10 @@ static method bindMethods(String source, List<Int> nodes, List<Int> types, List<
             bindMethod(source, nodes, types, symbols, annotations, state, declaration)
         }
 
+        if (isTypeDeclaration(nodeField(nodes, declaration, NODE_KIND))) {
+            bindTypeBodies(source, nodes, types, symbols, annotations, state, declaration)
+        }
+
         declaration = nodeField(nodes, declaration, NODE_NEXT_SIBLING)
     }
 }
@@ -94,8 +102,14 @@ static method bindMethod(String source, List<Int> nodes, List<Int> types, List<I
     Int param = nodeField(nodes, childOfKind(nodes, method, NODE_PARAMS), NODE_FIRST_CHILD)
 
     while (param != NO_NODE) {
-        addSymbol(symbols, state, ROW_PARAMETER, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE)), param, 0)
+        addSymbol(symbols, state, ROW_PARAMETER, nodeField(nodes, param, NODE_TEXT_START), nodeField(nodes, param, NODE_TEXT_LENGTH), typeOfNode(source, nodes, types, childOfKind(nodes, param, NODE_TYPE)), param, 0, NO_TYPE)
         param = nodeField(nodes, param, NODE_NEXT_SIBLING)
+    }
+
+    Int superCall = childOfKind(nodes, method, NODE_SUPER_CALL)
+
+    if (superCall != NO_NODE) {
+        bindChildren(source, nodes, types, symbols, annotations, state, superCall)
     }
 
     Int body = childOfKind(nodes, method, NODE_BLOCK)

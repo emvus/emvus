@@ -34,20 +34,59 @@ static method bindArguments(String source, List<Int> nodes, List<Int> types, Lis
     }
 }
 
+// A bare call names a method of the surrounding type, a method of the program or, failing both, the
+// constructor of a type of the program.
 static method<Int> bindMethodCall(String source, List<Int> nodes, List<Int> types, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int callee, Int argumentCount) {
-    Int row = lookupMethod(source, symbols, state, nodeField(nodes, callee, NODE_TEXT_START), nodeField(nodes, callee, NODE_TEXT_LENGTH), argumentCount)
-    Int type = TYPE_UNKNOWN
+    Int start = nodeField(nodes, callee, NODE_TEXT_START)
+    Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
+    Int row = NO_SYMBOL
 
-    if (row == NO_SYMBOL) {
-        annotateType(annotations, node, type)
+    if (state[BINDER_CLASS] != NO_TYPE) {
+        row = lookupMember(source, symbols, state, state[BINDER_CLASS], start, length, ROW_METHOD, ROW_METHOD, argumentCount)
     }
 
+    if (row == NO_SYMBOL) {
+        row = lookupMethod(source, symbols, state, start, length, argumentCount)
+    }
+
+    Int type = TYPE_UNKNOWN
+
     if (row != NO_SYMBOL) {
-        type = symbolField(symbols, row, SYMBOL_TYPE)
-        annotate(annotations, node, type, REFERENCE_METHOD, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), OWNER_NONE * DETAIL_OWNER_SCALE + overloadPosition(source, symbols, row))
+        type = annotateMethod(source, annotations, symbols, node, row)
+    }
+
+    if (row == NO_SYMBOL) {
+        type = bindConstructorCall(source, symbols, annotations, state, node, start, length, argumentCount)
     }
 
     bindArguments(source, nodes, types, symbols, annotations, state, callee)
+    return type
+}
+
+static method<Int> annotateMethod(String source, List<Int> annotations, List<Int> symbols, Int node, Int row) {
+    Int type = symbolField(symbols, row, SYMBOL_TYPE)
+    annotate(annotations, node, type, REFERENCE_METHOD, symbolField(symbols, row, SYMBOL_NAME_START), symbolField(symbols, row, SYMBOL_NAME_LENGTH), symbolField(symbols, row, SYMBOL_OWNER), overloadPosition(source, symbols, row))
+    return type
+}
+
+// A type without a declared constructor of that many parameters still has its implicit one (overload 0).
+static method<Int> bindConstructorCall(String source, List<Int> symbols, List<Int> annotations, List<Int> state, Int node, Int start, Int length, Int argumentCount) {
+    Int declared = classNamed(source, symbols, state, start, length)
+
+    if (declared == NO_SYMBOL) {
+        annotateType(annotations, node, TYPE_UNKNOWN)
+        return TYPE_UNKNOWN
+    }
+
+    Int type = symbolField(symbols, declared, SYMBOL_TYPE)
+    Int overload = 0
+    Int constructor = memberOf(source, symbols, state, type, start, length, ROW_CONSTRUCTOR, ROW_CONSTRUCTOR, argumentCount)
+
+    if (constructor != NO_SYMBOL) {
+        overload = overloadPosition(source, symbols, constructor)
+    }
+
+    annotate(annotations, node, type, REFERENCE_CONSTRUCTOR, symbolField(symbols, declared, SYMBOL_NAME_START), symbolField(symbols, declared, SYMBOL_NAME_LENGTH), type, overload)
     return type
 }
 
@@ -55,16 +94,32 @@ static method<Int> bindMemberCall(String source, List<Int> nodes, List<Int> type
     Int receiver = bindExpression(source, nodes, types, symbols, annotations, state, nodeField(nodes, callee, NODE_FIRST_CHILD), TYPE_UNKNOWN)
     Int start = nodeField(nodes, callee, NODE_TEXT_START)
     Int length = nodeField(nodes, callee, NODE_TEXT_LENGTH)
-    Int type = memberResult(source, types, receiver, start, length, argumentCount)
+    Int type = TYPE_UNKNOWN
+    Int row = NO_SYMBOL
 
+    if (typeField(types, receiver, TYPE_KIND) == KIND_NAMED) {
+        row = lookupMember(source, symbols, state, receiver, start, length, ROW_METHOD, ROW_METHOD, argumentCount)
+    }
+
+    if (row != NO_SYMBOL) {
+        type = annotateMethod(source, annotations, symbols, node, row)
+    }
+
+    if (row == NO_SYMBOL) {
+        type = memberResult(source, types, receiver, start, length, argumentCount)
+        annotateBuiltinMember(annotations, types, node, receiver, type, start, length)
+    }
+
+    bindArguments(source, nodes, types, symbols, annotations, state, callee)
+    return type
+}
+
+static method annotateBuiltinMember(List<Int> annotations, List<Int> types, Int node, Int receiver, Int type, Int start, Int length) {
     if (type == TYPE_UNKNOWN) {
         annotateType(annotations, node, type)
     }
 
     if (type != TYPE_UNKNOWN) {
-        annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(types, receiver) * DETAIL_OWNER_SCALE)
+        annotate(annotations, node, type, REFERENCE_METHOD, start, length, ownerOf(types, receiver), 0)
     }
-
-    bindArguments(source, nodes, types, symbols, annotations, state, callee)
-    return type
 }

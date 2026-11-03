@@ -15,8 +15,9 @@ final var KIND_FLOAT = 2
 final var KIND_BOOLEAN = 3
 final var KIND_STRING = 4
 final var KIND_VOID = 5
-final var KIND_LIST = 6
-final var KIND_NAMED = 7
+final var KIND_NULL = 6
+final var KIND_LIST = 7
+final var KIND_NAMED = 8
 
 // The first rows are the built-in types, so their ids equal their kinds.
 final var TYPE_UNKNOWN = 0
@@ -25,11 +26,12 @@ final var TYPE_FLOAT = 2
 final var TYPE_BOOLEAN = 3
 final var TYPE_STRING = 4
 final var TYPE_VOID = 5
+final var TYPE_NULL = 6
 
 static method<List<Int>> newTypeTable() {
     List<Int> types = []
 
-    for (Int kind = KIND_UNKNOWN; kind <= KIND_VOID; kind++) {
+    for (Int kind = KIND_UNKNOWN; kind <= KIND_NULL; kind++) {
         types.add(kind)
         types.add(0)
         types.add(0)
@@ -129,6 +131,10 @@ static method<String> typeText(String source, List<Int> types, Int type) {
 
     if (kind == KIND_VOID) {
         return "Void"
+    }
+
+    if (kind == KIND_NULL) {
+        return "Null"
     }
 
     if (kind == KIND_LIST) {

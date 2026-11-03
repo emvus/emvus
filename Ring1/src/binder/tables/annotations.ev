@@ -1,13 +1,15 @@
 package ring1.binder
 
 // What the binder knows about a node: its type and the symbol it refers to. One row per node, indexed
-// by node id. A call's detail is the owner of the member and the overload position.
+// by node id. A member or a call also records its owner (a type id, or one of the built-in owners) and,
+// for calls, the overload position.
 final var ANNOTATION_TYPE = 0
 final var ANNOTATION_SYMBOL = 1
 final var ANNOTATION_NAME_START = 2
 final var ANNOTATION_NAME_LENGTH = 3
-final var ANNOTATION_DETAIL = 4
-final var ANNOTATION_STRIDE = 5
+final var ANNOTATION_OWNER = 4
+final var ANNOTATION_OVERLOAD = 5
+final var ANNOTATION_STRIDE = 6
 
 final var REFERENCE_NONE = 0
 final var REFERENCE_LOCAL = 1
@@ -15,11 +17,14 @@ final var REFERENCE_PARAMETER = 2
 final var REFERENCE_VARIABLE = 3
 final var REFERENCE_METHOD = 4
 final var REFERENCE_LITERAL = 5
+final var REFERENCE_PROPERTY = 6
+final var REFERENCE_FIELD = 7
+final var REFERENCE_CONSTRUCTOR = 8
 
-final var OWNER_NONE = 0
-final var OWNER_STRING = 1
-final var OWNER_LIST = 2
-final var DETAIL_OWNER_SCALE = 1000
+// Owners of members: a type id for the types of the program, these values for built-in types.
+final var OWNER_NONE = -1
+final var OWNER_STRING = -2
+final var OWNER_LIST = -3
 
 static method<List<Int>> newAnnotations(List<Int> nodes) {
     List<Int> annotations = []
@@ -29,6 +34,7 @@ static method<List<Int>> newAnnotations(List<Int> nodes) {
         annotations.add(REFERENCE_NONE)
         annotations.add(0)
         annotations.add(0)
+        annotations.add(OWNER_NONE)
         annotations.add(0)
     }
 
@@ -39,15 +45,16 @@ static method<Int> annotationField(List<Int> annotations, Int node, Int field) {
     return annotations[node * ANNOTATION_STRIDE + field]
 }
 
-static method annotate(List<Int> annotations, Int node, Int type, Int symbol, Int nameStart, Int nameLength, Int detail) {
+static method annotate(List<Int> annotations, Int node, Int type, Int symbol, Int nameStart, Int nameLength, Int owner, Int overload) {
     Int base = node * ANNOTATION_STRIDE
     annotations[base + ANNOTATION_TYPE] = type
     annotations[base + ANNOTATION_SYMBOL] = symbol
     annotations[base + ANNOTATION_NAME_START] = nameStart
     annotations[base + ANNOTATION_NAME_LENGTH] = nameLength
-    annotations[base + ANNOTATION_DETAIL] = detail
+    annotations[base + ANNOTATION_OWNER] = owner
+    annotations[base + ANNOTATION_OVERLOAD] = overload
 }
 
 static method annotateType(List<Int> annotations, Int node, Int type) {
-    annotate(annotations, node, type, REFERENCE_NONE, 0, 0, 0)
+    annotate(annotations, node, type, REFERENCE_NONE, 0, 0, OWNER_NONE, 0)
 }
