@@ -3,13 +3,132 @@ on:
   pull_request:
   push:
     branches: [master]
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  # The Emerald kit is not public. Set the repository variable EMERALD_KIT_URL (a .tar.gz of the kit) and, if the
+  # download needs it, the secret EMERALD_KIT_TOKEN. Without them the build jobs are skipped, never faked as green.
+  KIT_URL: ${{ vars.EMERALD_KIT_URL }}
 jobs:
-  checks:
+  lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Shell scripts parse
         run: for f in $(git ls-files '*.sh'); do bash -n "$f"; done
+      - name: Shell scripts pass shellcheck at error level
+        run: shellcheck --severity=error $(git ls-files '*.sh')
       - name: Pureline, at most 8 .ev files per folder in Ring1/src
         run: |
           git ls-files 'Ring1/src/*.ev' | xargs -n1 dirname | sort | uniq -c | awk '$1 > 8 { print "too many .ev files in " $2 ": " $1; bad = 1 } END { exit bad }'
+      - name: No tabs or trailing whitespace in Ring1 sources
+        run: "! git grep -nP '\\t| +$' -- 'Ring1/src/*.ev'"
+      - name: Pull request title is a Conventional Commit
+        if: github.event_name == 'pull_request'
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          printf '%s\n' "$TITLE" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: .+' || { echo "not a Conventional Commit: $TITLE"; exit 1; }
+      - name: Commits are Conventional Commits
+        if: github.event_name == 'pull_request'
+        run: |
+          bad=0
+          for c in $(git rev-list --no-merges origin/${{ github.base_ref }}..HEAD); do
+            s=$(git log -1 --format=%s "$c")
+            printf '%s\n' "$s" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert)(\([a-z0-9-]+\))?!?: .+' || { echo "bad subject: $s"; bad=1; }
+          done
+          exit $bad
+  ring0:
+    needs: lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Kit configured?
+        id: gate
+        run: |
+          if [ -n "$KIT_URL" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; else echo "::warning::EMERALD_KIT_URL is not set, Ring0 build and all Ring1 jobs are SKIPPED"; echo "run=false" >> "$GITHUB_OUTPUT"; fi
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+        with:
+          repository: emvus/sub-lang
+          path: sub-lang
+      - name: Install clang and python3
+        if: steps.gate.outputs.run == 'true'
+        run: sudo apt-get update && sudo apt-get install -y clang python3
+      - name: Fetch the Emerald kit
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TOKEN: ${{ secrets.EMERALD_KIT_TOKEN }}
+        run: |
+          mkdir kit
+          if [ -n "$TOKEN" ]; then auth=(-H "Authorization: Bearer $TOKEN"); else auth=(); fi
+          curl -fsSL "${auth[@]}" "$KIT_URL" | tar -xz -C kit --strip-components=1
+      - name: Build Ring0 emvusc
+        if: steps.gate.outputs.run == 'true'
+        run: scripts/buildEmvusc.sh kit sub-lang out
+      - name: Build the sublang tool
+        if: steps.gate.outputs.run == 'true'
+        run: EMERALD_FLOW_BOOTSTRAP=1 kit/bin/emerald-compiler build sub-lang/src/SublangMain.ems -o out/sublang
+      - name: Smoke test emvusc
+        if: steps.gate.outputs.run == 'true'
+        run: scripts/checkEmvusc.sh out/emvusc
+      - name: Ring0 lowering corpus
+        if: steps.gate.outputs.run == 'true'
+        run: Ring0/scripts/checkLoweringNative.sh out/emvusc "$RUNNER_TEMP/lowering"
+      - name: Upload binaries
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ring0-${{ github.sha }}
+          path: out/
+          retention-days: 7
+  ring1:
+    needs: ring0
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        id: dl
+        continue-on-error: true
+        with:
+          name: ring0-${{ github.sha }}
+          path: out
+      - name: Ring ready?
+        id: gate
+        run: |
+          if [ -x out/emvusc ] || [ -f out/emvusc ]; then chmod +x out/emvusc out/sublang; echo "run=true" >> "$GITHUB_OUTPUT"; else echo "::warning::no Ring0 build, Ring1 SKIPPED"; echo "run=false" >> "$GITHUB_OUTPUT"; fi
+      - name: Install clang and python3
+        if: steps.gate.outputs.run == 'true'
+        run: sudo apt-get update && sudo apt-get install -y clang python3
+      - name: Ring1 compiles itself to a fixed point
+        if: steps.gate.outputs.run == 'true'
+        run: Ring1/scripts/buildEmvuscRing1.sh out/emvusc out/sublang "$RUNNER_TEMP/ring1"
+      - name: Ring1 self tests
+        if: steps.gate.outputs.run == 'true'
+        run: Ring1/scripts/runTests.sh out/emvusc "$RUNNER_TEMP/ring1tests"
+      - name: Upload Ring1 compiler
+        if: steps.gate.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ring1-${{ github.sha }}
+          path: ${{ runner.temp }}/ring1/emvusc
+          retention-days: 7
+  required:
+    # One stable name for branch protection: green only when every job above succeeded or was skipped on purpose.
+    if: always()
+    needs: [lint, ring0, ring1]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          echo '${{ toJSON(needs) }}'
+          ! echo '${{ join(needs.*.result, ' ') }}' | grep -qE 'failure|cancelled'
