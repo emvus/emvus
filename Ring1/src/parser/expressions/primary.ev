@@ -95,14 +95,14 @@ static method<Int> parseParenthesized(String source, List<Int> tokens, List<Int>
     state[STATE_CASCADE] = CASCADE_OPEN
     Int inner = parseExpression(source, tokens, state, nodes)
     state[STATE_CASCADE] = outer
-    expectSymbol(source, tokens, state, ")")
+    expectSymbol(source, tokens, state, ")", MSG_PAREN)
     return inner
 }
 
 static method<Int> parseListLiteral(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int list = addEmptyNode(nodes, NODE_LIST_LITERAL, tokens, state)
     advanceToken(tokens, state)
-    parseElements(source, tokens, state, nodes, list, "]")
+    parseElements(source, tokens, state, nodes, list, "]", MSG_LIST)
     return list
 }
 
@@ -115,7 +115,7 @@ static method<Int> parseDictLiteral(String source, List<Int> tokens, List<Int> s
         Int before = state[STATE_TOKEN]
         Int entry = addEmptyNode(nodes, NODE_DICT_ENTRY, tokens, state)
         appendChild(nodes, entry, parseDictKey(source, tokens, state, nodes, entry))
-        expectSymbol(source, tokens, state, ":")
+        expectSymbol(source, tokens, state, ":", MSG_DICTIONARY_COLON)
         appendChild(nodes, entry, parseExpression(source, tokens, state, nodes))
         appendChild(nodes, dictionary, entry)
         ensureProgress(tokens, state, before)
@@ -125,7 +125,7 @@ static method<Int> parseDictLiteral(String source, List<Int> tokens, List<Int> s
         }
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_DICTIONARY)
     return dictionary
 }
 
@@ -138,7 +138,7 @@ static method<Int> parseDictKey(String source, List<Int> tokens, List<Int> state
     setNodeField(nodes, entry, NODE_KIND, NODE_COMPUTED_DICT_ENTRY)
     advanceToken(tokens, state)
     Int key = parseExpression(source, tokens, state, nodes)
-    expectSymbol(source, tokens, state, "]")
+    expectSymbol(source, tokens, state, "]", MSG_COMPUTED_KEY)
     return key
 }
 
@@ -150,10 +150,10 @@ static method<Int> parseTask(String source, List<Int> tokens, List<Int> state, L
     return task
 }
 
-// An unexpected token becomes an error node and is skipped, so parsing always makes progress.
+// An unexpected token becomes an error node and stays where it is; the loop around the expression skips it when nothing
+// else could use it, so parsing always makes progress.
 static method<Int> parseError(List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int error = addNodeAtToken(nodes, NODE_ERROR, tokens, state)
-    recordError(state)
-    advanceToken(tokens, state)
+    reportError(state, MSG_EXPRESSION)
     return error
 }

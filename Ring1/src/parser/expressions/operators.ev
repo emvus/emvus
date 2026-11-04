@@ -84,7 +84,7 @@ static method<Int> parseTernary(String source, List<Int> tokens, List<Int> state
     advanceToken(tokens, state)
     appendChild(nodes, ternary, condition)
     appendChild(nodes, ternary, parseExpression(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ":")
+    expectSymbol(source, tokens, state, ":", MSG_CONDITIONAL_COLON)
     appendChild(nodes, ternary, parseExpression(source, tokens, state, nodes))
     return ternary
 }

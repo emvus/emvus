@@ -63,10 +63,18 @@ static method<Int> parseDestructure(String source, List<Int> tokens, List<Int> s
         }
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_DESTRUCTURE_NAMES)
+    Int afterBraces = state[STATE_TOKEN]
 
     if (atSymbol(source, tokens, state, "=")) {
         appendChild(nodes, destructure, parseInitializer(source, tokens, state, nodes))
+    }
+
+    if (!atSymbol(source, tokens, state, "=") && state[STATE_TOKEN] == afterBraces) {
+        reportError(state, MSG_DESTRUCTURE_EQUALS)
+        Int init = addEmptyNode(nodes, NODE_INIT, tokens, state)
+        appendChild(nodes, init, parseExpression(source, tokens, state, nodes))
+        appendChild(nodes, destructure, init)
     }
 
     return destructure

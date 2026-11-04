@@ -61,6 +61,6 @@ static method<Int> parseGenericReference(String source, List<Int> tokens, List<I
         advanceToken(tokens, state)
     }
 
-    expectSymbol(source, tokens, state, ">")
+    expectSymbol(source, tokens, state, ">", MSG_TYPE_ARGUMENTS)
     return reference
 }

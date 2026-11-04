@@ -36,8 +36,8 @@ static method<Int> parseLambda(String source, List<Int> tokens, List<Int> state,
         }
     }
 
-    expectSymbol(source, tokens, state, ")")
-    expectSymbol(source, tokens, state, "->")
+    expectSymbol(source, tokens, state, ")", MSG_LAMBDA_PARAMETERS)
+    expectSymbol(source, tokens, state, "->", MSG_LAMBDA_ARROW)
     appendChild(nodes, lambda, params)
     appendChild(nodes, lambda, parseLambdaBody(source, tokens, state, nodes))
     return lambda

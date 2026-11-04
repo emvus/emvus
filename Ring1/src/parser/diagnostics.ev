@@ -1,0 +1,283 @@
+package ring1.parser
+
+// Syntax errors, in the words of Ring0's parser. An error is a message number and the index of the token it was found at,
+// kept in the parser state after its header; `errorsText` prints them the way Ring0 does:
+// `error <line>:<column>: <message> (found '<token>')`.
+final var MSG_EXPRESSION = 1
+final var MSG_BEFORE_CONDITION = 2
+final var MSG_AFTER_CONDITION = 3
+final var MSG_AFTER_ARGUMENTS = 4
+final var MSG_AFTER_INDEX = 5
+final var MSG_CONDITIONAL_COLON = 6
+final var MSG_BLOCK_START = 7
+final var MSG_BLOCK_END = 8
+final var MSG_DESTRUCTURE_NAMES = 9
+final var MSG_DESTRUCTURE_EQUALS = 10
+final var MSG_PARAMETERS_OPEN = 11
+final var MSG_PARAMETERS_CLOSE = 12
+final var MSG_FOR_OPEN = 13
+final var MSG_FOR_INITIALIZER = 14
+final var MSG_FOR_CONDITION = 15
+final var MSG_FOR_CLAUSES = 16
+final var MSG_FOR_IN = 17
+final var MSG_SWITCH_OPEN = 18
+final var MSG_SWITCH_SUBJECT = 19
+final var MSG_SWITCH_BRACE = 20
+final var MSG_SWITCH_CLOSE = 21
+final var MSG_SWITCH_ARROW = 22
+final var MSG_PATTERN_BINDINGS = 23
+final var MSG_BODY_OPEN = 24
+final var MSG_BODY_CLOSE = 25
+final var MSG_TYPE_ARGUMENTS = 26
+final var MSG_TUPLE_TYPE = 27
+final var MSG_RETURN_TYPE = 28
+final var MSG_LAMBDA_PARAMETERS = 29
+final var MSG_LAMBDA_ARROW = 30
+final var MSG_QUOTE_OPEN = 31
+final var MSG_QUOTE_BODY = 32
+final var MSG_SPLICE = 33
+final var MSG_PAREN = 34
+final var MSG_LIST = 35
+final var MSG_DICTIONARY = 36
+final var MSG_DICTIONARY_COLON = 37
+final var MSG_COMPUTED_KEY = 38
+final var MSG_USE_LIST = 39
+final var MSG_USE_GROUP = 40
+final var MSG_ACCESSORS_OPEN = 41
+final var MSG_ACCESSORS_CLOSE = 42
+final var MSG_CONSTRUCTOR_OPEN = 43
+final var MSG_CONSTRUCTOR_ARGUMENTS = 44
+final var MSG_ANNOTATION_ARGUMENTS = 45
+final var MSG_VARIABLE_ASSIGN = 46
+final var MSG_NAME = 47
+final var MSG_TYPE = 48
+final var MSG_ELSE = 49
+final var MSG_BRACES = 50
+final var MSG_MEMBER_NAME = 51
+final var MSG_LEXICAL = 52
+final var MSG_UNKNOWN = 53
+final var MSG_PACKAGE_NAME = 54
+final var MSG_USE_NAME = 55
+final var MSG_USE_DOT_NAME = 56
+final var MSG_USE_GROUP_NAME = 57
+final var MSG_VARIABLE_NAME = 58
+final var MSG_METHOD_NAME = 59
+final var MSG_PARAMETER_NAME = 60
+final var MSG_CLASS_NAME = 61
+final var MSG_DATA_CLASS_NAME = 62
+final var MSG_RECORD_NAME = 63
+final var MSG_INTERFACE_NAME = 64
+final var MSG_EXCEPTION_NAME = 65
+final var MSG_ENUM_NAME = 66
+final var MSG_MACRO_NAME = 67
+final var MSG_ANNOTATION_NAME = 68
+final var MSG_TYPE_PARAMETER_NAME = 69
+
+static method<String> messageText(Int message) {
+    String text = messageTextA(message)
+
+    if (text != "") {
+        return text
+    }
+
+    return messageTextB(message)
+}
+
+static method<String> messageTextA(Int message) {
+    if (message == MSG_EXPRESSION) { return "Expected expression" }
+    if (message == MSG_BEFORE_CONDITION) { return "Expected '(' before condition" }
+    if (message == MSG_AFTER_CONDITION) { return "Expected ')' after condition" }
+    if (message == MSG_AFTER_ARGUMENTS) { return "Expected ')' after arguments" }
+    if (message == MSG_AFTER_INDEX) { return "Expected ']' after index" }
+    if (message == MSG_CONDITIONAL_COLON) { return "Expected ':' in conditional expression" }
+    if (message == MSG_BLOCK_START) { return "Expected '{' to start block" }
+    if (message == MSG_BLOCK_END) { return "Expected '}' to end block" }
+    if (message == MSG_DESTRUCTURE_NAMES) { return "Expected '}' after destructuring names" }
+    if (message == MSG_DESTRUCTURE_EQUALS) { return "Expected '=' in destructuring" }
+    if (message == MSG_PARAMETERS_OPEN) { return "Expected '(' before parameters" }
+    if (message == MSG_PARAMETERS_CLOSE) { return "Expected ')' after parameters" }
+    if (message == MSG_FOR_OPEN) { return "Expected '(' after 'for'" }
+    if (message == MSG_FOR_INITIALIZER) { return "Expected ';' after for initializer" }
+    if (message == MSG_FOR_CONDITION) { return "Expected ';' after for condition" }
+    if (message == MSG_FOR_CLAUSES) { return "Expected ')' after for clauses" }
+    if (message == MSG_FOR_IN) { return "Expected ')' after for-in clause" }
+    if (message == MSG_SWITCH_OPEN) { return "Expected '(' after switch" }
+    if (message == MSG_SWITCH_SUBJECT) { return "Expected ')' after switch subject" }
+    if (message == MSG_SWITCH_BRACE) { return "Expected '{' to open switch" }
+    if (message == MSG_SWITCH_CLOSE) { return "Expected '}' to close switch" }
+    if (message == MSG_SWITCH_ARROW) { return "Expected '->' in switch case" }
+    if (message == MSG_PATTERN_BINDINGS) { return "Expected ')' after pattern bindings" }
+    if (message == MSG_BODY_OPEN) { return "Expected '{' before body" }
+    if (message == MSG_BODY_CLOSE) { return "Expected '}' after body" }
+    if (message == MSG_TYPE_ARGUMENTS) { return "Expected '>' after type arguments" }
+    if (message == MSG_TUPLE_TYPE) { return "Expected ']' after tuple type" }
+    if (message == MSG_RETURN_TYPE) { return "Expected '>' after method return type" }
+    if (message == MSG_LAMBDA_PARAMETERS) { return "Expected ')' after lambda parameters" }
+    if (message == MSG_LAMBDA_ARROW) { return "Expected '->' in lambda" }
+    return ""
+}
+
+static method<String> messageTextB(Int message) {
+    if (message == MSG_QUOTE_OPEN) { return "Expected '{' after quote kind" }
+    if (message == MSG_QUOTE_BODY) { return "Expected '}' after quote body" }
+    if (message == MSG_SPLICE) { return "Expected ')' after $( expression" }
+    if (message == MSG_PAREN) { return "Expected ')' after expression" }
+    if (message == MSG_LIST) { return "Expected ']' after list literal" }
+    if (message == MSG_DICTIONARY) { return "Expected '}' after dictionary literal" }
+    if (message == MSG_DICTIONARY_COLON) { return "Expected ':' after dictionary key" }
+    if (message == MSG_COMPUTED_KEY) { return "Expected ']' after computed key" }
+    if (message == MSG_USE_LIST) { return "Expected '}' after use list" }
+    if (message == MSG_USE_GROUP) { return "Expected ']' after use group" }
+    if (message == MSG_ACCESSORS_OPEN) { return "Expected '{' before accessors" }
+    if (message == MSG_ACCESSORS_CLOSE) { return "Expected '}' after accessors" }
+    if (message == MSG_CONSTRUCTOR_OPEN) { return "Expected '(' after constructor call target" }
+    if (message == MSG_CONSTRUCTOR_ARGUMENTS) { return "Expected ')' after constructor call arguments" }
+    if (message == MSG_ANNOTATION_ARGUMENTS) { return "Expected ')' after annotation arguments" }
+    if (message == MSG_VARIABLE_ASSIGN) { return "Expected '=' after variable name" }
+    if (message == MSG_NAME) { return "Expected name" }
+    if (message == MSG_TYPE) { return "Expected type" }
+    if (message == MSG_ELSE) { return "'else' is not supported, use guard clauses" }
+    if (message == MSG_BRACES) { return "Expected '{': braces are required" }
+    if (message == MSG_MEMBER_NAME) { return "Expected member name" }
+    return messageTextC(message)
+}
+
+static method<String> messageTextC(Int message) {
+    if (message == MSG_PACKAGE_NAME) { return "Expected package name" }
+    if (message == MSG_USE_NAME) { return "Expected name in use declaration" }
+    if (message == MSG_USE_DOT_NAME) { return "Expected name after '.' in use declaration" }
+    if (message == MSG_USE_GROUP_NAME) { return "Expected name in use group" }
+    if (message == MSG_VARIABLE_NAME) { return "Expected variable name" }
+    if (message == MSG_METHOD_NAME) { return "Expected method name" }
+    if (message == MSG_PARAMETER_NAME) { return "Expected parameter name" }
+    if (message == MSG_CLASS_NAME) { return "Expected class name" }
+    if (message == MSG_DATA_CLASS_NAME) { return "Expected data class name" }
+    if (message == MSG_RECORD_NAME) { return "Expected record name" }
+    if (message == MSG_INTERFACE_NAME) { return "Expected interface name" }
+    if (message == MSG_EXCEPTION_NAME) { return "Expected exception name" }
+    if (message == MSG_ENUM_NAME) { return "Expected enum name" }
+    if (message == MSG_MACRO_NAME) { return "Expected macro name" }
+    if (message == MSG_ANNOTATION_NAME) { return "Expected annotation name after '@'" }
+    if (message == MSG_TYPE_PARAMETER_NAME) { return "Expected type parameter name" }
+    return "Syntax error"
+}
+
+// Records an error at the current token.
+static method reportError(List<Int> state, Int message) {
+    Int base = STATE_HEADER + state[STATE_ERRORS] * ERROR_STRIDE
+
+    if (base < state.size()) {
+        state[base] = message
+        state[base + 1] = state[STATE_TOKEN]
+    }
+
+    if (base >= state.size()) {
+        state.add(message)
+        state.add(state[STATE_TOKEN])
+    }
+
+    state[STATE_ERRORS] = state[STATE_ERRORS] + 1
+}
+
+// All recorded errors, one line each, in the order they were found.
+static method<String> errorsText(String source, List<Int> tokens, List<Int> state) {
+    String text = ""
+
+    for (Int row = 0; row < state[STATE_ERRORS]; row++) {
+        Int base = STATE_HEADER + row * ERROR_STRIDE
+        Int index = state[base + 1]
+
+        if (index >= tokenCount(tokens)) {
+            index = tokenCount(tokens) - 1
+        }
+
+        text = text + "error " + intText(tokenValue(tokens, index, TOKEN_LINE)) + ":" + intText(tokenValue(tokens, index, TOKEN_COLUMN)) + ": " + messageText(state[base]) + " (found '" + tokenText(source, tokens, index) + "')\n"
+    }
+
+    return text
+}
+
+// The lexer's errors come first, the way Ring0 reports them: it lexes the whole text before it parses. The parser then sees
+// the tokens without the unexpected characters and comments that never ended, and a string that never ended as a string.
+static method<String> lexerErrors(String source, List<Int> tokens) {
+    String text = ""
+
+    for (Int index = 0; index < tokenCount(tokens); index++) {
+        Int kind = tokenValue(tokens, index, TOKEN_KIND)
+        String message = ""
+
+        if (kind == TOKEN_UNEXPECTED) {
+            message = "Unexpected character '" + tokenText(source, tokens, index) + "'"
+        }
+
+        if (kind == TOKEN_UNTERMINATED_STRING) {
+            message = "Unterminated string literal"
+        }
+
+        if (kind == TOKEN_UNTERMINATED_COMMENT) {
+            message = "Unterminated block comment"
+        }
+
+        if (message != "") {
+            text = text + "error " + intText(tokenValue(tokens, index, TOKEN_LINE)) + ":" + intText(tokenValue(tokens, index, TOKEN_COLUMN)) + ": " + message + "\n"
+        }
+    }
+
+    return text
+}
+
+static method<List<Int>> parserTokens(List<Int> tokens) {
+    List<Int> kept = []
+
+    for (Int index = 0; index < tokenCount(tokens); index++) {
+        Int kind = tokenValue(tokens, index, TOKEN_KIND)
+
+        if (kind != TOKEN_UNEXPECTED && kind != TOKEN_UNTERMINATED_COMMENT) {
+            for (Int field = 0; field < TOKEN_STRIDE; field++) {
+                kept.add(tokens[index * TOKEN_STRIDE + field])
+            }
+
+            if (kind == TOKEN_UNTERMINATED_STRING) {
+                kept[kept.size() - TOKEN_STRIDE + TOKEN_KIND] = TOKEN_STRING
+            }
+        }
+    }
+
+    return kept
+}
+
+static method<String> syntaxErrors(String source) {
+    List<Int> lexed = lexSource(source)
+    List<Int> tokens = parserTokens(lexed)
+    List<Int> state = [FIRST_TOKEN, NO_ERRORS, CASCADE_OPEN]
+    List<Int> nodes = []
+    parseFile(source, tokens, state, nodes)
+    return lexerErrors(source, lexed) + errorsText(source, tokens, state)
+}
+
+// Decimal text of a number; the binder and the lowering print with it too.
+final var RADIX = 10
+
+static method<String> intText(Int value) {
+    if (value == 0) {
+        return "0"
+    }
+
+    if (value < 0) {
+        return "-" + intText(0 - value)
+    }
+
+    String digits = ""
+    Int rest = value
+
+    while (rest > 0) {
+        digits = digitText(rest % RADIX) + digits
+        rest = rest / RADIX
+    }
+
+    return digits
+}
+
+static method<String> digitText(Int digit) {
+    return "0123456789".substring(digit, digit + 1)
+}

@@ -10,7 +10,7 @@ static method<Int> parseReturnType(String source, List<Int> tokens, List<Int> st
     Int returnType = addEmptyNode(nodes, NODE_RETURN_TYPE, tokens, state)
     advanceToken(tokens, state)
     appendChild(nodes, returnType, parseType(source, tokens, state, nodes))
-    expectSymbol(source, tokens, state, ">")
+    expectSymbol(source, tokens, state, ">", MSG_RETURN_TYPE)
     return returnType
 }
 
@@ -21,7 +21,8 @@ static method<Int> parseType(String source, List<Int> tokens, List<Int> state, L
     }
 
     if (!atKind(tokens, state, TOKEN_IDENTIFIER) && !atKeyword(source, tokens, state, "dynamic")) {
-        return parseError(tokens, state, nodes)
+        reportError(state, MSG_TYPE)
+        return addEmptyNode(nodes, NODE_ERROR, tokens, state)
     }
 
     Int type = parseLeaf(tokens, state, nodes, NODE_TYPE)
@@ -42,7 +43,7 @@ static method<Int> parseType(String source, List<Int> tokens, List<Int> state, L
         advanceToken(tokens, state)
     }
 
-    expectSymbol(source, tokens, state, ">")
+    expectSymbol(source, tokens, state, ">", MSG_TYPE_ARGUMENTS)
     return type
 }
 
@@ -61,6 +62,6 @@ static method<Int> parseTupleType(String source, List<Int> tokens, List<Int> sta
         advanceToken(tokens, state)
     }
 
-    expectSymbol(source, tokens, state, "]")
+    expectSymbol(source, tokens, state, "]", MSG_TUPLE_TYPE)
     return tuple
 }

@@ -4,7 +4,7 @@ package ring1.parser
 static method<Int> parseMacro(String source, List<Int> tokens, List<Int> state, List<Int> nodes, Int modifiers) {
     advanceToken(tokens, state)
     Int macro = addNodeAtToken(nodes, NODE_MACRO, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_MACRO_NAME)
     appendModifiers(nodes, macro, modifiers)
     appendChild(nodes, macro, parseParams(source, tokens, state, nodes))
     appendChild(nodes, macro, parseTargets(source, tokens, state, nodes))
@@ -17,7 +17,7 @@ static method<Int> parseTargets(String source, List<Int> tokens, List<Int> state
     Int targets = addEmptyNode(nodes, NODE_TARGETS, tokens, state)
 
     if (!atIdentifierText(source, tokens, state, "on")) {
-        recordError(state)
+        reportError(state, MSG_UNKNOWN)
         return targets
     }
 

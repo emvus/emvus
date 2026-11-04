@@ -8,7 +8,8 @@ package ring1.lowering
 final var REC_RESULT = 7
 final var RESULT_VALUE_WIRE = 2
 final var RESULT_ERROR_WIRE = 3
-final var RESULT_SIZE = 4
+final var RESULT_EXCEPTION_WIRE = 4
+final var RESULT_SIZE = 5
 final var RESULT_FIELDS = 3
 final var TAG_SUCCESS = 0
 final var TAG_FAILURE = 1
@@ -57,7 +58,7 @@ static method<Bool> isSupportedResult(String source, List<Int> nodes, List<Int> 
     return isResultType(source, types, type) && primitiveOfType(typeArgument(types, type, 0)) != NO_VALUE && exceptionFieldWire(source, nodes, types, typeArgument(types, type, 1)) != NO_VALUE
 }
 
-// One IR record per supported Result type: [value wire, error field wire]; the position is the Result's index.
+// One IR record per supported Result type: [value wire, error field wire, exception wire]; the position is the Result's index.
 static method declareResults(String source, List<Int> nodes, List<Int> types, List<Int> ir, List<Int> state) {
     for (Int type = 0; type < typeCount(types); type++) {
         if (isSupportedResult(source, nodes, types, type)) {
@@ -65,6 +66,7 @@ static method declareResults(String source, List<Int> nodes, List<Int> types, Li
             ir.add(RESULT_SIZE)
             ir.add(primitiveOfType(typeArgument(types, type, 0)))
             ir.add(exceptionFieldWire(source, nodes, types, typeArgument(types, type, 1)))
+            ir.add(wireType(state, typeArgument(types, type, 1)))
             state[LOWER_RESULT_COUNT] = state[LOWER_RESULT_COUNT] + 1
         }
     }

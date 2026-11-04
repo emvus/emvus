@@ -36,8 +36,8 @@ static method<Int> parseSuperCall(String source, List<Int> tokens, List<Int> sta
     Int call = addNodeAtToken(nodes, NODE_SUPER_CALL, tokens, state)
     advanceToken(tokens, state)
 
-    if (expectSymbol(source, tokens, state, "(")) {
-        parseElements(source, tokens, state, nodes, call, ")")
+    if (expectSymbol(source, tokens, state, "(", MSG_CONSTRUCTOR_OPEN)) {
+        parseElements(source, tokens, state, nodes, call, ")", MSG_CONSTRUCTOR_ARGUMENTS)
     }
 
     return call
@@ -54,7 +54,7 @@ static method<Int> parseDataMember(String source, List<Int> tokens, List<Int> st
     }
 
     Int member = addNodeAtToken(nodes, kind, tokens, state)
-    expectIdentifier(tokens, state)
+    expectIdentifier(tokens, state, MSG_MEMBER_NAME)
     appendModifiers(nodes, member, modifiers)
     appendChild(nodes, member, type)
 
@@ -73,7 +73,7 @@ static method<Int> parseDataMember(String source, List<Int> tokens, List<Int> st
 // `{ get, set }`
 static method<Int> parseAccessors(String source, List<Int> tokens, List<Int> state, List<Int> nodes) {
     Int accessors = addEmptyNode(nodes, NODE_ACCESSORS, tokens, state)
-    expectSymbol(source, tokens, state, "{")
+    expectSymbol(source, tokens, state, "{", MSG_ACCESSORS_OPEN)
 
     while (!atSymbol(source, tokens, state, "}") && !atEnd(tokens, state)) {
         Int before = state[STATE_TOKEN]
@@ -85,6 +85,6 @@ static method<Int> parseAccessors(String source, List<Int> tokens, List<Int> sta
         }
     }
 
-    expectSymbol(source, tokens, state, "}")
+    expectSymbol(source, tokens, state, "}", MSG_ACCESSORS_CLOSE)
     return accessors
 }
