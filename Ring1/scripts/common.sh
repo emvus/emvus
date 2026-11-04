@@ -1,3 +1,4 @@
+# shellcheck shell=bash
 # Shared by the Ring1 scripts (source it): the source file lists and a helper that builds an Emvus program into a native
 # binary with the Emerald-built emvusc (Ring0) and clang.
 LEXER=(src/lexer/tokenKinds.ev src/lexer/cursor.ev src/lexer/byteClasses.ev src/lexer/identifiers.ev src/lexer/trivia.ev src/lexer/literals.ev src/lexer/symbols.ev src/lexer/lexer.ev)
